@@ -6,10 +6,13 @@ import openpyxl
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
-    QMessageBox, QFileDialog, QHeaderView, QComboBox
+    QMessageBox, QFileDialog, QHeaderView, QComboBox, QInputDialog, QDateEdit
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtWidgets import QGroupBox  
+import json  # 로그 출력용
+        
+        
 
 # --- 글로벌 변수 및 API base ---
 BASE_URL = "http://127.0.0.1:8000"
@@ -21,6 +24,7 @@ def api_login(employee_id, password):
     data = {"id": employee_id, "password": password}
     headers = {"Content-Type": "application/json"}
     return requests.post(url, json=data, headers=headers)
+
 
 def api_fetch_employees(token):
     url = f"{BASE_URL}/employees"
@@ -175,6 +179,263 @@ class LoginDialog(QDialog):
                 QMessageBox.critical(self, "로그인 실패", f"로그인 실패: {response.status_code}\n{response.text}")
         except Exception as e:
             QMessageBox.critical(self, "오류", f"로그인 중 오류 발생: {e}")
+
+# --- Employee Vehicle Tab (차량 관리) ---
+class EmployeeVehicleTab(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        main_layout = QVBoxLayout()
+        
+        # 차량 검색 부분
+        search_group = QGroupBox("사원 차량 정보 조회")
+        search_layout = QFormLayout()
+        self.id_search_edit = QLineEdit()
+        search_layout.addRow("사원 ID:", self.id_search_edit)
+        self.search_btn = QPushButton("조회")
+        self.search_btn.clicked.connect(self.fetch_vehicle)
+        search_layout.addRow(self.search_btn)
+        search_group.setLayout(search_layout)
+        main_layout.addWidget(search_group)
+        
+        # 차량 등록/수정 부분
+        info_group = QGroupBox("사원 차량 정보 입력")
+        info_layout = QFormLayout()
+        self.id_edit = QLineEdit()  # employee_id → id 변경
+        info_layout.addRow("사원 ID:", self.id_edit)
+        self.monthly_fuel_edit = QLineEdit()
+        info_layout.addRow("월 주유비:", self.monthly_fuel_edit)
+        self.current_mileage_edit = QLineEdit()
+        info_layout.addRow("현재 주행 거리:", self.current_mileage_edit)
+        self.oil_change_date_edit = QDateEdit()
+        self.oil_change_date_edit.setCalendarPopup(True)
+        self.oil_change_date_edit.setDate(QDate.currentDate())
+        info_layout.addRow("엔진오일 교체일:", self.oil_change_date_edit)
+        info_group.setLayout(info_layout)
+        main_layout.addWidget(info_group)
+        
+        # 버튼: 차량 추가, 수정, 삭제
+        btn_layout = QHBoxLayout()
+        self.create_vehicle_btn = QPushButton("차량 추가")
+        self.create_vehicle_btn.clicked.connect(self.create_vehicle)
+        btn_layout.addWidget(self.create_vehicle_btn)
+        self.update_vehicle_btn = QPushButton("차량 수정")
+        self.update_vehicle_btn.clicked.connect(self.update_vehicle)
+        btn_layout.addWidget(self.update_vehicle_btn)
+        self.delete_vehicle_btn = QPushButton("차량 삭제")
+        self.delete_vehicle_btn.clicked.connect(self.delete_vehicle)
+        btn_layout.addWidget(self.delete_vehicle_btn)
+        main_layout.addLayout(btn_layout)
+        
+        # 차량 정보 테이블
+        self.vehicle_table = QTableWidget()
+        self.vehicle_table.setColumnCount(5)
+        self.vehicle_table.setHorizontalHeaderLabels(["ID", "사원 ID", "월 주유비", "주행 거리", "엔진오일 교체일"])
+        self.vehicle_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        main_layout.addWidget(self.vehicle_table)
+        
+        self.setLayout(main_layout)
+
+    def create_vehicle(self):
+        global global_token
+        if not global_token:
+            QMessageBox.warning(self, "경고", "로그인 토큰이 없습니다.")
+            return
+
+        # 🚀 클라이언트에서 전송하는 데이터 확인 (디버깅용)
+        data = {
+            "id": int(self.id_edit.text()),  # 사원 ID
+            "monthly_fuel_cost": float(self.monthly_fuel_edit.text() or 0),
+            "current_mileage": int(self.current_mileage_edit.text() or 0),
+            "last_engine_oil_change": self.oil_change_date_edit.date().toString("yyyy-MM-dd")
+        }
+
+        print("🔍 클라이언트에서 전송하는 데이터:", json.dumps(data, indent=4, ensure_ascii=False))  # 로그 출력
+
+        try:
+            response = requests.post(f"{BASE_URL}/employee_vehicles", json=data,
+                                    headers={"Authorization": f"Bearer {global_token}", "Content-Type": "application/json"})
+            response.raise_for_status()  # 🚀 응답 코드가 400 이상이면 예외 발생
+
+            QMessageBox.information(self, "성공", "차량 정보 추가 완료!")
+            self.fetch_vehicle()  # 🚀 추가 후 목록 새로고침
+        except requests.exceptions.RequestException as e:
+            QMessageBox.critical(self, "오류", f"차량 추가 오류: {e}")
+
+
+    def fetch_vehicle(self):
+        global global_token
+        id_text = self.id_search_edit.text().strip()
+        if not id_text:
+            QMessageBox.warning(self, "경고", "조회할 사원 ID를 입력하세요.")
+            return
+        try:
+            response = requests.get(f"{BASE_URL}/employee_vehicles", headers={"Authorization": f"Bearer {global_token}"})
+            response.raise_for_status()
+            vehicles = response.json()
+            # 특정 사원의 차량 정보만 필터링
+            filtered = [v for v in vehicles if v.get("id") == int(id_text)]
+            self.vehicle_table.setRowCount(0)
+            for v in filtered:
+                row = self.vehicle_table.rowCount()
+                self.vehicle_table.insertRow(row)
+                self.vehicle_table.setItem(row, 0, QTableWidgetItem(str(v.get("id"))))
+                self.vehicle_table.setItem(row, 1, QTableWidgetItem(str(v.get("id"))))
+                self.vehicle_table.setItem(row, 2, QTableWidgetItem(str(v.get("monthly_fuel_cost"))))
+                self.vehicle_table.setItem(row, 3, QTableWidgetItem(str(v.get("current_mileage"))))
+                self.vehicle_table.setItem(row, 4, QTableWidgetItem(v.get("last_engine_oil_change") or ""))
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"차량 조회 오류: {e}")
+
+    def update_vehicle(self):
+        global global_token
+        vehicle_id, ok = QInputDialog.getInt(self, "차량 수정", "수정할 차량 ID:")
+        if not ok:
+            return
+        try:
+            data = {
+                "id": int(self.id_edit.text()),  # employee_id → id 변경
+                "monthly_fuel_cost": float(self.monthly_fuel_edit.text() or 0),
+                "current_mileage": int(self.current_mileage_edit.text() or 0),
+                "last_engine_oil_change": self.oil_change_date_edit.date().toString("yyyy-MM-dd")
+            }
+            response = requests.put(f"{BASE_URL}/employee_vehicles/{vehicle_id}", json=data,
+                                    headers={"Authorization": f"Bearer {global_token}", "Content-Type": "application/json"})
+            response.raise_for_status()
+            QMessageBox.information(self, "성공", "차량 정보 수정 완료!")
+            self.fetch_vehicle()
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"차량 수정 오류: {e}")
+
+    def delete_vehicle(self):
+        global global_token
+        vehicle_id, ok = QInputDialog.getInt(self, "차량 삭제", "삭제할 차량 ID:")
+        if not ok:
+            return
+        try:
+            response = requests.delete(f"{BASE_URL}/employee_vehicles/{vehicle_id}",
+                                       headers={"Authorization": f"Bearer {global_token}"})
+            response.raise_for_status()
+            QMessageBox.information(self, "성공", "차량 삭제 완료!")
+            self.fetch_vehicle()
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"차량 삭제 오류: {e}")
+
+class SalesManagementTab(QWidget):
+    """
+    매출 관리 탭: 매출 등록, 조회, 수정, 삭제 가능
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        main_layout = QVBoxLayout()
+
+        # ✅ 매출 데이터 입력 폼
+        form_layout = QFormLayout()
+        self.emp_id_edit = QLineEdit()
+        form_layout.addRow("사원 ID:", self.emp_id_edit)
+        self.client_id_edit = QLineEdit()
+        form_layout.addRow("고객 ID:", self.client_id_edit)
+        self.product_id_edit = QLineEdit()
+        form_layout.addRow("상품 ID:", self.product_id_edit)
+        self.quantity_edit = QLineEdit()
+        form_layout.addRow("수량:", self.quantity_edit)
+        self.unit_price_edit = QLineEdit()
+        form_layout.addRow("단가:", self.unit_price_edit)
+        self.total_amount_edit = QLineEdit()
+        form_layout.addRow("총 금액:", self.total_amount_edit)
+        self.sale_date_edit = QDateEdit()
+        self.sale_date_edit.setCalendarPopup(True)
+        self.sale_date_edit.setDate(QDate.currentDate())
+        form_layout.addRow("판매 날짜:", self.sale_date_edit)
+
+        main_layout.addLayout(form_layout)
+
+        # ✅ 버튼 레이아웃
+        btn_layout = QHBoxLayout()
+        self.create_sales_btn = QPushButton("매출 등록")
+        self.create_sales_btn.clicked.connect(self.create_sales)
+        btn_layout.addWidget(self.create_sales_btn)
+        self.delete_sales_btn = QPushButton("매출 삭제")
+        self.delete_sales_btn.clicked.connect(self.delete_sales)
+        btn_layout.addWidget(self.delete_sales_btn)
+        main_layout.addLayout(btn_layout)
+
+        # ✅ 매출 목록 테이블
+        self.sales_table = QTableWidget()
+        self.sales_table.setColumnCount(6)
+        self.sales_table.setHorizontalHeaderLabels(["ID", "사원", "고객", "상품", "총액", "날짜"])
+        self.sales_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        main_layout.addWidget(self.sales_table)
+
+        # ✅ 전체 매출 조회 버튼
+        self.list_sales_btn = QPushButton("전체 매출 조회")
+        self.list_sales_btn.clicked.connect(self.list_sales)
+        main_layout.addWidget(self.list_sales_btn)
+
+        self.setLayout(main_layout)
+
+    def create_sales(self):
+        global global_token
+        if not global_token:
+            QMessageBox.warning(self, "경고", "로그인 토큰이 없습니다.")
+            return
+
+        data = {
+            "employee_id": int(self.emp_id_edit.text()),
+            "client_id": int(self.client_id_edit.text()),
+            "product_id": int(self.product_id_edit.text()),
+            "quantity": int(self.quantity_edit.text()),
+            "unit_price": float(self.unit_price_edit.text()),
+            "total_amount": float(self.total_amount_edit.text()),
+            "sale_date": self.sale_date_edit.date().toString("yyyy-MM-dd")
+        }
+
+        response = requests.post(f"{BASE_URL}/sales", json=data,
+                                 headers={"Authorization": f"Bearer {global_token}", "Content-Type": "application/json"})
+
+        if response.status_code in (200, 201):
+            QMessageBox.information(self, "성공", "매출 등록 완료!")
+            self.list_sales()
+        else:
+            QMessageBox.critical(self, "실패", f"매출 등록 실패: {response.status_code}\n{response.text}")
+
+    def list_sales(self):
+        global global_token
+        response = requests.get(f"{BASE_URL}/sales",
+                                headers={"Authorization": f"Bearer {global_token}"})
+        if response.status_code == 200:
+            sales = response.json()
+            self.sales_table.setRowCount(0)
+            for sale in sales:
+                row = self.sales_table.rowCount()
+                self.sales_table.insertRow(row)
+                self.sales_table.setItem(row, 0, QTableWidgetItem(str(sale["id"])))
+                self.sales_table.setItem(row, 1, QTableWidgetItem(str(sale["employee_id"])))
+                self.sales_table.setItem(row, 2, QTableWidgetItem(str(sale["client_id"])))
+                self.sales_table.setItem(row, 3, QTableWidgetItem(str(sale["product_id"])))
+                self.sales_table.setItem(row, 4, QTableWidgetItem(str(sale["total_amount"])))
+                self.sales_table.setItem(row, 5, QTableWidgetItem(sale["sale_date"]))
+        else:
+            QMessageBox.critical(self, "실패", f"매출 조회 실패: {response.status_code}\n{response.text}")
+    def delete_sales(self):
+        global global_token
+        sales_id, ok = QInputDialog.getInt(self, "매출 삭제", "삭제할 매출 ID:")
+        if not ok:
+            return
+
+        response = requests.delete(f"{BASE_URL}/sales/{sales_id}",
+                                headers={"Authorization": f"Bearer {global_token}"})
+        
+        if response.status_code == 200:
+            QMessageBox.information(self, "성공", "매출 삭제 완료!")
+            self.list_sales()  # ✅ 삭제 후 목록 새로고침
+        else:
+            QMessageBox.critical(self, "실패", f"매출 삭제 실패: {response.status_code}\n{response.text}")
 
 # --- Employees Tab ---
 class EmployeesTab(QWidget):
@@ -695,13 +956,16 @@ class MainApp(QMainWindow):
         self.prod_tab = ProductsTab()
         self.emp_client_tab = EmployeeClientTab()
         self.brand_prod_tab = BrandProductTab()
-
+        self.vehicle_tab = EmployeeVehicleTab()
+        self.sales_tab = SalesManagementTab()
+        
         self.tab_widget.addTab(self.emp_client_tab, "Emp-Client (M2M)")
         self.tab_widget.addTab(self.emp_tab, "Employees")
         self.tab_widget.addTab(self.client_tab, "Clients")
         self.tab_widget.addTab(self.prod_tab, "Products")
         self.tab_widget.addTab(self.brand_prod_tab, "Brand-Products")
-
+        self.tab_widget.addTab(self.vehicle_tab, "차량 관리")
+        self.tab_widget.addTab(self.sales_tab, "매출 관리")
 # --- Main ---
 def main():
     app = QApplication(sys.argv)

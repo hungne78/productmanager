@@ -19,6 +19,12 @@ global_token = None
 # ----------------------------
 # API Service Functions
 # ----------------------------
+
+def api_fetch_employees(token):
+    url = f"{BASE_URL}/employees"
+    headers = {"Authorization": f"Bearer {token}"}
+    return requests.get(url, headers=headers)
+
 def api_login(employee_id, password):
     url = f"{BASE_URL}/login"
     data = {"id": employee_id, "password": password}
