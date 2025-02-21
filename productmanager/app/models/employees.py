@@ -1,0 +1,19 @@
+# app/models/employees.py
+from sqlalchemy import Column, Integer, String, DateTime
+from datetime import datetime
+from sqlalchemy.orm import relationship
+from app.db.base import Base
+
+class Employee(Base):
+    __tablename__ = "employees"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    password_hash = Column(String(255), nullable=False)
+    name = Column(String(50), nullable=False)
+    phone = Column(String(20))
+    role = Column(String(20), default="sales")
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # Many-to-Many 중간테이블과 관계
+    employee_clients = relationship("EmployeeClient", back_populates="employee", cascade="all, delete-orphan")
