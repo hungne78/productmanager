@@ -15,6 +15,8 @@ class Product(Base):
     incentive = Column(DECIMAL(10,2), default=0)  # 추가: 상품별 인센티브 (절대 금액)
     stock = Column(Integer, default=0)
     is_active = Column(Integer, default=1)
+    box_quantity = Column(Integer, nullable=False, default=1)  # ✅ 박스당 제품 개수 추가
+    category = Column(String(50), nullable=True)  # ✅ 상품 분류 추가 (예: "음료", "과자", "주류")
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

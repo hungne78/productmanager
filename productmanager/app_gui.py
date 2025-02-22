@@ -323,9 +323,9 @@ class EmployeeVehicleTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "오류", f"차량 삭제 오류: {e}")
 
-class SalesManagementTab(QWidget):
+class EmployeeSalesTab(QWidget):
     """
-    매출 관리 탭: 매출 등록, 조회, 수정, 삭제 가능
+    특정 직원이 담당하는 거래처별 매출 조회 탭
     """
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -334,108 +334,109 @@ class SalesManagementTab(QWidget):
     def init_ui(self):
         main_layout = QVBoxLayout()
 
-        # ✅ 매출 데이터 입력 폼
-        form_layout = QFormLayout()
+        # 직원 ID 입력 UI
+        emp_layout = QHBoxLayout()
+        emp_layout.addWidget(QLabel("직원 ID:"))
         self.emp_id_edit = QLineEdit()
-        form_layout.addRow("사원 ID:", self.emp_id_edit)
-        self.client_id_edit = QLineEdit()
-        form_layout.addRow("고객 ID:", self.client_id_edit)
-        self.product_id_edit = QLineEdit()
-        form_layout.addRow("상품 ID:", self.product_id_edit)
-        self.quantity_edit = QLineEdit()
-        form_layout.addRow("수량:", self.quantity_edit)
-        self.unit_price_edit = QLineEdit()
-        form_layout.addRow("단가:", self.unit_price_edit)
-        self.total_amount_edit = QLineEdit()
-        form_layout.addRow("총 금액:", self.total_amount_edit)
-        self.sale_date_edit = QDateEdit()
-        self.sale_date_edit.setCalendarPopup(True)
-        self.sale_date_edit.setDate(QDate.currentDate())
-        form_layout.addRow("판매 날짜:", self.sale_date_edit)
+        emp_layout.addWidget(self.emp_id_edit)
+        main_layout.addLayout(emp_layout)
 
-        main_layout.addLayout(form_layout)
+        # 날짜 선택 UI
+        date_layout = QHBoxLayout()
+        date_layout.addWidget(QLabel("조회 날짜:"))
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDate(QDate.currentDate())
+        date_layout.addWidget(self.date_edit)
+        self.fetch_btn = QPushButton("조회")
+        self.fetch_btn.clicked.connect(self.fetch_sales)
+        date_layout.addWidget(self.fetch_btn)
+        main_layout.addLayout(date_layout)
 
-        # ✅ 버튼 레이아웃
-        btn_layout = QHBoxLayout()
-        self.create_sales_btn = QPushButton("매출 등록")
-        self.create_sales_btn.clicked.connect(self.create_sales)
-        btn_layout.addWidget(self.create_sales_btn)
-        self.delete_sales_btn = QPushButton("매출 삭제")
-        self.delete_sales_btn.clicked.connect(self.delete_sales)
-        btn_layout.addWidget(self.delete_sales_btn)
-        main_layout.addLayout(btn_layout)
-
-        # ✅ 매출 목록 테이블
+        # 결과 테이블
         self.sales_table = QTableWidget()
-        self.sales_table.setColumnCount(6)
-        self.sales_table.setHorizontalHeaderLabels(["ID", "사원", "고객", "상품", "총액", "날짜"])
+        self.sales_table.setColumnCount(3)
+        self.sales_table.setHorizontalHeaderLabels(["거래처 ID", "총 매출", "판매 상품"])
         self.sales_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         main_layout.addWidget(self.sales_table)
 
-        # ✅ 전체 매출 조회 버튼
-        self.list_sales_btn = QPushButton("전체 매출 조회")
-        self.list_sales_btn.clicked.connect(self.list_sales)
-        main_layout.addWidget(self.list_sales_btn)
-
         self.setLayout(main_layout)
 
-    def create_sales(self):
+    def fetch_sales(self):
         global global_token
-        if not global_token:
-            QMessageBox.warning(self, "경고", "로그인 토큰이 없습니다.")
+        emp_id = self.emp_id_edit.text().strip()
+        selected_date = self.date_edit.date().toString("yyyy-MM-dd")
+
+        if not emp_id:
+            QMessageBox.warning(self, "경고", "직원 ID를 입력하세요.")
             return
 
-        data = {
-            "employee_id": int(self.emp_id_edit.text()),
-            "client_id": int(self.client_id_edit.text()),
-            "product_id": int(self.product_id_edit.text()),
-            "quantity": int(self.quantity_edit.text()),
-            "unit_price": float(self.unit_price_edit.text()),
-            "total_amount": float(self.total_amount_edit.text()),
-            "sale_date": self.sale_date_edit.date().toString("yyyy-MM-dd")
-        }
-
-        response = requests.post(f"{BASE_URL}/sales", json=data,
-                                 headers={"Authorization": f"Bearer {global_token}", "Content-Type": "application/json"})
-
-        if response.status_code in (200, 201):
-            QMessageBox.information(self, "성공", "매출 등록 완료!")
-            self.list_sales()
-        else:
-            QMessageBox.critical(self, "실패", f"매출 등록 실패: {response.status_code}\n{response.text}")
-
-    def list_sales(self):
-        global global_token
-        response = requests.get(f"{BASE_URL}/sales",
+        response = requests.get(f"{BASE_URL}/sales/by_employee/{emp_id}/{selected_date}",
                                 headers={"Authorization": f"Bearer {global_token}"})
+
         if response.status_code == 200:
             sales = response.json()
             self.sales_table.setRowCount(0)
-            for sale in sales:
+            for s in sales:
                 row = self.sales_table.rowCount()
                 self.sales_table.insertRow(row)
-                self.sales_table.setItem(row, 0, QTableWidgetItem(str(sale["id"])))
-                self.sales_table.setItem(row, 1, QTableWidgetItem(str(sale["employee_id"])))
-                self.sales_table.setItem(row, 2, QTableWidgetItem(str(sale["client_id"])))
-                self.sales_table.setItem(row, 3, QTableWidgetItem(str(sale["product_id"])))
-                self.sales_table.setItem(row, 4, QTableWidgetItem(str(sale["total_amount"])))
-                self.sales_table.setItem(row, 5, QTableWidgetItem(sale["sale_date"]))
-        else:
-            QMessageBox.critical(self, "실패", f"매출 조회 실패: {response.status_code}\n{response.text}")
-    def delete_sales(self):
-        global global_token
-        sales_id, ok = QInputDialog.getInt(self, "매출 삭제", "삭제할 매출 ID:")
-        if not ok:
-            return
+                self.sales_table.setItem(row, 0, QTableWidgetItem(str(s["client_id"])))
+                self.sales_table.setItem(row, 1, QTableWidgetItem(f"{s['total_sales']:.2f} 원"))
 
-        response = requests.delete(f"{BASE_URL}/sales/{sales_id}",
+                # 판매 상품 리스트 생성
+                products_text = "\n".join([f"{p['product_name']} ({p['quantity']}개)" for p in s["products"]])
+                self.sales_table.setItem(row, 2, QTableWidgetItem(products_text))
+        else:
+            QMessageBox.critical(self, "오류", "매출 데이터를 가져오지 못했습니다.")
+            
+class TotalSalesTab(QWidget):
+    """
+    거래처별 당일 총매출 조회 탭
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        main_layout = QVBoxLayout()
+
+        # 날짜 선택 UI
+        date_layout = QHBoxLayout()
+        date_layout.addWidget(QLabel("조회 날짜:"))
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDate(QDate.currentDate())
+        date_layout.addWidget(self.date_edit)
+        self.fetch_btn = QPushButton("조회")
+        self.fetch_btn.clicked.connect(self.fetch_total_sales)
+        date_layout.addWidget(self.fetch_btn)
+        main_layout.addLayout(date_layout)
+
+        # 결과 테이블
+        self.total_sales_table = QTableWidget()
+        self.total_sales_table.setColumnCount(2)
+        self.total_sales_table.setHorizontalHeaderLabels(["거래처 ID", "총 매출"])
+        self.total_sales_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        main_layout.addWidget(self.total_sales_table)
+
+        self.setLayout(main_layout)
+
+    def fetch_total_sales(self):
+        selected_date = self.date_edit.date().toString("yyyy-MM-dd")
+        response = requests.get(f"{BASE_URL}/sales/total/{selected_date}",
                                 headers={"Authorization": f"Bearer {global_token}"})
         
         if response.status_code == 200:
-            QMessageBox.information(self, "성공", "매출 삭제 완료!")
-            self.list_sales()  # ✅ 삭제 후 목록 새로고침
+            sales = response.json()
+            self.total_sales_table.setRowCount(0)
+            for s in sales:
+                row = self.total_sales_table.rowCount()
+                self.total_sales_table.insertRow(row)
+                self.total_sales_table.setItem(row, 0, QTableWidgetItem(str(s["client_id"])))
+                self.total_sales_table.setItem(row, 1, QTableWidgetItem(f"{s['total_sales']:.2f} 원"))
         else:
-            QMessageBox.critical(self, "실패", f"매출 삭제 실패: {response.status_code}\n{response.text}")
+            QMessageBox.critical(self, "오류", "총 매출 데이터를 가져오지 못했습니다.")
+
 
 # --- Employees Tab ---
 class EmployeesTab(QWidget):
@@ -695,6 +696,11 @@ class ProductsTab(QWidget):
         self.prod_active_edit = QLineEdit()
         self.prod_active_edit.setText("1")
         form_layout.addRow("Is Active (1/0):", self.prod_active_edit)
+        self.prod_category_edit = QLineEdit()
+        form_layout.addRow("상품 분류:", self.prod_category_edit)  # ✅ 상품 분류 추가
+        self.prod_box_quantity_edit = QLineEdit()
+        form_layout.addRow("박스당 개수:", self.prod_box_quantity_edit)  # ✅ 박스당 개수 추가
+
         layout.addLayout(form_layout)
 
         btn_layout = QHBoxLayout()
@@ -720,8 +726,10 @@ class ProductsTab(QWidget):
         layout.addLayout(form_layout2)
 
         self.prod_table = QTableWidget()
-        self.prod_table.setColumnCount(7)
-        self.prod_table.setHorizontalHeaderLabels(["ID", "Brand ID", "Product Name", "Barcode", "Default Price", "Stock", "Is Active"])
+        self.prod_table.setColumnCount(9)
+        self.prod_table.setHorizontalHeaderLabels([
+            "ID", "브랜드 ID", "상품명", "바코드", "가격", "재고", "박스당 개수", "분류", "활성화 여부"
+        ])
         self.prod_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         layout.addWidget(self.prod_table)
 
@@ -735,6 +743,8 @@ class ProductsTab(QWidget):
             "barcode": self.prod_barcode_edit.text(),
             "default_price": float(self.prod_price_edit.text() or 0),
             "stock": int(self.prod_stock_edit.text() or 0),
+            "box_quantity": int(self.prod_box_quantity_edit.text() or 1),  # ✅ 박스당 개수
+            "category": self.prod_category_edit.text(),  # ✅ 상품 분류
             "is_active": int(self.prod_active_edit.text() or 1),
         }
         try:
@@ -748,6 +758,9 @@ class ProductsTab(QWidget):
             QMessageBox.critical(self, "오류", f"Create product error: {e}")
 
     def list_products(self):
+        """
+        상품 목록 조회
+        """
         global global_token
         try:
             response = api_fetch_products(global_token)
@@ -763,13 +776,19 @@ class ProductsTab(QWidget):
                     self.prod_table.setItem(row_position, 3, QTableWidgetItem(p.get("barcode") or ""))
                     self.prod_table.setItem(row_position, 4, QTableWidgetItem(str(p.get("default_price"))))
                     self.prod_table.setItem(row_position, 5, QTableWidgetItem(str(p.get("stock"))))
-                    self.prod_table.setItem(row_position, 6, QTableWidgetItem(str(p.get("is_active"))))
+                    self.prod_table.setItem(row_position, 6, QTableWidgetItem(str(p.get("box_quantity"))))  # ✅ 박스당 개수 추가
+                    self.prod_table.setItem(row_position, 7, QTableWidgetItem(p.get("category") or "미분류"))  # ✅ 상품 분류 추가
+                    self.prod_table.setItem(row_position, 8, QTableWidgetItem("O" if p.get("is_active") else "X"))  # ✅ 활성화 여부 표시
             else:
                 QMessageBox.critical(self, "실패", f"List products failed: {response.status_code}\n{response.text}")
         except Exception as e:
             QMessageBox.critical(self, "오류", f"List product error: {e}")
 
+
     def update_product(self):
+        """
+        상품 정보 업데이트
+        """
         global global_token
         prod_id = self.prod_id_update_edit.text()
         if not prod_id:
@@ -781,6 +800,8 @@ class ProductsTab(QWidget):
             "barcode": self.prod_barcode_edit.text(),
             "default_price": float(self.prod_price_edit.text() or 0),
             "stock": int(self.prod_stock_edit.text() or 0),
+            "box_quantity": int(self.prod_box_quantity_edit.text() or 1),  # ✅ 박스당 개수 추가
+            "category": self.prod_category_edit.text(),  # ✅ 상품 분류 추가
             "is_active": int(self.prod_active_edit.text() or 1),
         }
         try:
@@ -793,7 +814,11 @@ class ProductsTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "오류", f"Update product error: {e}")
 
+
     def delete_product(self):
+        """
+        상품 삭제
+        """
         global global_token
         prod_id = self.prod_id_delete_edit.text()
         if not prod_id:
@@ -808,6 +833,7 @@ class ProductsTab(QWidget):
                 QMessageBox.critical(self, "실패", f"Delete product failed: {response.status_code}\n{response.text}")
         except Exception as e:
             QMessageBox.critical(self, "오류", f"Delete product error: {e}")
+
 
 # --- Employee-Client Tab (Many-to-Many) ---
 class EmployeeClientTab(QWidget):
@@ -957,7 +983,8 @@ class MainApp(QMainWindow):
         self.emp_client_tab = EmployeeClientTab()
         self.brand_prod_tab = BrandProductTab()
         self.vehicle_tab = EmployeeVehicleTab()
-        self.sales_tab = SalesManagementTab()
+        self.employee_sales_tab = EmployeeSalesTab()
+        self.total_sales_tab = TotalSalesTab()
         
         self.tab_widget.addTab(self.emp_client_tab, "Emp-Client (M2M)")
         self.tab_widget.addTab(self.emp_tab, "Employees")
@@ -965,7 +992,9 @@ class MainApp(QMainWindow):
         self.tab_widget.addTab(self.prod_tab, "Products")
         self.tab_widget.addTab(self.brand_prod_tab, "Brand-Products")
         self.tab_widget.addTab(self.vehicle_tab, "차량 관리")
-        self.tab_widget.addTab(self.sales_tab, "매출 관리")
+        self.tab_widget.addTab(self.employee_sales_tab, "직원별 거래처 매출")
+        self.tab_widget.addTab(self.total_sales_tab, "거래처별 총매출")
+        
 # --- Main ---
 def main():
     app = QApplication(sys.argv)

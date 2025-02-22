@@ -16,7 +16,10 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
         barcode=payload.barcode,
         default_price=payload.default_price,
         stock=payload.stock,
-        is_active=payload.is_active
+        is_active=payload.is_active,
+        incentive=payload.incentive,
+        box_quantity=payload.box_quantity,  # ✅ 박스당 개수 추가
+        category=payload.category  # ✅ 상품 분류 추가
     )
     db.add(new_product)
     db.commit()
@@ -36,18 +39,27 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{product_id}", response_model=ProductOut)
 def update_product(product_id: int, payload: ProductCreate, db: Session = Depends(get_db)):
+    """
+    상품 정보 업데이트
+    """
     product = db.query(Product).get(product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+
     product.brand_id = payload.brand_id
     product.product_name = payload.product_name
     product.barcode = payload.barcode
     product.default_price = payload.default_price
     product.stock = payload.stock
     product.is_active = payload.is_active
+    product.incentive = payload.incentive
+    product.box_quantity = payload.box_quantity  # ✅ 박스당 개수 업데이트
+    product.category = payload.category  # ✅ 상품 분류 업데이트
+
     db.commit()
     db.refresh(product)
     return product
+
 
 @router.delete("/{product_id}")
 def delete_product(product_id: int, db: Session = Depends(get_db)):
