@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.products import Product
 from app.schemas.products import ProductCreate, ProductOut
+from fastapi.responses import JSONResponse
 
 router = APIRouter()
 
@@ -69,3 +70,15 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
     db.delete(product)
     db.commit()
     return {"detail": "Product deleted"}
+
+@router.get("/barcode/{barcode}", response_model=ProductOut)
+def get_product_by_barcode(barcode: str, db: Session = Depends(get_db)):
+    """
+    바코드로 상품 조회 (UTF-8 인코딩 문제 해결)
+    """
+    product = db.query(Product).filter(Product.barcode == barcode).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found with this barcode")
+
+    # ✅ Pydantic 모델(ProductOut)로 변환
+    return ProductOut.model_validate(product)

@@ -8,8 +8,9 @@ from PyQt5.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, QGridLayout,
     QMessageBox, QFileDialog, QHeaderView, QComboBox, QInputDialog, QDateEdit, QGroupBox, QAction, QStackedWidget, QToolBar
 )
-from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtCore import Qt, QDate, QSize
 from PyQt5.QtGui import QIcon
+import os
 
 # ----------------------------
 # Global Variables and API Base
@@ -146,9 +147,6 @@ def api_fetchClientPrice(token, clientId, productId):
     return requests.get(url, headers=headers)
 
 
-# ----------------------------
-# BarcodeScannerPage (별도 파일로 분리 가능)
-# ----------------------------
 # 이 예제에서는 별도의 QDialog로 구현하여, 스캔 결과(바코드 문자열)를 반환합니다.
 class CustomFormRow(QWidget):
     def __init__(self, label_text, parent=None):
@@ -486,10 +484,10 @@ class EmployeesTab(QWidget):
                     row = self.emp_table.rowCount()
                     self.emp_table.insertRow(row)
                     self.emp_table.setItem(row, 0, QTableWidgetItem(str(emp.get("id"))))
-                    self.emp_table.setItem(row, 1, QTableWidgetItem(emp.get("employee_number") or ""))
-                    self.emp_table.setItem(row, 2, QTableWidgetItem(emp.get("name") or ""))
-                    self.emp_table.setItem(row, 3, QTableWidgetItem(emp.get("phone") or ""))
-                    self.emp_table.setItem(row, 4, QTableWidgetItem(emp.get("role") or ""))
+                    
+                    self.emp_table.setItem(row, 1, QTableWidgetItem(emp.get("name") or ""))
+                    self.emp_table.setItem(row, 2, QTableWidgetItem(emp.get("phone") or ""))
+                    self.emp_table.setItem(row, 3, QTableWidgetItem(emp.get("role") or ""))
             else:
                 QMessageBox.critical(self, "실패", f"List failed: {response.status_code}\n{response.text}")
         except Exception as e:
@@ -1008,21 +1006,39 @@ class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("업무 관리 시스템")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(0, 0, 1650, 1000)
         self.setStyleSheet(self.load_dark_theme())
         self.init_ui()
     def init_ui(self):
         self.toolbar = QToolBar("메인 메뉴")
         self.addToolBar(self.toolbar)
-        self.add_toolbar_action("직원 관리", "icons/employee.png", self.show_employee_tab)
-        self.add_toolbar_action("거래처 관리", "icons/client.png", self.show_client_tab)
-        self.add_toolbar_action("상품 관리", "icons/product.png", self.show_product_tab)
-        self.add_toolbar_action("주문 관리", "icons/order.png", self.show_orders_tab)
-        self.add_toolbar_action("매출 관리", "icons/sales.png", self.show_sales_tab)
-        self.add_toolbar_action("총매출", "icons/total_sales.png", self.show_total_sales_tab)
-        self.add_toolbar_action("차량 관리", "icons/vehicle.png", self.show_vehicle_tab)
+        self.toolbar.setIconSize(QSize(100, 100))
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        employee_path = os.path.join(current_dir, "icons", "employee.png")
+        correspondent_path = os.path.join(current_dir, "icons", "correspondent.png")
+        product_path = os.path.join(current_dir, "icons", "product.png")
+        orders_path = os.path.join(current_dir, "icons", "orders.png")
+        sales_path = os.path.join(current_dir, "icons", "sales.png")
+        totalsales_path = os.path.join(current_dir, "icons", "totalsales.png")
+        vehicle_path = os.path.join(current_dir, "icons", "vehicle.png")
+        brand_path = os.path.join(current_dir, "icons", "brand.png")
+        employee = QIcon(employee_path)
+        correspondent = QIcon(correspondent_path)
+        product = QIcon(product_path)
+        orders = QIcon(orders_path)
+        sales = QIcon(sales_path)
+        totalsales = QIcon(totalsales_path)
+        vehicle = QIcon(vehicle_path)
+        brand = QIcon(brand_path)
+        self.add_toolbar_action("직원 관리", employee, self.show_employee_tab)
+        self.add_toolbar_action("거래처 관리", correspondent, self.show_client_tab)
+        self.add_toolbar_action("상품 관리", product, self.show_product_tab)
+        self.add_toolbar_action("주문 관리", orders, self.show_orders_tab)
+        self.add_toolbar_action("매출 관리", sales, self.show_sales_tab)
+        self.add_toolbar_action("총매출", totalsales, self.show_total_sales_tab)
+        self.add_toolbar_action("차량 관리", vehicle, self.show_vehicle_tab)
         self.add_toolbar_action("EMP-CLIENT", "icons/empclient.png", self.show_employee_client_tab)
-        self.add_toolbar_action("Brand-Product", "icons/brand.png", self.show_brand_product_tab)
+        self.add_toolbar_action("Brand-Product", brand, self.show_brand_product_tab)
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
         # 각 탭 생성 (좌측 입력, 우측 출력 형태)
