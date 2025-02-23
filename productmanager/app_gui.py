@@ -5,11 +5,12 @@ import requests
 import openpyxl
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLabel, QLineEdit, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
-    QMessageBox, QFileDialog, QHeaderView, QComboBox, QInputDialog, QDateEdit
+    QLabel, QLineEdit, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, 
+    QMessageBox, QFileDialog, QHeaderView, QComboBox, QInputDialog, QDateEdit, QTreeWidget, QTreeWidgetItem, QAction, QStackedWidget, QToolBar
 )
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtWidgets import QGroupBox  
+from PyQt5.QtGui import QIcon
 import json  # 로그 출력용
         
         
@@ -969,42 +970,312 @@ class BrandProductTab(QWidget):
 class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("API Data Manager (PyQt5)")
-        self.setGeometry(100, 100, 1000, 600)
+        self.setWindowTitle("업무 관리 시스템")
+        self.setGeometry(100, 100, 1200, 700)
+        self.setStyleSheet(self.load_dark_theme())  # ✅ 다크 테마 적용
         self.init_ui()
 
     def init_ui(self):
-        self.tab_widget = QTabWidget()
-        self.setCentralWidget(self.tab_widget)
+        # ✅ 툴바 추가 (상단 아이콘)
+        self.toolbar = QToolBar("메인 메뉴")
+        self.addToolBar(self.toolbar)
 
-        self.emp_tab = EmployeesTab()
-        self.client_tab = ClientsTab()
-        self.prod_tab = ProductsTab()
-        self.emp_client_tab = EmployeeClientTab()
-        self.brand_prod_tab = BrandProductTab()
-        self.vehicle_tab = EmployeeVehicleTab()
-        self.employee_sales_tab = EmployeeSalesTab()
-        self.total_sales_tab = TotalSalesTab()
-        
-        self.tab_widget.addTab(self.emp_client_tab, "Emp-Client (M2M)")
-        self.tab_widget.addTab(self.emp_tab, "Employees")
-        self.tab_widget.addTab(self.client_tab, "Clients")
-        self.tab_widget.addTab(self.prod_tab, "Products")
-        self.tab_widget.addTab(self.brand_prod_tab, "Brand-Products")
-        self.tab_widget.addTab(self.vehicle_tab, "차량 관리")
-        self.tab_widget.addTab(self.employee_sales_tab, "직원별 거래처 매출")
-        self.tab_widget.addTab(self.total_sales_tab, "거래처별 총매출")
-        
-# --- Main ---
-def main():
-    app = QApplication(sys.argv)
-    login_dialog = LoginDialog()
-    if login_dialog.exec() == QDialog.Accepted:
-        main_window = MainApp()
-        main_window.show()
-        sys.exit(app.exec())
-    else:
-        sys.exit()
+        # ✅ 툴바 아이콘 추가
+        self.add_toolbar_action("직원 관리", "icons/employee.png", self.show_employee_tab)
+        self.add_toolbar_action("거래처 관리", "icons/client.png", self.show_client_tab)
+        self.add_toolbar_action("상품 관리", "icons/product.png", self.show_product_tab)
+        self.add_toolbar_action("매출 관리", "icons/sales.png", self.show_sales_tab)
 
+        # ✅ 메인 레이아웃 (왼쪽 입력창 + 오른쪽 데이터 테이블)
+        main_layout = QHBoxLayout()
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.central_widget.setLayout(main_layout)
+
+        # ✅ 왼쪽: 입력 폼
+        self.left_panel = QWidget()
+        self.left_layout = QVBoxLayout()
+        self.left_panel.setLayout(self.left_layout)
+        self.left_panel.setFixedWidth(350)  # ✅ 왼쪽 패널 너비 조정
+        main_layout.addWidget(self.left_panel)
+
+        # ✅ 오른쪽: 데이터 테이블
+        self.right_panel = QWidget()
+        self.right_layout = QVBoxLayout()
+        self.right_panel.setLayout(self.right_layout)
+        main_layout.addWidget(self.right_panel)
+
+        # ✅ 직원 관리 기본 창 로드
+        self.show_employee_tab()
+
+    def add_toolbar_action(self, name, icon_path, callback):
+        """
+        툴바에 버튼 추가
+        """
+        action = QAction(QIcon(icon_path), name, self)
+        action.triggered.connect(callback)
+        self.toolbar.addAction(action)
+
+    def show_employee_tab(self):
+        """
+        ✅ 직원 관리 화면 로드
+        """
+        self.clear_panels()
+
+        # 👉 왼쪽 입력 폼 (직원 등록)
+        self.left_layout.addWidget(QLabel("직원 관리"))
+        self.emp_id_edit = QLineEdit()
+        self.emp_id_edit.setPlaceholderText("사원 ID")
+        self.left_layout.addWidget(self.emp_id_edit)
+
+        self.emp_name_edit = QLineEdit()
+        self.emp_name_edit.setPlaceholderText("이름")
+        self.left_layout.addWidget(self.emp_name_edit)
+
+        self.emp_role_edit = QLineEdit()
+        self.emp_role_edit.setPlaceholderText("직급")
+        self.left_layout.addWidget(self.emp_role_edit)
+
+        self.create_emp_btn = QPushButton("직원 등록")
+        self.create_emp_btn.clicked.connect(self.create_employee)
+        self.left_layout.addWidget(self.create_emp_btn)
+
+        # 👉 오른쪽 데이터 테이블 (직원 목록)
+        self.right_layout.addWidget(QLabel("직원 목록"))
+        self.emp_table = QTableWidget()
+        self.emp_table.setColumnCount(3)
+        self.emp_table.setHorizontalHeaderLabels(["사원 ID", "이름", "직급"])
+        self.emp_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.right_layout.addWidget(self.emp_table)
+
+        # 데이터 로드
+        self.list_employees()
+
+    def create_employee(self):
+        """
+        ✅ 직원 추가 API 요청
+        """
+        global global_token
+        data = {
+            "employee_id": self.emp_id_edit.text(),
+            "name": self.emp_name_edit.text(),
+            "role": self.emp_role_edit.text(),
+        }
+        try:
+            response = requests.post(f"{BASE_URL}/employees", json=data,
+                                     headers={"Authorization": f"Bearer {global_token}"})
+            if response.status_code in (200, 201):
+                QMessageBox.information(self, "성공", "직원이 등록되었습니다!")
+                self.list_employees()
+            else:
+                QMessageBox.critical(self, "실패", f"등록 실패: {response.status_code}\n{response.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"등록 오류: {e}")
+
+    def list_employees(self):
+        """
+        ✅ 직원 목록 불러오기
+        """
+        global global_token
+        try:
+            response = requests.get(f"{BASE_URL}/employees",
+                                    headers={"Authorization": f"Bearer {global_token}"})
+            if response.status_code == 200:
+                employees = response.json()
+                self.emp_table.setRowCount(0)
+                for emp in employees:
+                    row = self.emp_table.rowCount()
+                    self.emp_table.insertRow(row)
+                    self.emp_table.setItem(row, 0, QTableWidgetItem(str(emp.get("employee_id"))))
+                    self.emp_table.setItem(row, 1, QTableWidgetItem(emp.get("name") or ""))
+                    self.emp_table.setItem(row, 2, QTableWidgetItem(emp.get("role") or ""))
+            else:
+                QMessageBox.critical(self, "실패", f"조회 실패: {response.status_code}\n{response.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"조회 오류: {e}")
+
+    def show_employee_tab(self):
+        """ ✅ 직원 관리 화면 로드 """
+        self.clear_panels()
+
+        self.left_layout.addWidget(QLabel("직원 관리"))
+        self.emp_id_edit = QLineEdit()
+        self.emp_id_edit.setPlaceholderText("사원 ID")
+        self.left_layout.addWidget(self.emp_id_edit)
+
+        self.emp_name_edit = QLineEdit()
+        self.emp_name_edit.setPlaceholderText("이름")
+        self.left_layout.addWidget(self.emp_name_edit)
+
+        self.emp_role_edit = QLineEdit()
+        self.emp_role_edit.setPlaceholderText("직급")
+        self.left_layout.addWidget(self.emp_role_edit)
+
+        self.create_emp_btn = QPushButton("직원 등록")
+        self.create_emp_btn.clicked.connect(self.create_employee)
+        self.left_layout.addWidget(self.create_emp_btn)
+
+        self.right_layout.addWidget(QLabel("직원 목록"))
+        self.emp_table = QTableWidget()
+        self.emp_table.setColumnCount(3)
+        self.emp_table.setHorizontalHeaderLabels(["사원 ID", "이름", "직급"])
+        self.emp_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.right_layout.addWidget(self.emp_table)
+
+        self.list_employees()
+
+    def show_client_tab(self):
+        """ ✅ 거래처 관리 화면 로드 """
+        self.clear_panels()
+
+        self.left_layout.addWidget(QLabel("거래처 관리"))
+        self.client_name_edit = QLineEdit()
+        self.client_name_edit.setPlaceholderText("거래처 이름")
+        self.left_layout.addWidget(self.client_name_edit)
+
+        self.client_address_edit = QLineEdit()
+        self.client_address_edit.setPlaceholderText("주소")
+        self.left_layout.addWidget(self.client_address_edit)
+
+        self.client_phone_edit = QLineEdit()
+        self.client_phone_edit.setPlaceholderText("연락처")
+        self.left_layout.addWidget(self.client_phone_edit)
+
+        self.create_client_btn = QPushButton("거래처 등록")
+        self.create_client_btn.clicked.connect(self.create_client)
+        self.left_layout.addWidget(self.create_client_btn)
+
+        self.right_layout.addWidget(QLabel("거래처 목록"))
+        self.client_table = QTableWidget()
+        self.client_table.setColumnCount(3)
+        self.client_table.setHorizontalHeaderLabels(["이름", "주소", "연락처"])
+        self.client_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.right_layout.addWidget(self.client_table)
+
+        self.list_clients()
+
+    def show_product_tab(self):
+        """ ✅ 상품 관리 화면 로드 """
+        self.clear_panels()
+
+        self.left_layout.addWidget(QLabel("상품 관리"))
+        self.product_name_edit = QLineEdit()
+        self.product_name_edit.setPlaceholderText("상품 이름")
+        self.left_layout.addWidget(self.product_name_edit)
+
+        self.product_barcode_edit = QLineEdit()
+        self.product_barcode_edit.setPlaceholderText("바코드")
+        self.left_layout.addWidget(self.product_barcode_edit)
+
+        self.product_price_edit = QLineEdit()
+        self.product_price_edit.setPlaceholderText("가격")
+        self.left_layout.addWidget(self.product_price_edit)
+
+        self.create_product_btn = QPushButton("상품 등록")
+        self.create_product_btn.clicked.connect(self.create_product)
+        self.left_layout.addWidget(self.create_product_btn)
+
+        self.right_layout.addWidget(QLabel("상품 목록"))
+        self.product_table = QTableWidget()
+        self.product_table.setColumnCount(3)
+        self.product_table.setHorizontalHeaderLabels(["이름", "바코드", "가격"])
+        self.product_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.right_layout.addWidget(self.product_table)
+
+        self.list_products()
+
+    def show_sales_tab(self):
+        """ ✅ 매출 관리 화면 로드 """
+        self.clear_panels()
+
+        self.left_layout.addWidget(QLabel("매출 관리"))
+        self.sale_client_edit = QLineEdit()
+        self.sale_client_edit.setPlaceholderText("거래처 ID")
+        self.left_layout.addWidget(self.sale_client_edit)
+
+        self.sale_product_edit = QLineEdit()
+        self.sale_product_edit.setPlaceholderText("상품 ID")
+        self.left_layout.addWidget(self.sale_product_edit)
+
+        self.sale_amount_edit = QLineEdit()
+        self.sale_amount_edit.setPlaceholderText("판매 금액")
+        self.left_layout.addWidget(self.sale_amount_edit)
+
+        self.create_sale_btn = QPushButton("매출 등록")
+        self.create_sale_btn.clicked.connect(self.create_sale)
+        self.left_layout.addWidget(self.create_sale_btn)
+
+        self.right_layout.addWidget(QLabel("매출 목록"))
+        self.sales_table = QTableWidget()
+        self.sales_table.setColumnCount(3)
+        self.sales_table.setHorizontalHeaderLabels(["거래처", "상품", "판매 금액"])
+        self.sales_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.right_layout.addWidget(self.sales_table)
+
+        self.list_sales()
+
+    def clear_panels(self):
+        """
+        ✅ 기존 패널을 초기화
+        """
+        for i in reversed(range(self.left_layout.count())):
+            self.left_layout.itemAt(i).widget().deleteLater()
+        for i in reversed(range(self.right_layout.count())):
+            self.right_layout.itemAt(i).widget().deleteLater()
+    
+    def load_dark_theme(self):
+        """
+        ✅ 다크 테마 스타일 적용
+        """
+        return """
+        QMainWindow {
+            background-color: #2B2B2B;
+        }
+        QToolBar {
+            background-color: #3C3F41;
+            border-bottom: 2px solid #555;
+        }
+        QToolBar QToolButton {
+            color: white;
+            padding: 8px;
+        }
+        QWidget {
+            background-color: #2B2B2B;
+            color: white;
+        }
+        QLineEdit {
+            background-color: #3C3F41;
+            color: white;
+            border: 1px solid #555;
+            padding: 5px;
+        }
+        QPushButton {
+            background-color: #555;
+            color: white;
+            border-radius: 5px;
+            padding: 5px;
+        }
+        QPushButton:hover {
+            background-color: #777;
+        }
+        QLabel {
+            color: white;
+        }
+        QTableWidget {
+            background-color: #2B2B2B;
+            color: white;
+            gridline-color: #555;
+        }
+        QHeaderView::section {
+            background-color: #3C3F41;
+            color: white;
+            border: 1px solid #555;
+        }
+        """
+
+# 실행
 if __name__ == "__main__":
-    main()
+    app = QApplication(sys.argv)
+    main_window = MainApp()
+    main_window.show()
+    sys.exit(app.exec_())
