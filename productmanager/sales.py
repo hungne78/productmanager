@@ -5,7 +5,7 @@ import requests
 import openpyxl
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLabel, QLineEdit, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, 
+    QLabel, QLineEdit, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, QGridLayout,
     QMessageBox, QFileDialog, QHeaderView, QComboBox, QInputDialog, QDateEdit, QGroupBox, QAction, QStackedWidget, QToolBar
 )
 from PyQt5.QtCore import Qt, QDate
@@ -145,11 +145,23 @@ def api_fetchClientPrice(token, clientId, productId):
     headers = {"Authorization": f"Bearer {token}"}
     return requests.get(url, headers=headers)
 
+
 # ----------------------------
 # BarcodeScannerPage (별도 파일로 분리 가능)
 # ----------------------------
 # 이 예제에서는 별도의 QDialog로 구현하여, 스캔 결과(바코드 문자열)를 반환합니다.
-
+class CustomFormRow(QWidget):
+    def __init__(self, label_text, parent=None):
+        super().__init__(parent)
+        self.layout = QGridLayout()
+        self.label = QLabel(label_text)
+        self.input = QLineEdit()
+        self.layout.addWidget(self.label, 0, 0)
+        self.layout.addWidget(self.input, 0, 1)
+        # 첫 번째 열(라벨)은 1, 두 번째 열(입력 필드)는 3의 비율
+        self.layout.setColumnStretch(0, 1)
+        self.layout.setColumnStretch(1, 3)
+        self.setLayout(self.layout)
 
 # ----------------------------
 # Login Dialog
@@ -361,8 +373,10 @@ class EmployeesTab(QWidget):
         # 왼쪽: 입력 폼
         left_panel = QGroupBox("직원 입력")
         left_layout = QFormLayout()
+        
         self.emp_number_edit = QLineEdit()
         left_layout.addRow("사원번호:", self.emp_number_edit)
+        
         self.emp_password_edit = QLineEdit()
         self.emp_password_edit.setEchoMode(QLineEdit.Password)
         left_layout.addRow("Password:", self.emp_password_edit)
