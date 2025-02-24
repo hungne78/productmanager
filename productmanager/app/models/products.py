@@ -20,5 +20,9 @@ class Product(Base):
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
-    # "brand"와 연결
+    # brand 관계
     brand = relationship("Brand", back_populates="products")
+    # order_items (1:N) -> product_id
+    order_items = relationship("OrderItem", back_populates="product")
+    # sales_records (1:N) -> product_id
+    sales_records = relationship("SalesRecord", back_populates="product")

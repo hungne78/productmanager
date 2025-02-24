@@ -1,6 +1,6 @@
 # app/schemas/employee_clients.py
 from pydantic import BaseModel
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 class EmployeeClientCreate(BaseModel):
@@ -13,14 +13,13 @@ class EmployeeClientCreate(BaseModel):
     end_date: Optional[date] = None
 
 class EmployeeClientOut(BaseModel):
-    """
-    응답용
-    """
     id: int
     employee_id: int
     client_id: int
     start_date: Optional[date]
     end_date: Optional[date]
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

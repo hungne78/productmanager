@@ -14,3 +14,7 @@ class SalesRecord(Base):
     sale_date = Column(Date, nullable=False)  # 판매 날짜
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # 관계
+    # client = relationship("Client", back_populates="...") if needed
+    product = relationship("Product", back_populates="sales_records")

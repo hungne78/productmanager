@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import List
-from datetime import date
+from datetime import date, datetime
 
 class ProductSalesOut(BaseModel):
     """
@@ -63,3 +63,6 @@ class SalesRecordOut(BaseModel):
     unit_price: float
     total_amount: float
     sale_date: date
+
+    class Config:
+        from_attributes = True

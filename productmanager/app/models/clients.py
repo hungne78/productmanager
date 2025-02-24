@@ -15,5 +15,9 @@ class Client(Base):
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
-    # Many-to-Many 중간테이블과 관계
-    employee_clients = relationship("EmployeeClient", back_populates="client", cascade="all, delete-orphan")
+    # employee_clients (다대다)
+    employee_clients = relationship("EmployeeClient", back_populates="client")
+    # orders (1대다)
+    orders = relationship("Order", back_populates="client")
+    # client visits (1대다)
+    client_visits = relationship("ClientVisit", back_populates="client")

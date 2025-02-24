@@ -2,6 +2,7 @@
 from pydantic import BaseModel, field_validator
 from typing import Optional
 from decimal import Decimal
+from datetime import datetime
 
 class ClientCreate(BaseModel):
     client_name: str
@@ -15,6 +16,8 @@ class ClientOut(BaseModel):
     address: Optional[str]
     phone: Optional[str]
     outstanding_amount: float
+    created_at: datetime
+    updated_at: datetime
 
     # Pydantic v2용 검증자: 필드 값이 Decimal이면 float으로 변환
     @field_validator("outstanding_amount", mode="before")

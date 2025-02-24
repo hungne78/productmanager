@@ -1,43 +1,41 @@
 # app/models/orders.py
-from sqlalchemy import (
-    Column,
-    BigInteger,
-    Integer,
-    DECIMAL,
-    DateTime,
-    String,
-    ForeignKey
-)
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, Float, String, Date, DateTime, ForeignKey
 from datetime import datetime
+from sqlalchemy.orm import relationship
 from app.db.base import Base
 
 class Order(Base):
     __tablename__ = "orders"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
-    order_date = Column(DateTime, default=datetime.now)
-    total_amount = Column(DECIMAL(12,2), default=0)
-    status = Column(String(20), default="pending")
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    total_amount = Column(Float, default=0.0)
+    status = Column(String(50), default="pending")
+    order_date = Column(Date)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
+    # 관계
+    client = relationship("Client", back_populates="orders")
+    employee = relationship("Employee", back_populates="orders")
     order_items = relationship("OrderItem", back_populates="order")
+
 
 class OrderItem(Base):
     __tablename__ = "order_items"
 
-    id = Column(BigInteger, primary_key=True, index=True)
-    order_id = Column(BigInteger, ForeignKey("orders.id"), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-    quantity = Column(Integer, nullable=False, default=1)
-    unit_price = Column(DECIMAL(10,2), nullable=False, default=0)
-    line_total = Column(DECIMAL(12,2), nullable=False, default=0)
-    # 추가: incentive 필드 (절대 금액, 인센티브)
-    incentive = Column(DECIMAL(10,2), nullable=True, default=0)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    quantity = Column(Integer, default=1)
+    unit_price = Column(Float, default=0.0)
+    line_total = Column(Float, default=0.0)
+    incentive = Column(Float, default=0.0)
 
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    # 관계
     order = relationship("Order", back_populates="order_items")
+    product = relationship("Product", back_populates="order_items")

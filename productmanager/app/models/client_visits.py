@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, DateTime, ForeignKey
 from datetime import datetime
 from app.db.base import Base
+from sqlalchemy.orm import relationship
 
 class ClientVisit(Base):
     __tablename__ = "client_visits"
@@ -14,3 +15,8 @@ class ClientVisit(Base):
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # 관계
+    employee = relationship("Employee", back_populates="...") 
+    client = relationship("Client", back_populates="client_visits")
+    order = relationship("Order", back_populates="...")
