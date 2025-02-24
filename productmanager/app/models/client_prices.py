@@ -2,6 +2,7 @@
 from sqlalchemy import Column, Integer, DECIMAL, DateTime, ForeignKey, UniqueConstraint
 from datetime import datetime
 from app.db.base import Base
+from sqlalchemy.orm import relationship
 
 class ClientProductPrice(Base):
     __tablename__ = "client_product_prices"
@@ -16,3 +17,7 @@ class ClientProductPrice(Base):
     __table_args__ = (
         UniqueConstraint("client_id", "product_id", name="uix_client_product"),
     )
+
+    # ✅ 관계 설정 추가
+    client = relationship("Client", back_populates="client_product_prices")
+    product = relationship("Product", back_populates="client_product_prices")

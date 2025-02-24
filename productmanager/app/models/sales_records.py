@@ -16,5 +16,5 @@ class SalesRecord(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
     # 관계
-    # client = relationship("Client", back_populates="...") if needed
-    # product = relationship("Product", back_populates="sales_records")
+    client = relationship("Client", back_populates="sales_records") 
+    product = relationship("Product", back_populates="sales_records")

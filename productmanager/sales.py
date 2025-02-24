@@ -1135,13 +1135,13 @@ class MainApp(QMainWindow):
 # ----------------------------
 def main():
     app = QApplication(sys.argv)
-    login_dialog = LoginDialog()
-    if login_dialog.exec() == QDialog.Accepted:
-        main_window = MainApp()
-        main_window.show()
-        sys.exit(app.exec_())
-    else:
-        sys.exit()
+    # login_dialog = LoginDialog()
+    # if login_dialog.exec() == QDialog.Accepted:
+    main_window = MainApp()
+    main_window.show()
+    sys.exit(app.exec_())
+# else:
+    sys.exit()
 
 if __name__ == "__main__":
     main()

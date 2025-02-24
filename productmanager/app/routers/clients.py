@@ -1,11 +1,12 @@
 # app/routers/clients.py
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
+from datetime import datetime
 from app.db.database import get_db
 from app.models.clients import Client
 from app.schemas.clients import ClientCreate, ClientOut
 from fastapi.responses import JSONResponse
+import json
 router = APIRouter()
 
 @router.post("/", response_model=ClientOut)
@@ -21,12 +22,20 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
     db.refresh(new_client)
     return new_client
 
+def convert_datetime(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError("Type not serializable")
+
 @router.get("/", response_model=list[ClientOut])
 def list_clients(db: Session = Depends(get_db)):
     clients = db.query(Client).all()
     # Pydantic V2에서는 from_orm 대신 model_validate 사용
     result = [ClientOut.model_validate(client).model_dump() for client in clients]
-    return JSONResponse(content=result, media_type="application/json; charset=utf-8")
+    return JSONResponse(
+        content=json.loads(json.dumps(result, default=convert_datetime)),
+        media_type="application/json; charset=utf-8"
+    )
 
 @router.get("/{client_id}", response_model=ClientOut)
 def get_client(client_id: int, db: Session = Depends(get_db)):

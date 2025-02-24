@@ -16,8 +16,10 @@ class Employee(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     # Many-to-Many 중간테이블과 관계
-    # employee_clients = relationship("EmployeeClient", back_populates="employee", cascade="all, delete-orphan")
+    employee_clients = relationship("EmployeeClient", back_populates="employee", cascade="all, delete-orphan")
     # # orders 관계 (사원 - 주문 : 1대다)
-    # orders = relationship("Order", back_populates="employee")
+    orders = relationship("Order", back_populates="employee")
     # 매출(SalesRecord)에서 employee_id 칼럼이 없다면 skip
     # 차량 관계는 employee_vehicle.py에서 id=employee_id로 직접 매핑 or 외래키
+    vehicle = relationship("EmployeeVehicle", back_populates="employee", uselist=False)
+    client_visits = relationship("ClientVisit", back_populates="employee")

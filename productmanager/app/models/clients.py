@@ -1,4 +1,3 @@
-# app/models/clients.py
 from sqlalchemy import Column, Integer, String, DECIMAL, DateTime
 from datetime import datetime
 from app.db.base import Base
@@ -12,12 +11,16 @@ class Client(Base):
     address = Column(String(255))
     phone = Column(String(50))
     outstanding_amount = Column(DECIMAL(10,2), default=0)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # employee_clients (다대다)
-    # employee_clients = relationship("EmployeeClient", back_populates="client")
-    # # orders (1대다)
-    # orders = relationship("Order", back_populates="client")
-    # # client visits (1대다)
-    # client_visits = relationship("ClientVisit", back_populates="client")
+    # ✅ EmployeeClient와 관계 설정 (다대다)
+    employee_clients = relationship("EmployeeClient", back_populates="client")
+
+    # ✅ Order와 관계 설정 (1:N)
+    orders = relationship("Order", back_populates="client")
+
+    # ✅ ClientVisit과 관계 설정 (1:N)
+    client_visits = relationship("ClientVisit", back_populates="client")
+    sales_records = relationship("SalesRecord", back_populates="client")
+    client_product_prices = relationship("ClientProductPrice", back_populates="client")

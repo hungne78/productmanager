@@ -1,5 +1,5 @@
 # app/routers/employees.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException,  Query
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.employees import Employee
@@ -85,9 +85,17 @@ def login_employee(payload: EmployeeLogin, db: Session = Depends(get_db)):
         token=token
     )
 
-@router.get("/", response_model=list[EmployeeOut])
-def list_employees(db: Session = Depends(get_db)):
-    return db.query(Employee).all()
+@router.get("/", response_model=List[EmployeeOut])
+def list_employees(name: str = Query(None, title="Employee Name"), db: Session = Depends(get_db)):
+    """
+    직원 목록 조회 (이름 검색 기능 포함)
+    """
+    query = db.query(Employee)
+    if name:
+        query = query.filter(Employee.name.ilike(f"%{name}%"))  # 부분 검색 지원
+    employees = query.all()
+    
+    return employees
 
 @router.get("/{emp_id}", response_model=EmployeeOut)
 def get_employee(emp_id: int, db: Session = Depends(get_db)):

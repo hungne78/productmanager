@@ -12,17 +12,20 @@ class Product(Base):
     product_name = Column(String(100), nullable=False)
     barcode = Column(String(50))
     default_price = Column(DECIMAL(10,2), default=0)
-    incentive = Column(DECIMAL(10,2), default=0)  # 추가: 상품별 인센티브 (절대 금액)
+    incentive = Column(DECIMAL(10,2), default=0)
     stock = Column(Integer, default=0)
     is_active = Column(Integer, default=1)
-    box_quantity = Column(Integer, nullable=False, default=1)  # ✅ 박스당 제품 개수 추가
-    category = Column(String(50), nullable=True)  # ✅ 상품 분류 추가 (예: "음료", "과자", "주류")
+    box_quantity = Column(Integer, nullable=False, default=1)
+    category = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
-    # brand 관계
-    # brand = relationship("Brand", back_populates="products")
-    # # order_items (1:N) -> product_id
-    # order_items = relationship("OrderItem", back_populates="products")
-    # # sales_records (1:N) -> product_id
-    # sales_records = relationship("SalesRecord", back_populates="products")
+    # ✅ 올바른 `back_populates` 매칭
+    brand = relationship("Brand", back_populates="products")
+
+    # ✅ OrderItem과의 관계 설정 (`back_populates` 수정)
+    order_items = relationship("OrderItem", back_populates="product")
+
+    # ✅ SalesRecord와의 관계 설정
+    sales_records = relationship("SalesRecord", back_populates="product")
+    client_product_prices = relationship("ClientProductPrice", back_populates="product")
