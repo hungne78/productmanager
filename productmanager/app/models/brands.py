@@ -8,10 +8,10 @@ class Brand(Base):
     __tablename__ = "brands"
 
     id = Column(Integer, primary_key=True, index=True)
-    brand_name = Column(String(50), nullable=False)
-    description = Column(String(255))
+    name = Column(String(50), nullable=False, unique=True)  # ✅ `brand_name` → `name`
+    description = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
-    # 1 : N 관계 - 이 브랜드에 속한 여러 상품
+    # ✅ 1:N 관계 (브랜드 - 상품)
     products = relationship("Product", back_populates="brand")

@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import Optional
 
 class EmployeeVehicleCreate(BaseModel):
-    id: int
+    employee_id: int  # ✅ 기존 `id` → `employee_id`로 수정
     monthly_fuel_cost: float
     current_mileage: int
     last_engine_oil_change: Optional[date]

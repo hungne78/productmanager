@@ -9,19 +9,16 @@ router = APIRouter()
 
 @router.post("", response_model=EmployeeVehicleOut)
 def create_employee_vehicle(payload: EmployeeVehicleCreate, db: Session = Depends(get_db)):
-    print("🔍 서버에서 받은 데이터:", payload.dict(), flush=True)
-    print("📌 last_engine_oil_change 타입:", type(payload.last_engine_oil_change))
-
-    existing = db.query(EmployeeVehicle).filter(EmployeeVehicle.id == payload.id).first()
+    print("🔍 [DEBUG] 요청 도착: /employee_vehicles")
+    
+    existing = db.query(EmployeeVehicle).filter(EmployeeVehicle.employee_id == payload.employee_id).first()
     
     if existing:
-        print(f"⚠️ 기존 차량 기록 삭제: ID {payload.id}")
         db.delete(existing)
-        db.commit()  # ✅ 기존 데이터 삭제 후 커밋
+        db.commit()
 
-    # 새로운 차량 정보 추가
     new_vehicle = EmployeeVehicle(
-        id=payload.id,
+        employee_id=payload.employee_id,
         monthly_fuel_cost=payload.monthly_fuel_cost,
         current_mileage=payload.current_mileage,
         last_engine_oil_change=payload.last_engine_oil_change
@@ -32,8 +29,6 @@ def create_employee_vehicle(payload: EmployeeVehicleCreate, db: Session = Depend
     db.refresh(new_vehicle)
 
     return EmployeeVehicleOut.from_orm(new_vehicle)
-
-
 
 
 

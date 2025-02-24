@@ -505,8 +505,25 @@ class RightFourBoxWidget(QWidget):
         # 1) box1
         self.box1 = QGroupBox("당해년도 월별 매출")
         self.tbl_box1 = QTableWidget(2, 12)  # 2행 12열
+        # box1 (월별 매출)에서,
+        # - 열 헤더가 "1월"~"12월"
+        # - row=0 (첫 행)에 매출값을 쓰고 싶다.
+        self.tbl_box1.setRowCount(1)          # 1행
+        self.tbl_box1.setColumnCount(12)      # 12열
+        self.tbl_box1.setHorizontalHeaderLabels([
+            "1월","2월","3월","4월","5월","6월",
+            "7월","8월","9월","10월","11월","12월"
+        ])
+
+        # 그다음에 update_data_example 등에서 데이터 넣기:
+        sales_data = [100,200,300,400,500,600,700,800,900,1000,1100,1200]
+        for c in range(12):
+            # row=0, col=c 위치에 매출값 쓰기
+            self.tbl_box1.setItem(0, c, QTableWidgetItem(str(sales_data[c])))
+
         self.tbl_box1.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_box1.setHorizontalHeaderLabels([""]*12)
+        self.tbl_box1.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        # self.tbl_box1.setHorizontalHeaderLabels([""]*12)
         box1_layout = QVBoxLayout()
         box1_layout.addWidget(self.tbl_box1)
         self.box1.setLayout(box1_layout)
@@ -515,8 +532,23 @@ class RightFourBoxWidget(QWidget):
         # 2) box2
         self.box2 = QGroupBox("당해년도 월별 방문횟수")
         self.tbl_box2 = QTableWidget(2, 12)
+        # box1 (월별 매출)에서,
+        # - 열 헤더가 "1월"~"12월"
+        # - row=0 (첫 행)에 매출값을 쓰고 싶다.
+        self.tbl_box2.setRowCount(1)          # 1행
+        self.tbl_box2.setColumnCount(12)      # 12열
+        self.tbl_box2.setHorizontalHeaderLabels([
+            "1월","2월","3월","4월","5월","6월",
+            "7월","8월","9월","10월","11월","12월"
+        ])
+
+        # 그다음에 update_data_example 등에서 데이터 넣기:
+        sales_data = [100,200,300,400,500,600,700,800,900,1000,1100,1200]
+        for c in range(12):
+            # row=0, col=c 위치에 매출값 쓰기
+            self.tbl_box2.setItem(0, c, QTableWidgetItem(str(sales_data[c])))
         self.tbl_box2.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_box2.setHorizontalHeaderLabels([""]*12)
+        self.tbl_box2.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
         box2_layout = QVBoxLayout()
         box2_layout.addWidget(self.tbl_box2)
         self.box2.setLayout(box2_layout)
@@ -528,13 +560,29 @@ class RightFourBoxWidget(QWidget):
         self.box3 = QGroupBox("이번달 일별 매출 (2줄)")
         v = QVBoxLayout()
 
+
         self.tbl_box3_top = QTableWidget(2, 15)  # 1~15일
+        self.tbl_box3_top.setRowCount(1)          # 1행
+        self.tbl_box3_top.setColumnCount(15)      # 12열
+        self.tbl_box3_top.setHorizontalHeaderLabels([
+            "1일","2일","3일","4일","5일","6일",
+            "7일","8일","9일","10일","11일","12일","13일","14일","15일"
+        ])
+
         self.tbl_box3_top.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_box3_top.setHorizontalHeaderLabels([""]*15)
+        self.tbl_box3_top.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        # self.tbl_box3_top.setHorizontalHeaderLabels([""]*15)
 
         self.tbl_box3_bottom = QTableWidget(2, 16)  # 16~31일
+        self.tbl_box3_bottom.setRowCount(1)          # 1행
+        self.tbl_box3_bottom.setColumnCount(16)      # 12열
+        self.tbl_box3_bottom.setHorizontalHeaderLabels([
+            "16일","17일","18일","19일","20일","21일",
+            "22일","23일","24일","25일","26일","27일","28일","29일","30일","31일"
+        ])
         self.tbl_box3_bottom.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_box3_bottom.setHorizontalHeaderLabels([""]*16)
+        self.tbl_box3_bottom.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        # self.tbl_box3_bottom.setHorizontalHeaderLabels([""]*16)
 
         v.addWidget(self.tbl_box3_top)
         v.addWidget(self.tbl_box3_bottom)
@@ -543,14 +591,23 @@ class RightFourBoxWidget(QWidget):
 
         # 4) box4
         self.box4 = QGroupBox("당일 방문 거래처 정보")
-        self.tbl_box4 = QTableWidget(2, 5)
+        self.tbl_box4 = QTableWidget(10, 5)
+        self.tbl_box4.setRowCount(50)  # 원하는 만큼
+        self.tbl_box4.setColumnCount(5)
+        self.tbl_box4.setHorizontalHeaderLabels(["거래처","오늘 매출","미수금","방문시간","기타"])
         self.tbl_box4.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_box4.setHorizontalHeaderLabels([""]*5)
+        self.tbl_box4.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        
         box4_layout = QVBoxLayout()
         box4_layout.addWidget(self.tbl_box4)
         self.box4.setLayout(box4_layout)
         main_layout.addWidget(self.box4)
 
+        main_layout.setStretchFactor(self.box1, 1)
+        main_layout.setStretchFactor(self.box2, 1)
+        main_layout.setStretchFactor(self.box3, 3)
+        main_layout.setStretchFactor(self.box4, 10)
+        
         self.setLayout(main_layout)
 
     def update_data_example(self):
@@ -600,10 +657,11 @@ class EmployeesTab(QWidget):
         self.setLayout(main_layout)
 
     def do_search(self, keyword):
+        """ 검색 기능 - 키워드와 정확히 일치하는 직원 표시 """
         global global_token
         employees = api_fetch_employees(global_token, keyword)
 
-        if isinstance(employees, dict):  # 🚨 단일 객체가 반환된 경우
+        if isinstance(employees, dict):  # 🚨 단일 객체가 반환된 경우 리스트로 변환
             employees = [employees]
 
         if not isinstance(employees, list):  # 🚨 응답이 리스트가 아닐 경우 예외 처리
@@ -611,12 +669,15 @@ class EmployeesTab(QWidget):
             self.left_widget.display_employee(None)
             return
 
-        if employees:  # ✅ 검색 결과가 있을 경우
-            self.left_widget.display_employee(employees[0])
-        else:
-            self.left_widget.display_employee(None)  # 검색 결과 없음 처리
+        # ✅ 검색 결과 중 정확히 keyword와 일치하는 직원 찾기
+        matched_employee = next((emp for emp in employees if emp.get("name") == keyword), None)
 
-        self.right_four.update_data_example()
+        if matched_employee:  # ✅ 정확히 일치하는 직원이 있을 경우
+            self.left_widget.display_employee(matched_employee)
+        else:  # ❌ 일치하는 직원이 없는 경우
+            self.left_widget.display_employee(None)  # 목록 비우기
+            QMessageBox.information(self, "검색 결과", "검색 결과가 없습니다.")  # 🔹 팝업창 띄우기
+
 
 
     # def __init__(self, parent=None):

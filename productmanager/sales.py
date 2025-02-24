@@ -111,8 +111,16 @@ def api_fetch_employee_clients(token, employee_id):
     headers = {"Authorization": f"Bearer {token}"}
     return requests.get(url, headers=headers)
 
-def api_fetch_brand_products(token, brand_id):
-    url = f"{BASE_URL}/brands/{brand_id}/products"
+def api_create_brand_products(token, brand_name):
+    """API 호출 - 브랜드 추가"""
+    url = f"{BASE_URL}/brands"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    data = {"name": brand_name}
+    return requests.post(url, json=data, headers=headers)
+
+def api_fetch_brand_products(token):
+    """API 호출 - 브랜드 목록 조회"""
+    url = f"{BASE_URL}/brands"
     headers = {"Authorization": f"Bearer {token}"}
     return requests.get(url, headers=headers)
 
@@ -146,6 +154,20 @@ def api_fetchClientPrice(token, clientId, productId):
     headers = {"Authorization": f"Bearer {token}"}
     return requests.get(url, headers=headers)
 
+def api_create_brand(token, payload):
+    """ 브랜드 생성 API 호출 """
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    return requests.post(f"{BASE_URL}/brands", json=payload, headers=headers)
+
+def api_fetch_brands(token):
+    """ 브랜드 목록 조회 API 호출 """
+    headers = {"Authorization": f"Bearer {token}"}
+    return requests.get(f"{BASE_URL}/brands", headers=headers)
+
+def api_delete_brand(token, brand_id):
+    """ 브랜드 삭제 API 호출 """
+    headers = {"Authorization": f"Bearer {token}"}
+    return requests.delete(f"{BASE_URL}/brands/{brand_id}", headers=headers)
 
 # 이 예제에서는 별도의 QDialog로 구현하여, 스캔 결과(바코드 문자열)를 반환합니다.
 class CustomFormRow(QWidget):
@@ -956,48 +978,119 @@ class BrandProductTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.init_ui()
+
     def init_ui(self):
         main_layout = QHBoxLayout()
+
+        # 왼쪽: 브랜드 입력
         left_panel = QGroupBox("브랜드 입력")
         left_layout = QFormLayout()
-        self.brand_id_edit = QLineEdit()
-        left_layout.addRow("Brand ID:", self.brand_id_edit)
-        show_btn = QPushButton("Show Products")
-        show_btn.clicked.connect(self.show_brand_products)
-        left_layout.addRow(show_btn)
+
+        self.brand_name_edit = QLineEdit()
+        left_layout.addRow("Brand ID:", self.brand_name_edit)
+        self.brand_name_kr_edit = QLineEdit()
+        left_layout.addRow("브랜드명", self.brand_name_kr_edit)
+        
+        self.add_brand_btn = QPushButton("Add Brand")
+        self.add_brand_btn.clicked.connect(self.add_brand)
+        left_layout.addRow(self.add_brand_btn)
+
         left_panel.setLayout(left_layout)
-        right_panel = QGroupBox("브랜드 상품 목록")
+
+        # 오른쪽: 브랜드 목록
+        right_panel = QGroupBox("브랜드 목록")
         right_layout = QVBoxLayout()
-        self.brand_prod_table = QTableWidget()
-        self.brand_prod_table.setColumnCount(3)
-        self.brand_prod_table.setHorizontalHeaderLabels(["ID", "Product Name", "Barcode"])
-        self.brand_prod_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        right_layout.addWidget(self.brand_prod_table)
+
+        self.brand_table = QTableWidget()
+        self.brand_table.setColumnCount(2)  # ✅ 한글 브랜드명 칼럼 추가
+        self.brand_table.setHorizontalHeaderLabels(["Brand ID", "브랜드명"])
+        self.brand_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        right_layout.addWidget(self.brand_table)
+
+        # ✅ 삭제 버튼 추가
+        self.delete_brand_btn = QPushButton("Delete Selected Brand")
+        self.delete_brand_btn.clicked.connect(self.delete_brand)
+        right_layout.addWidget(self.delete_brand_btn)
+        
+        self.refresh_btn = QPushButton("Refresh Brands")
+        self.refresh_btn.clicked.connect(self.show_brands)
+        right_layout.addWidget(self.refresh_btn)
+
         right_panel.setLayout(right_layout)
+
         main_layout.addWidget(left_panel, 1)
         main_layout.addWidget(right_panel, 4)
         self.setLayout(main_layout)
-    def show_brand_products(self):
+
+    def delete_brand(self):
+        """선택된 브랜드 삭제 기능"""
         global global_token
-        brand_id = self.brand_id_edit.text().strip()
-        if not brand_id:
-            QMessageBox.warning(self, "경고", "Brand ID를 입력하세요.")
+
+        selected_row = self.brand_table.currentRow()
+        if selected_row == -1:
+            QMessageBox.warning(self, "경고", "삭제할 브랜드를 선택하세요.")
             return
+
+        brand_id = self.brand_table.item(selected_row, 0).text()  # ✅ 선택된 브랜드 ID 가져오기
+
+        confirm = QMessageBox.question(self, "삭제 확인", f"ID {brand_id} 브랜드를 삭제하시겠습니까?",
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if confirm == QMessageBox.Yes:
+            try:
+                response = api_delete_brand(global_token, brand_id)
+                if response.status_code == 200:
+                    QMessageBox.information(self, "성공", "브랜드가 성공적으로 삭제되었습니다.")
+                    self.show_brands()  # ✅ 삭제 후 목록 갱신
+                else:
+                    QMessageBox.critical(self, "실패", f"Brand deletion failed: {response.status_code}\n{response.text}")
+            except Exception as e:
+                QMessageBox.critical(self, "오류", f"Error: {e}")
+            
+    def add_brand(self):
+        """브랜드 추가 기능"""
+        global global_token
+        brand_name = self.brand_name_edit.text().strip()
+        brand_name_kr = self.brand_name_kr_edit.text().strip()  # ✅ 한글 브랜드명 가져오기
+
+        if not brand_name:
+            QMessageBox.warning(self, "경고", "Brand Name을 입력하세요.")
+            return
+
+        payload = {"name": brand_name}
+        if brand_name_kr:  # ✅ 한글 브랜드명이 입력된 경우만 추가
+            payload["name"] = brand_name_kr
+
         try:
-            response = api_fetch_brand_products(global_token, int(brand_id))
+            response = api_create_brand(global_token, payload)  # ✅ API 요청
+            if response.status_code in (200, 201):
+                QMessageBox.information(self, "성공", "브랜드가 성공적으로 추가되었습니다.")
+                self.show_brands()  # 리스트 업데이트
+            else:
+                QMessageBox.critical(self, "실패", f"Brand creation failed: {response.status_code}\n{response.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"Error: {e}")
+
+
+    def show_brands(self):
+        """브랜드 목록 표시"""
+        global global_token
+        try:
+            response = api_fetch_brands(global_token)
             if response.status_code == 200:
-                products = response.json()
-                self.brand_prod_table.setRowCount(0)
-                for prod in products:
-                    row = self.brand_prod_table.rowCount()
-                    self.brand_prod_table.insertRow(row)
-                    self.brand_prod_table.setItem(row, 0, QTableWidgetItem(str(prod.get("id"))))
-                    self.brand_prod_table.setItem(row, 1, QTableWidgetItem(prod.get("product_name") or ""))
-                    self.brand_prod_table.setItem(row, 2, QTableWidgetItem(prod.get("barcode") or ""))
+                brands = response.json()
+                self.brand_table.setRowCount(0)
+                for brand in brands:
+                    row = self.brand_table.rowCount()
+                    self.brand_table.insertRow(row)
+                    self.brand_table.setItem(row, 0, QTableWidgetItem(str(brand.get("id"))))  # ✅ 브랜드 ID
+                    self.brand_table.setItem(row, 1, QTableWidgetItem(brand.get("name") or ""))  # ✅ 브랜드명 (한글)
             else:
                 QMessageBox.critical(self, "실패", f"List failed: {response.status_code}\n{response.text}")
         except Exception as e:
             QMessageBox.critical(self, "오류", f"Error: {e}")
+
+
 
 # ----------------------------
 # Main Window
@@ -1135,13 +1228,13 @@ class MainApp(QMainWindow):
 # ----------------------------
 def main():
     app = QApplication(sys.argv)
-    # login_dialog = LoginDialog()
-    # if login_dialog.exec() == QDialog.Accepted:
-    main_window = MainApp()
-    main_window.show()
-    sys.exit(app.exec_())
-# else:
-    sys.exit()
+    login_dialog = LoginDialog()
+    if login_dialog.exec() == QDialog.Accepted:
+        main_window = MainApp()
+        main_window.show()
+        sys.exit(app.exec_())
+    else:
+        sys.exit()
 
 if __name__ == "__main__":
     main()

@@ -12,7 +12,8 @@ from app.routers.employee_clients import router as employee_clients_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers.client_visits import router as client_visits_router
 from app.routers.employee_vehicle import router as employee_vehicle_router
-
+from app.routers.sales import router as sales_router
+from app.routers.brands import router as brands_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- STARTUP LOGIC ---
@@ -48,6 +49,9 @@ def create_app() -> FastAPI:
     app.include_router(employee_clients_router, prefix="/employee_clients", tags=["Employee-Client"])
     app.include_router(client_visits_router, prefix="/client_visits", tags=["ClientVisits"])
     app.include_router(employee_vehicle_router, prefix="/employee_vehicles", tags=["EmployeeVehicles"])
+    app.include_router(employee_vehicle_router, prefix="/employee_vehicles", tags=["EmployeeVehicles"])
+    app.include_router(sales_router, prefix="/sales", tags=["Sales"])
+    app.include_router(brands_router, prefix="/brands", tags=["Brands"])
     return app
 
 app = create_app()

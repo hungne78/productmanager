@@ -11,20 +11,19 @@ from typing import List
 router = APIRouter()
 
 # ✅ 특정 직원이 담당하는 거래처들의 매출 조회
-@router.get("/sales/by_employee/{employee_id}/{sale_date}", response_model=List[EmployeeClientSalesOut])
+@router.get("/by_employee/{employee_id}/{sale_date}", response_model=List[EmployeeClientSalesOut])
 def get_sales_by_employee(employee_id: int, sale_date: date, db: Session = Depends(get_db)):
     """
     특정 직원이 담당하는 거래처들의 매출 데이터 조회
     """
     # 직원이 담당하는 거래처 리스트 가져오기
-    client_ids = db.query(EmployeeClient.client_id).filter(
+    client_ids = [c[0] for c in db.query(EmployeeClient.client_id).filter(
         EmployeeClient.employee_id == employee_id
-    ).all()
+    ).all()]
 
     if not client_ids:
-        raise HTTPException(status_code=404, detail="해당 직원이 담당하는 거래처가 없습니다.")
-
-    client_ids = [c[0] for c in client_ids]
+        print(f"⚠️ 직원 {employee_id}는 거래처가 없습니다.")  # 디버깅 로그 추가
+        return []  # ✅ 거래처가 없으면 빈 리스트 반환
 
     # 해당 직원이 담당하는 거래처들의 매출 내역 조회
     sales = (
@@ -40,7 +39,8 @@ def get_sales_by_employee(employee_id: int, sale_date: date, db: Session = Depen
     )
 
     if not sales:
-        raise HTTPException(status_code=404, detail="해당 직원의 거래처에 대한 매출 데이터가 없습니다.")
+        print(f"⚠️ 직원 {employee_id}의 거래처에 대한 {sale_date} 매출 데이터가 없습니다.")  # 디버깅 로그 추가
+        return []  # ✅ 판매 데이터가 없으면 빈 리스트 반환
 
     # 거래처별 총매출 계산
     sales_summary = {}
@@ -56,7 +56,8 @@ def get_sales_by_employee(employee_id: int, sale_date: date, db: Session = Depen
                 "products": [{"product_name": s.product_name, "quantity": s.quantity}]
             }
 
-    return list(sales_summary.values())
+    return list(sales_summary.values())  # ✅ 판매 기록이 있을 경우 반환
+
 
 
 # ✅ 매출 등록 (단가 자동 조회)
