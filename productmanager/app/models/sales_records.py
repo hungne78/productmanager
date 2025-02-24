@@ -17,4 +17,4 @@ class SalesRecord(Base):
     
     # 관계
     # client = relationship("Client", back_populates="...") if needed
-    product = relationship("Product", back_populates="sales_records")
+    # product = relationship("Product", back_populates="sales_records")

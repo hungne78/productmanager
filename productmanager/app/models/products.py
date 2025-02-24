@@ -21,8 +21,8 @@ class Product(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     # brand 관계
-    brand = relationship("Brand", back_populates="products")
-    # order_items (1:N) -> product_id
-    order_items = relationship("OrderItem", back_populates="product")
-    # sales_records (1:N) -> product_id
-    sales_records = relationship("SalesRecord", back_populates="product")
+    # brand = relationship("Brand", back_populates="products")
+    # # order_items (1:N) -> product_id
+    # order_items = relationship("OrderItem", back_populates="products")
+    # # sales_records (1:N) -> product_id
+    # sales_records = relationship("SalesRecord", back_populates="products")

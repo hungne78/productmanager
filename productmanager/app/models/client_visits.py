@@ -17,6 +17,6 @@ class ClientVisit(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # 관계
-    employee = relationship("Employee", back_populates="...") 
-    client = relationship("Client", back_populates="client_visits")
-    order = relationship("Order", back_populates="...")
+    # employee = relationship("Employee", back_populates="...") 
+    # client = relationship("Client", back_populates="client_visits")
+    # order = relationship("Order", back_populates="...")

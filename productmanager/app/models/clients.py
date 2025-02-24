@@ -16,8 +16,8 @@ class Client(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     # employee_clients (다대다)
-    employee_clients = relationship("EmployeeClient", back_populates="client")
-    # orders (1대다)
-    orders = relationship("Order", back_populates="client")
-    # client visits (1대다)
-    client_visits = relationship("ClientVisit", back_populates="client")
+    # employee_clients = relationship("EmployeeClient", back_populates="client")
+    # # orders (1대다)
+    # orders = relationship("Order", back_populates="client")
+    # # client visits (1대다)
+    # client_visits = relationship("ClientVisit", back_populates="client")

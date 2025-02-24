@@ -14,4 +14,4 @@ class Brand(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     # 1 : N 관계 - 이 브랜드에 속한 여러 상품
-    products = relationship("Product", back_populates="brand")
+    # products = relationship("Product", back_populates="brand")

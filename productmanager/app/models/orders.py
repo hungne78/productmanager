@@ -37,5 +37,5 @@ class OrderItem(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
     # 관계
-    order = relationship("Order", back_populates="order_items")
-    product = relationship("Product", back_populates="order_items")
+    # order = relationship("Order", back_populates="order_items")
+    # product = relationship("Product", back_populates="order_items")

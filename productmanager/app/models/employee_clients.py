@@ -18,5 +18,5 @@ class EmployeeClient(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     # 관계 설정
-    employee = relationship("Employee", back_populates="employee_clients")
-    client = relationship("Client", back_populates="employee_clients")
+    # employee = relationship("Employee", back_populates="employee_clients")
+    # client = relationship("Client", back_populates="employee_clients")
