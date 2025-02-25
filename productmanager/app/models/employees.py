@@ -23,3 +23,4 @@ class Employee(Base):
     # 차량 관계는 employee_vehicle.py에서 id=employee_id로 직접 매핑 or 외래키
     vehicle = relationship("EmployeeVehicle", back_populates="employee", uselist=False)
     client_visits = relationship("ClientVisit", back_populates="employee")
+    sales = relationship("SalesRecord", back_populates="employee", cascade="all, delete")

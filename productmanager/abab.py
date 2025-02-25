@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QDate, QSize
 from PyQt5.QtGui import QIcon
 import os
+from datetime import datetime
 
 # ----------------------------
 # Global Variables and API Base
@@ -516,10 +517,10 @@ class RightFourBoxWidget(QWidget):
         ])
 
         # 그다음에 update_data_example 등에서 데이터 넣기:
-        sales_data = [100,200,300,400,500,600,700,800,900,1000,1100,1200]
-        for c in range(12):
-            # row=0, col=c 위치에 매출값 쓰기
-            self.tbl_box1.setItem(0, c, QTableWidgetItem(str(sales_data[c])))
+        # sales_data = [100,200,300,400,500,600,700,800,900,1000,1100,1200]
+        # for c in range(12):
+        #     # row=0, col=c 위치에 매출값 쓰기
+        #     self.tbl_box1.setItem(0, c, QTableWidgetItem(str(sales_data[c])))
 
         self.tbl_box1.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_box1.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -543,10 +544,10 @@ class RightFourBoxWidget(QWidget):
         ])
 
         # 그다음에 update_data_example 등에서 데이터 넣기:
-        sales_data = [100,200,300,400,500,600,700,800,900,1000,1100,1200]
-        for c in range(12):
-            # row=0, col=c 위치에 매출값 쓰기
-            self.tbl_box2.setItem(0, c, QTableWidgetItem(str(sales_data[c])))
+        # sales_data = [100,200,300,400,500,600,700,800,900,1000,1100,1200]
+        # for c in range(12):
+        #     # row=0, col=c 위치에 매출값 쓰기
+        #     self.tbl_box2.setItem(0, c, QTableWidgetItem(str(sales_data[c])))
         self.tbl_box2.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_box2.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
         box2_layout = QVBoxLayout()
@@ -610,37 +611,87 @@ class RightFourBoxWidget(QWidget):
         
         self.setLayout(main_layout)
 
-    def update_data_example(self):
-        # box1
-        months = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"]
-        sales_data = [100,200,300,400,500,600,700,800,900,1000,1100,1200]
+    def update_data_from_db(self, employee_id: int, year: int, month: int):
+        """
+        실제 DB에서 월별 매출, 월별 방문, 일별 매출, 일별 방문 기록을 가져와서
+        각각 box1, box2, box3, box4 테이블에 채워넣는다.
+        """
+        global global_token
+        if not global_token:
+            # 로그인 토큰 없으면 그냥 종료(실제 앱에선 안내창 띄우면 됨)
+            return
+
+        headers = {"Authorization": f"Bearer {global_token}"}
+
+        # 1) 월별 매출
+        url_monthly_sales = f"{BASE_URL}/sales/monthly_sales/{employee_id}/{year}"
+        try:
+            resp = requests.get(url_monthly_sales, headers=headers)
+            resp.raise_for_status()
+            monthly_sales = resp.json()  # 길이 12의 리스트
+        except:
+            monthly_sales = [0]*12
+
+        # 2) 월별 방문
+        url_monthly_visits = f"{BASE_URL}/client_visits/monthly_visits/{employee_id}/{year}"
+        try:
+            resp = requests.get(url_monthly_visits, headers=headers)
+            resp.raise_for_status()
+            monthly_visits = resp.json()  # 길이 12의 리스트
+        except:
+            monthly_visits = [0]*12
+
+        # 3) 일별 매출 (해당 월)
+        url_daily_sales = f"{BASE_URL}/sales/daily_sales/{employee_id}/{year}/{month}"
+        try:
+            resp = requests.get(url_daily_sales, headers=headers)
+            resp.raise_for_status()
+            daily_sales = resp.json()  # 길이 31(최대)의 리스트
+        except:
+            daily_sales = [0]*31
+
+        # 4) 일별 방문 (해당 월)
+        url_daily_visits = f"{BASE_URL}/client_visits/daily_visits/{employee_id}/{year}/{month}"
+        try:
+            resp = requests.get(url_daily_visits, headers=headers)
+            resp.raise_for_status()
+            daily_visits = resp.json()  # 길이 31
+        except:
+            daily_visits = [0]*31
+
+        # [BOX1] 월별 매출 테이블 채우기
+        # self.tbl_box1 은 1행 12열 구조라고 가정(기존 init_ui참조)
         for c in range(12):
-            self.tbl_box1.setItem(0, c, QTableWidgetItem(months[c]))
-            self.tbl_box1.setItem(1, c, QTableWidgetItem(str(sales_data[c])))
+            self.tbl_box1.setItem(0, c, QTableWidgetItem(str(monthly_sales[c])))
 
-        # box2
-        visits_data = [5,4,7,3,8,10,5,6,3,9,12,11]
+        # [BOX2] 월별 방문 테이블 채우기
         for c in range(12):
-            self.tbl_box2.setItem(0, c, QTableWidgetItem(months[c]))
-            self.tbl_box2.setItem(1, c, QTableWidgetItem(str(visits_data[c])))
+            self.tbl_box2.setItem(0, c, QTableWidgetItem(str(monthly_visits[c])))
 
-        # box3_top: 1~15일
-        for c in range(15):
-            day = c+1
-            self.tbl_box3_top.setItem(0, c, QTableWidgetItem(f"{day}일"))
-            self.tbl_box3_top.setItem(1, c, QTableWidgetItem(str(day*10)))
-        # box3_bottom: 16~31일
-        for c in range(16):
-            day = c+16
-            self.tbl_box3_bottom.setItem(0, c, QTableWidgetItem(f"{day}일"))
-            self.tbl_box3_bottom.setItem(1, c, QTableWidgetItem(str(day*10)))
+        # [BOX3] 이번달 일별 매출: 상단(1~15일), 하단(16~31일)
+        # self.tbl_box3_top 은 1행 15열, self.tbl_box3_bottom 는 1행 16열
+        for day_index in range(15):
+            val = daily_sales[day_index] if day_index < len(daily_sales) else 0
+            self.tbl_box3_top.setItem(0, day_index, QTableWidgetItem(str(val)))
+        for day_index in range(15, 31):
+            val = daily_sales[day_index] if day_index < len(daily_sales) else 0
+            self.tbl_box3_bottom.setItem(0, day_index - 15, QTableWidgetItem(str(val)))
 
-        # box4
-        dummy_clients = ["ABC","XYZ","하하","Test1","Test2"]
-        dummy_vals = [300,500,200,100,900]
-        for c in range(5):
-            self.tbl_box4.setItem(0, c, QTableWidgetItem(dummy_clients[c]))
-            self.tbl_box4.setItem(1, c, QTableWidgetItem(str(dummy_vals[c])))
+        # [BOX4] 당일 방문 거래처 정보
+        #  - 예: 오늘 날짜에 client_visits 조회 -> 반환된 거래처별 정보 표시
+        #    실제로는 "오늘(date.today())"에 맞춰서 client_visits를 따로 불러오거나,
+        #    order_id, outstanding_amount 등을 join 해서 가져오는 로직을 구현해야 합니다.
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        url_today_visits = f"{BASE_URL}/client_visits?date={today_str}&employee_id={employee_id}"
+        # ↑ 실제로는 이런 식의 endpoint를 따로 만들 수도 있음.
+        # 여기서는 간단히 5줄만 채우는 예시:
+        # (미구현이므로 더미)
+        for row in range(5):
+            self.tbl_box4.setItem(row, 0, QTableWidgetItem("거래처예시"))
+            self.tbl_box4.setItem(row, 1, QTableWidgetItem("매출예시"))
+            self.tbl_box4.setItem(row, 2, QTableWidgetItem("미수금"))
+            self.tbl_box4.setItem(row, 3, QTableWidgetItem("방문시간"))
+            self.tbl_box4.setItem(row, 4, QTableWidgetItem("기타메모"))
             
 class EmployeesTab(QWidget):
     def __init__(self, parent=None):

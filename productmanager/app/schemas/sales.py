@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import List
 from datetime import date, datetime
+from typing import Optional
 
 class ProductSalesOut(BaseModel):
     """
@@ -21,6 +22,7 @@ class SalesRecordCreate(BaseModel):
     """
     매출 등록 요청 스키마 (단가 제외)
     """
+    employee_id: Optional[int] = None
     client_id: int
     product_id: int
     quantity: int
@@ -43,19 +45,19 @@ class SalesOut(BaseModel):
     quantity: int
     
 class SalesRecordCreate(BaseModel):
-    """
-    매출 데이터 생성 시 사용되는 스키마
-    """
+    # 추가
+    employee_id: Optional[int] = None
+
     client_id: int
     product_id: int
     quantity: int
     sale_date: date
     
 class SalesRecordOut(BaseModel):
-    """
-    매출 등록 응답 스키마 (단가 및 총매출 포함)
-    """
     id: int
+    # 추가
+    employee_id: Optional[int] = None
+
     client_id: int
     product_id: int
     product_name: str

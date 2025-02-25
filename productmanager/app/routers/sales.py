@@ -60,20 +60,20 @@ def get_sales_by_employee(employee_id: int, sale_date: date, db: Session = Depen
 
 
 
-# ✅ 매출 등록 (단가 자동 조회)
 @router.post("/sales", response_model=SalesRecordOut)
 def create_sales_record(payload: SalesRecordCreate, db: Session = Depends(get_db)):
     """
     새로운 매출 데이터 추가 (단가 자동 계산)
     """
     product = db.query(Product).filter(Product.id == payload.product_id).first()
-    
     if not product:
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
 
     total_price = product.default_price * payload.quantity
 
+    # 추가된 employee_id도 같이 넣음
     new_sales = SalesRecord(
+        employee_id=payload.employee_id,  
         client_id=payload.client_id,
         product_id=payload.product_id,
         quantity=payload.quantity,
@@ -86,6 +86,7 @@ def create_sales_record(payload: SalesRecordCreate, db: Session = Depends(get_db
 
     return {
         "id": new_sales.id,
+        "employee_id": new_sales.employee_id,  # 응답에도 포함
         "client_id": new_sales.client_id,
         "product_id": new_sales.product_id,
         "product_name": product.product_name,
@@ -94,7 +95,6 @@ def create_sales_record(payload: SalesRecordCreate, db: Session = Depends(get_db
         "total_amount": float(total_price),
         "sale_date": new_sales.sale_date
     }
-
 
 # ✅ 전체 매출 목록 조회
 @router.get("/", response_model=List[SalesOut])
@@ -152,3 +152,61 @@ def get_total_sales(sale_date: date, db: Session = Depends(get_db)):
         total_sales[s.client_id] = total_sales.get(s.client_id, 0) + (s.default_price * s.quantity)
 
     return [{"client_id": k, "total_sales": v} for k, v in total_sales.items()]
+
+@router.get("/monthly_sales/{employee_id}/{year}")
+def get_monthly_sales(employee_id: int, year: int, db: Session = Depends(get_db)):
+    """
+    특정 직원 기준, 해당 년도(year)의 월별 매출 합계를 1~12월 순으로 리턴
+    리턴 예시: [100, 200, 300, ... 12개]
+    """
+    from sqlalchemy import extract, func
+
+    results = (
+        db.query(
+            extract('month', SalesRecord.sale_date).label('sale_month'),
+            func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
+        )
+        .join(Product, SalesRecord.product_id == Product.id)
+        .filter(SalesRecord.employee_id == employee_id)
+        .filter(extract('year', SalesRecord.sale_date) == year)
+        .group_by(extract('month', SalesRecord.sale_date))
+        .all()
+    )
+
+    # 월별 누락된 달은 0으로 채워 넣기
+    monthly_data = [0]*12
+    for row in results:
+        m = int(row.sale_month) - 1  # 1월이면 index=0
+        monthly_data[m] = float(row.sum_sales)
+
+    return monthly_data
+
+@router.get("/daily_sales/{employee_id}/{year}/{month}")
+def get_daily_sales(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
+    """
+    특정 직원 기준, year년 month월의 일자별 매출 합계 (1일부터 31일까지)
+    예: [0, 20, 0, 50, ...] 31개 (해당 달의 최대 일수만큼)
+    """
+    from sqlalchemy import extract, func
+
+    # 31일까지 만들어두고, 실제 값이 있으면 덮어씀
+    daily_data = [0]*31
+
+    results = (
+        db.query(
+            extract('day', SalesRecord.sale_date).label('sale_day'),
+            func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
+        )
+        .join(Product, SalesRecord.product_id == Product.id)
+        .filter(SalesRecord.employee_id == employee_id)
+        .filter(extract('year', SalesRecord.sale_date) == year)
+        .filter(extract('month', SalesRecord.sale_date) == month)
+        .group_by(extract('day', SalesRecord.sale_date))
+        .all()
+    )
+
+    for row in results:
+        d = int(row.sale_day) - 1
+        daily_data[d] = float(row.sum_sales)
+
+    return daily_data
