@@ -60,7 +60,7 @@ def get_sales_by_employee(employee_id: int, sale_date: date, db: Session = Depen
 
 
 
-@router.post("/sales", response_model=SalesRecordOut)
+@router.post("", response_model=SalesRecordOut)
 def create_sales_record(payload: SalesRecordCreate, db: Session = Depends(get_db)):
     """
     새로운 매출 데이터 추가 (단가 자동 계산)

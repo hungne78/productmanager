@@ -6,7 +6,7 @@ from app.db.database import get_db
 from app.models.products import Product
 from app.schemas.products import ProductCreate, ProductOut
 from fastapi.responses import JSONResponse
-
+from fastapi.encoders import jsonable_encoder
 router = APIRouter()
 
 @router.post("/", response_model=ProductOut)
@@ -80,5 +80,7 @@ def get_product_by_barcode(barcode: str, db: Session = Depends(get_db)):
     if not product:
         raise HTTPException(status_code=404, detail="Product not found with this barcode")
 
-    # ✅ Pydantic 모델(ProductOut)로 변환
-    return ProductOut.model_validate(product)
+    product_dict = jsonable_encoder(product)
+
+    # JSONResponse에 넣을 때 utf-8 명시
+    return JSONResponse(content=product_dict, media_type="application/json; charset=utf-8")

@@ -29,7 +29,8 @@ def create_app() -> FastAPI:
     # FastAPI에 lifespan 함수를 등록
     app = FastAPI(
         title=settings.PROJECT_NAME,
-        lifespan=lifespan
+        lifespan=lifespan,
+        redirect_slashes=False, 
     )
     # CORS 미들웨어 추가
     app.add_middleware(
