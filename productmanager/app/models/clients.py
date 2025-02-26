@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DECIMAL, DateTime
+from sqlalchemy import Column, Integer, String, DECIMAL, DateTime, Float
 from datetime import datetime
 from app.db.base import Base
 from sqlalchemy.orm import relationship
@@ -11,6 +11,9 @@ class Client(Base):
     address = Column(String(255))
     phone = Column(String(50))
     outstanding_amount = Column(DECIMAL(10,2), default=0)
+    unit_price = Column(Float, nullable=True)
+    business_number = Column(String(50), nullable=True)
+    email = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -24,3 +27,4 @@ class Client(Base):
     client_visits = relationship("ClientVisit", back_populates="client")
     sales_records = relationship("SalesRecord", back_populates="client")
     client_product_prices = relationship("ClientProductPrice", back_populates="client")
+    lents = relationship("Lent", back_populates="client")

@@ -48,7 +48,9 @@ def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db)):
         password_hash=hashed_pw,
         name=payload.name,
         phone=payload.phone,
-        role=payload.role
+        role=payload.role,
+        birthday=payload.birthday,
+        address=payload.address
     )
     db.add(new_emp)
     db.commit()
@@ -128,6 +130,8 @@ def update_employee(emp_id: int, payload: EmployeeCreate, db: Session = Depends(
     emp.name = payload.name
     emp.phone = payload.phone
     emp.role = payload.role
+    emp.birthday = payload.birthday
+    emp.address = payload.address
 
     db.commit()
     db.refresh(emp)

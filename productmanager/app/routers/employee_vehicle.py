@@ -7,7 +7,7 @@ import json  # 로그 출력용
 
 router = APIRouter()
 
-@router.post("", response_model=EmployeeVehicleOut)
+@router.post("/", response_model=EmployeeVehicleOut)
 def create_employee_vehicle(payload: EmployeeVehicleCreate, db: Session = Depends(get_db)):
     print("🔍 [DEBUG] 요청 도착: /employee_vehicles")
     
@@ -32,7 +32,7 @@ def create_employee_vehicle(payload: EmployeeVehicleCreate, db: Session = Depend
 
 
 
-@router.get("", response_model=list[EmployeeVehicleOut])
+@router.get("/", response_model=list[EmployeeVehicleOut])
 def list_employee_vehicles(db: Session = Depends(get_db)):
     vehicles = db.query(EmployeeVehicle).all()
     

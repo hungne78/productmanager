@@ -1,19 +1,23 @@
 # app/schemas/employees.py
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date
 
 class EmployeeCreate(BaseModel):
     password: str
     name: str
     phone: Optional[str] = None
     role: Optional[str] = "sales"
-
+    birthday: Optional[date] = None      
+    address: Optional[str] = None         
+    
 class EmployeeOut(BaseModel):
     id: int
     name: str
     phone: Optional[str]
     role: str
+    birthday: Optional[date] = None       
+    address: Optional[str] = None         
     created_at: datetime
     updated_at: datetime
 
@@ -25,7 +29,9 @@ class EmployeeUpdate(BaseModel):
     name: Optional[str]
     phone: Optional[str]
     role: Optional[str]
-
+    birthday: Optional[date] = None       # 새 필드
+    address: Optional[str] = None          # 새 필드
+    
 class EmployeeLogin(BaseModel):
     id: int
     password: str

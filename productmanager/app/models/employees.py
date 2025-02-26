@@ -1,5 +1,5 @@
 # app/models/employees.py
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, Date
 from datetime import datetime
 from sqlalchemy.orm import relationship
 from app.db.base import Base
@@ -12,6 +12,8 @@ class Employee(Base):
     name = Column(String(50), nullable=False)
     phone = Column(String(20))
     role = Column(String(20), default="sales")
+    birthday = Column(Date, nullable=True)
+    address = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -23,4 +25,4 @@ class Employee(Base):
     # 차량 관계는 employee_vehicle.py에서 id=employee_id로 직접 매핑 or 외래키
     vehicle = relationship("EmployeeVehicle", back_populates="employee", uselist=False)
     client_visits = relationship("ClientVisit", back_populates="employee")
-    sales = relationship("SalesRecord", back_populates="employee", cascade="all, delete")
+    sales = relationship("SalesRecord", back_populates="employee",  viewonly=True)

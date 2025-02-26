@@ -7,7 +7,7 @@ from app.db.base import Base
 class Product(Base):
     __tablename__ = "products"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=False)
     product_name = Column(String(100), nullable=False)
     barcode = Column(String(50))
@@ -29,3 +29,5 @@ class Product(Base):
     # ✅ SalesRecord와의 관계 설정
     sales_records = relationship("SalesRecord", back_populates="product")
     client_product_prices = relationship("ClientProductPrice", back_populates="product")
+    
+    # purchases = relationship("Purchase", back_populates="product", lazy="joined")

@@ -3,19 +3,22 @@ from datetime import date, datetime
 from typing import Optional
 
 class EmployeeVehicleCreate(BaseModel):
-    employee_id: int  # ✅ 기존 `id` → `employee_id`로 수정
+    employee_id: int
     monthly_fuel_cost: float
     current_mileage: int
-    last_engine_oil_change: Optional[date]
+    last_engine_oil_change: Optional[date]  # ✅ `date` 타입 유지
 
-    # ✅ `last_engine_oil_change`가 문자열로 들어오면 date로 변환
     @field_validator("last_engine_oil_change", mode="before")
     @classmethod
     def parse_date(cls, value):
+        if value is None or value == "":
+            return None  # ✅ 빈 값 허용
         if isinstance(value, str):
-            return datetime.strptime(value, "%Y-%m-%d").date()
+            try:
+                return datetime.strptime(value, "%Y-%m-%d").date()  # ✅ YYYY-MM-DD 형식 변환
+            except ValueError:
+                raise ValueError("Invalid date format. Expected YYYY-MM-DD.")
         return value
-
 
 class EmployeeVehicleOut(BaseModel):
     id: int
