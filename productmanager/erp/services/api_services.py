@@ -1,0 +1,410 @@
+import requests
+
+BASE_URL = "http://127.0.0.1:8000"  # FastAPI 서버 주소
+HEADERS = {"Content-Type": "application/json"}
+
+# 🔹 로그인관련 API 함수들
+# 🔹 직원 로그인 (JWT 토큰 반환)
+def api_login_employee(emp_id, password):
+    """ 직원 로그인 (JWT 반환) """
+    global TOKEN
+    try:
+        response = requests.post(f"{BASE_URL}/employees/login", json={"id": emp_id, "password": password}, headers=HEADERS)
+        response.raise_for_status()
+        data = response.json()
+        TOKEN = data["token"]  # 로그인 성공 시 토큰 저장
+        return data
+    except requests.RequestException as e:
+        print(f"❌ 직원 로그인 실패: {e}")
+        return None
+
+# 🔹 로그인 후 API 호출 시 JWT 토큰 포함
+def get_auth_headers():
+    """ JWT 토큰을 포함한 헤더 반환 """
+    if TOKEN:
+        return {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    return HEADERS
+
+# 🔹 직원 관련 API 함수들
+def api_fetch_employees(token, name_keyword=""):
+    url = f"{BASE_URL}/employees/"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"search": name_keyword} if name_keyword else {}
+
+    try:
+        resp = requests.get(url, headers=headers, params=params)
+        resp.raise_for_status()
+        return resp.json()  # ✅ JSON 변환 후 반환
+    except Exception as e:
+        print("api_fetch_employees error:", e)
+        return []
+
+def api_create_employee(token, data):
+    """ 직원 추가 """
+    try:
+        url = f"{BASE_URL}/employees/"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        return requests.post(url, json=data, headers=headers)
+    except requests.RequestException as e:
+        print(f"❌ 직원 추가 실패: {e}")
+        return None
+
+def api_update_employee(token, emp_id, data):
+    """ 직원 정보 수정 """
+    try:
+        url = f"{BASE_URL}/employees/{emp_id}"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        return requests.put(url, json=data, headers=headers)
+    except requests.RequestException as e:
+        print(f"❌ 직원 수정 실패: {e}")
+        return None
+
+def api_delete_employee(emp_id):
+    """ 직원 삭제 """
+    try:
+        response = requests.delete(f"{BASE_URL}/employees/{emp_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 직원 삭제 실패: {e}")
+        return None
+def api_fetch_employee_vehicle_info(employee_id):
+    """
+    직원 차량 정보 GET /employee_vehicles?emp_id=...
+    (실제로는 그런 endpoint를 만들거나, 필터 구현해야 함)
+    """
+    url = f"{BASE_URL}/employee_vehicles/"
+    try:
+        resp = requests.get(url)
+        resp.raise_for_status()
+        vehicles = resp.json()
+        found = [v for v in vehicles if v.get("id") == employee_id]
+        return found[0] if found else None
+    except Exception as e:
+        print("api_fetch_employee_vehicle_info error:", e)
+        return None
+    
+def api_fetch_vehicle(token, emp_id):
+    """ 특정 직원의 차량 정보 조회 """
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        response = requests.get(f"{BASE_URL}/employee_vehicles/{emp_id}", headers=headers)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 차량 정보 조회 실패: {e}")
+        return None
+
+def api_create_vehicle(token, data):
+    url = f"{BASE_URL}/employee_vehicles/"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    return requests.post(url, json=data, headers=headers)
+
+# 🔹 거래처 관련 API 함수들
+def api_fetch_clients():
+    """ 전체 거래처 목록 조회 """
+    try:
+        response = requests.get(f"{BASE_URL}/clients/", headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 거래처 목록 조회 실패: {e}")
+        return []
+
+def api_create_client(data):
+    """ 거래처 추가 """
+    try:
+        response = requests.post(f"{BASE_URL}/clients/", json=data, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 거래처 추가 실패: {e}")
+        return None
+
+def api_update_client(client_id, data):
+    """ 거래처 정보 수정 """
+    try:
+        response = requests.put(f"{BASE_URL}/clients/{client_id}", json=data, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 거래처 수정 실패: {e}")
+        return None
+
+def api_delete_client(client_id):
+    """ 거래처 삭제 """
+    try:
+        response = requests.delete(f"{BASE_URL}/clients/{client_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 거래처 삭제 실패: {e}")
+        return None
+
+def api_assign_employee_client(client_id, employee_id):
+    """ 거래처에 직원 배정 """
+    url = f"{BASE_URL}/employee_clients/"
+    data = {"client_id": client_id, "employee_id": employee_id}
+    try:
+        response = requests.post(url, json=data, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 직원 배정 실패: {e}")
+        return None
+
+def api_fetch_employee_clients_all():
+    """ 모든 직원-거래처 관계 조회 """
+    url = f"{BASE_URL}/employee_clients/"
+    try:
+        response = requests.get(url, headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 직원-거래처 관계 조회 실패: {e}")
+        return []
+
+
+# 🔹 상품 관련 API 함수들
+def api_fetch_products():
+    """ 전체 상품 목록 조회 """
+    try:
+        response = requests.get(f"{BASE_URL}/products/", headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 상품 목록 조회 실패: {e}")
+        return []
+
+def api_create_product(data):
+    """ 상품 추가 """
+    try:
+        response = requests.post(f"{BASE_URL}/products/", json=data, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 상품 추가 실패: {e}")
+        return None
+
+def api_update_product(product_id, data):
+    """ 상품 정보 수정 """
+    try:
+        response = requests.put(f"{BASE_URL}/products/{product_id}", json=data, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 상품 수정 실패: {e}")
+        return None
+
+def api_delete_product(product_id):
+    """ 상품 삭제 """
+    try:
+        response = requests.delete(f"{BASE_URL}/products/{product_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 상품 삭제 실패: {e}")
+        return None
+
+# 직원방문지도탭
+def api_fetch_employee_visits(employee_id):
+    """ 특정 직원이 방문한 거래처 목록 조회 """
+    url = f"{BASE_URL}/client_visits/today_visits?employee_id={employee_id}"
+    try:
+        response = requests.get(url, headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 직원 방문 정보 가져오기 실패: {e}")
+        return []
+
+def api_fetch_client_coordinates(client_id):
+    """ 특정 거래처의 GPS 좌표 조회 """
+    url = f"{BASE_URL}/clients/{client_id}"
+    try:
+        response = requests.get(url, headers=HEADERS)
+        response.raise_for_status()
+        client_data = response.json()
+        return client_data.get("latitude"), client_data.get("longitude"), client_data.get("client_name")
+    except requests.RequestException as e:
+        print(f"❌ 거래처 좌표 가져오기 실패: {e}")
+        return None
+
+#주문 관련api
+# 🔹 주문 목록 조회
+def api_fetch_orders():
+    """ 전체 주문 목록 조회 """
+    try:
+        response = requests.get(f"{BASE_URL}/orders/", headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 주문 목록 조회 실패: {e}")
+        return []
+
+# 🔹 특정 주문 조회
+def api_fetch_order(order_id):
+    """ 특정 주문 조회 """
+    try:
+        response = requests.get(f"{BASE_URL}/orders/{order_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 주문 조회 실패: {e}")
+        return None
+
+# 🔹 주문 추가
+def api_create_order(data):
+    """ 주문 추가 """
+    try:
+        response = requests.post(f"{BASE_URL}/orders/", json=data, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 주문 추가 실패: {e}")
+        return None
+
+# 🔹 주문 수정 (예: 상태 변경, 품목 수정 등)
+def api_update_order(order_id, data):
+    """ 주문 정보 수정 """
+    try:
+        response = requests.put(f"{BASE_URL}/orders/{order_id}", json=data, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 주문 수정 실패: {e}")
+        return None
+
+# 🔹 주문 삭제
+def api_delete_order(order_id):
+    """ 주문 삭제 """
+    try:
+        response = requests.delete(f"{BASE_URL}/orders/{order_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 주문 삭제 실패: {e}")
+        return None
+
+# 🔹 특정 직원이 담당한 주문 목록 조회
+def api_fetch_employee_orders(employee_id):
+    """ 특정 직원이 담당한 주문 조회 """
+    try:
+        response = requests.get(f"{BASE_URL}/orders/employee/{employee_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 직원 주문 조회 실패: {e}")
+        return []
+
+# 🔹 특정 거래처의 주문 목록 조회
+def api_fetch_client_orders(client_id):
+    """ 특정 거래처의 주문 조회 """
+    try:
+        response = requests.get(f"{BASE_URL}/orders/client/{client_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 거래처 주문 조회 실패: {e}")
+        return []
+
+# 🔹 주문 상태 변경
+def api_update_order_status(order_id, status):
+    """ 주문 상태 변경 """
+    try:
+        response = requests.patch(f"{BASE_URL}/orders/{order_id}/status", json={"status": status}, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 주문 상태 변경 실패: {e}")
+        return None
+    
+# 구매관련
+
+# 🔹 구매 목록 조회
+def api_fetch_purchases():
+    """ 전체 구매 목록 조회 """
+    try:
+        response = requests.get(f"{BASE_URL}/purchases/", headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 구매 목록 조회 실패: {e}")
+        return []
+
+# 🔹 특정 구매 조회
+def api_fetch_purchase(purchase_id):
+    """ 특정 구매 조회 """
+    try:
+        response = requests.get(f"{BASE_URL}/purchases/{purchase_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 구매 조회 실패: {e}")
+        return None
+
+# 🔹 구매 추가
+def api_create_purchase(data):
+    """ 구매 추가 """
+    try:
+        response = requests.post(f"{BASE_URL}/purchases/", json=data, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 구매 추가 실패: {e}")
+        return None
+
+# 🔹 구매 수정 (예: 수량 변경, 공급업체 변경 등)
+def api_update_purchase(purchase_id, data):
+    """ 구매 정보 수정 """
+    try:
+        response = requests.put(f"{BASE_URL}/purchases/{purchase_id}", json=data, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 구매 수정 실패: {e}")
+        return None
+
+# 🔹 구매 삭제
+def api_delete_purchase(purchase_id):
+    """ 구매 삭제 """
+    try:
+        response = requests.delete(f"{BASE_URL}/purchases/{purchase_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 구매 삭제 실패: {e}")
+        return None
+
+# 🔹 특정 공급업체의 구매 목록 조회
+def api_fetch_supplier_purchases(supplier_id):
+    """ 특정 공급업체의 구매 조회 """
+    try:
+        response = requests.get(f"{BASE_URL}/purchases/supplier/{supplier_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 공급업체 구매 조회 실패: {e}")
+        return []
+
+# 🔹 특정 상품의 구매 목록 조회
+def api_fetch_product_purchases(product_id):
+    """ 특정 상품의 구매 조회 """
+    try:
+        response = requests.get(f"{BASE_URL}/purchases/product/{product_id}", headers=HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"❌ 상품 구매 조회 실패: {e}")
+        return []
+
+# 🔹 구매 상태 변경
+def api_update_purchase_status(purchase_id, status):
+    """ 구매 상태 변경 """
+    try:
+        response = requests.patch(f"{BASE_URL}/purchases/{purchase_id}/status", json={"status": status}, headers=HEADERS)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 구매 상태 변경 실패: {e}")
+        return None
