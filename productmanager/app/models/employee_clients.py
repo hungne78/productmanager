@@ -10,13 +10,9 @@ class EmployeeClient(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
-    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
-    start_date = Column(Date, default=date.today)  # 담당 시작일 (선택)
-    end_date = Column(Date, nullable=True)         # 담당 종료일 (선택)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)  # ✅ ON DELETE CASCADE 추가
+    start_date = Column(DateTime)
+    end_date = Column(DateTime)
 
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-
-    # 관계 설정
-    employee = relationship("Employee", back_populates="employee_clients")
-    client = relationship("Client", back_populates="employee_clients")
+    employee = relationship("Employee", back_populates="clients")
+    client = relationship("Client", back_populates="employees")

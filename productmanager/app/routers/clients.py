@@ -5,6 +5,7 @@ from app.db.database import get_db
 from app.models.clients import Client
 from app.schemas.clients import ClientCreate, ClientOut
 from fastapi.responses import JSONResponse
+from app.models.employee_clients import EmployeeClient
 import json
 
 router = APIRouter()
@@ -82,12 +83,23 @@ def update_client(client_id: int, payload: ClientCreate, db: Session = Depends(g
 
 @router.delete("/{client_id}")
 def delete_client(client_id: int, db: Session = Depends(get_db)):
-    """
-    거래처 삭제
-    """
-    client = db.query(Client).get(client_id)
+    """ 특정 거래처 삭제 (연결된 직원-거래처 정보 먼저 삭제) """
+    client = db.query(Client).filter(Client.id == client_id).first()
+
     if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-    db.delete(client)
-    db.commit()
-    return {"detail": "Client deleted"}
+        raise HTTPException(status_code=404, detail="거래처를 찾을 수 없습니다.")
+
+    try:
+        # ✅ 연결된 직원-거래처 관계 삭제
+        db.query(EmployeeClient).filter(EmployeeClient.client_id == client_id).delete()
+
+        # ✅ 거래처 삭제
+        db.delete(client)
+        db.commit()
+
+        return {"message": "거래처가 삭제되었습니다."}
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"거래처 삭제 실패: {str(e)}")
+

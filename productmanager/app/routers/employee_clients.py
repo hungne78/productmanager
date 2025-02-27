@@ -5,9 +5,11 @@ from typing import List
 from app.db.database import get_db
 from app.models.employee_clients import EmployeeClient
 from app.schemas.employee_clients import EmployeeClientCreate, EmployeeClientOut
-
+from pydantic import BaseModel
 router = APIRouter()
-
+class EmployeeUnassignRequest(BaseModel):
+    client_id: int
+    employee_id: int
 @router.post("/", response_model=EmployeeClientOut)
 def assign_employee_client(payload: EmployeeClientCreate, db: Session = Depends(get_db)):
     """
@@ -54,3 +56,24 @@ def delete_employee_client(ec_id: int, db: Session = Depends(get_db)):
     db.delete(ec)
     db.commit()
     return {"detail": "Employee-Client relation deleted"}
+
+@router.post("/unassign")
+def unassign_employee(data: EmployeeUnassignRequest, db: Session = Depends(get_db)):
+    """ 특정 직원과 거래처의 관계 해제 (DELETE 대신 POST 사용) """
+    employee_client = db.query(EmployeeClient).filter(
+        EmployeeClient.client_id == data.client_id,
+        EmployeeClient.employee_id == data.employee_id
+    ).first()
+
+    if not employee_client:
+        raise HTTPException(status_code=404, detail="해당 직원과 거래처의 연결을 찾을 수 없습니다.")
+
+    try:
+        db.delete(employee_client)
+        db.commit()
+        return {"message": "담당 직원 해제가 완료되었습니다."}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"담당 직원 해제 실패: {str(e)}")
+

@@ -14,6 +14,7 @@ from app.models.employee_clients import EmployeeClient
 from app.schemas.clients import ClientOut
 from sqlalchemy.orm import Session, joinedload
 from typing import List
+from app.models.employee_vehicle import EmployeeVehicle
 router = APIRouter()
 
 @router.get("/{emp_id}/clients", response_model=List[ClientOut])
@@ -108,12 +109,26 @@ def get_employee(emp_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/{emp_id}")
 def delete_employee(emp_id: int, db: Session = Depends(get_db)):
-    emp = db.query(Employee).get(emp_id)
+    """ 직원 삭제 (연결된 차량 정보도 함께 삭제) """
+
+    # 1️⃣ 직원이 있는지 확인
+    emp = db.query(Employee).filter(Employee.id == emp_id).first()
     if not emp:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    db.delete(emp)
-    db.commit()
-    return {"detail": "Employee deleted"}
+        raise HTTPException(status_code=404, detail="직원을 찾을 수 없습니다.")
+
+    try:
+        # 2️⃣ 연결된 차량 정보 삭제
+        db.query(EmployeeVehicle).filter(EmployeeVehicle.employee_id == emp_id).delete()
+
+        # 3️⃣ 직원 삭제
+        db.delete(emp)
+        db.commit()
+
+        return {"detail": "직원 및 관련 차량 정보 삭제 완료"}
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"직원 삭제 실패: {str(e)}")
 
 @router.put("/{emp_id}", response_model=EmployeeOut)
 def update_employee(emp_id: int, payload: EmployeeCreate, db: Session = Depends(get_db)):

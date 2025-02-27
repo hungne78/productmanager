@@ -5,6 +5,7 @@ import os
 import requests
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor
+from datetime import datetime
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -180,6 +181,7 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         
     
     def create_vehicle(self):
+        """ 차량 등록 팝업 창 열기 및 등록 처리 """
         global global_token
         if not global_token:
             QMessageBox.warning(self, "경고", "로그인이 필요합니다.")
@@ -193,38 +195,54 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
 
             try:
                 resp = api_create_vehicle(global_token, data)
+                if resp is None:  # ✅ 응답이 None이면 오류 처리
+                    QMessageBox.critical(self, "오류", "서버에서 응답이 없습니다. 다시 시도해 주세요.")
+                    return
+
                 resp.raise_for_status()
                 QMessageBox.information(self, "성공", "차량 정보가 등록/수정되었습니다.")
                 self.fetch_vehicle()  # 차량 정보 갱신
+            except requests.exceptions.HTTPError as http_err:
+                QMessageBox.critical(self, "HTTP 오류", f"HTTP 오류 발생: {http_err}")
+            except requests.exceptions.RequestException as req_err:
+                QMessageBox.critical(self, "네트워크 오류", f"네트워크 오류 발생: {req_err}")
             except Exception as ex:
-                QMessageBox.critical(self, "오류", f"차량 등록 실패: {str(ex)}")
+                QMessageBox.critical(self, "오류", f"예외 발생: {str(ex)}")
+
 
     def fetch_vehicle(self):
-        """ 현재 선택된 직원의 차량 정보를 조회 """
+        """ 현재 선택된 직원의 차량 정보를 조회하고 기존 테이블에 추가 """
         global global_token
 
-        # 현재 검색된 직원 ID 가져오기
-        emp_id = self.get_value(0).strip()  # ✅ 직원ID가 저장된 첫 번째 행 값 가져오기
-
+        emp_id = self.get_value(0).strip()  # ✅ 직원ID 가져오기
         if not emp_id:
             QMessageBox.warning(self, "경고", "조회할 직원이 선택되지 않았습니다.")
             return
 
         try:
+            print(f"✅ 차량 정보 조회 요청: 직원 ID = {emp_id}")
             resp = api_fetch_vehicle(global_token, emp_id)  # ✅ 직원 ID 전달
-            resp.raise_for_status()
-            vehicles = resp.json()
 
-            self.vehicle_table.setRowCount(0)
-            for v in vehicles:
-                row = self.vehicle_table.rowCount()
-                self.vehicle_table.insertRow(row)
-                self.vehicle_table.setItem(row, 0, QTableWidgetItem(str(v.get("id", ""))))
-                self.vehicle_table.setItem(row, 1, QTableWidgetItem(str(v.get("monthly_fuel_cost", ""))))
-                self.vehicle_table.setItem(row, 2, QTableWidgetItem(str(v.get("current_mileage", ""))))
-                self.vehicle_table.setItem(row, 3, QTableWidgetItem(str(v.get("last_engine_oil_change", ""))))
+            if resp is None:
+                QMessageBox.critical(self, "오류", "서버 응답이 없습니다.")
+                return
+
+            if isinstance(resp, str):  # ✅ 응답이 문자열이면 JSON 변환 시도
+                print(f"🚀 응답이 문자열입니다. JSON 변환 시도: {resp}")
+                resp = json.loads(resp)
+
+            if not isinstance(resp, dict):  # ✅ 응답이 딕셔너리인지 확인
+                QMessageBox.critical(self, "오류", "서버 응답 형식이 잘못되었습니다.")
+                return
+
+            # ✅ 기존 직원 테이블에 차량 정보 추가
+            self.set_value(6, str(resp.get("monthly_fuel_cost", "")))
+            self.set_value(7, str(resp.get("current_mileage", "")))
+            self.set_value(8, resp.get("last_engine_oil_change", ""))
+
         except Exception as ex:
-            QMessageBox.critical(self, "오류", str(ex))
+            QMessageBox.critical(self, "오류", f"예외 발생: {str(ex)}")
+
 
                         
     def display_employee(self, employee):

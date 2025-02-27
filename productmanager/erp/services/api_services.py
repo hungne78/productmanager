@@ -1,5 +1,6 @@
 import requests
-
+from datetime import datetime
+import json
 BASE_URL = "http://127.0.0.1:8000"  # FastAPI 서버 주소
 HEADERS = {"Content-Type": "application/json"}
 
@@ -26,6 +27,31 @@ def get_auth_headers():
     return HEADERS
 
 # 🔹 직원 관련 API 함수들
+
+def api_unassign_employee_client(token, client_id, emp_id):
+    """ 특정 직원과 거래처의 연결을 해제하는 API 요청 (POST 사용) """
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = f"{BASE_URL}/employee_clients/unassign"
+    data = {"client_id": client_id, "employee_id": emp_id}
+
+    try:
+        # ✅ DELETE 대신 POST 요청을 사용하여 전송
+        response = requests.post(url, json=data, headers=headers)
+        print(f"🚀 담당 직원 해제 요청: {url}")
+        print(f"🚀 서버 응답 코드: {response.status_code}")
+        print(f"🚀 서버 응답 내용: {response.text}")
+
+        response.raise_for_status()
+        return response  # ✅ API 응답 반환
+
+    except requests.RequestException as e:
+        print(f"❌ 담당 직원 해제 실패: {e}")
+        return None
+
+
+
+
+
 def api_fetch_employees(token, name_keyword=""):
     url = f"{BASE_URL}/employees/"
     headers = {"Authorization": f"Bearer {token}"}
@@ -59,12 +85,12 @@ def api_update_employee(token, emp_id, data):
         print(f"❌ 직원 수정 실패: {e}")
         return None
 
-def api_delete_employee(emp_id):
+def api_delete_employee(token, emp_id):
     """ 직원 삭제 """
     try:
-        response = requests.delete(f"{BASE_URL}/employees/{emp_id}", headers=HEADERS)
-        response.raise_for_status()
-        return response
+        url = f"{BASE_URL}/employees/{emp_id}"
+        headers = {"Authorization": f"Bearer {token}"}
+        return requests.delete(url, headers=headers)
     except requests.RequestException as e:
         print(f"❌ 직원 삭제 실패: {e}")
         return None
@@ -87,79 +113,147 @@ def api_fetch_employee_vehicle_info(employee_id):
 def api_fetch_vehicle(token, emp_id):
     """ 특정 직원의 차량 정보 조회 """
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = f"{BASE_URL}/employee_vehicles/{emp_id}"
+    print(f"🚀 차량 정보 요청: {url}")  # 요청 URL 로그 출력
     try:
-        response = requests.get(f"{BASE_URL}/employee_vehicles/{emp_id}", headers=headers)
+        response = requests.get(url, headers=headers)
+        print(f"🚀 서버 응답 코드: {response.status_code}")  # 응답 코드 출력
+        print(f"🚀 서버 응답 내용: {response.text}")  # 응답 데이터 출력
+
         response.raise_for_status()
-        return response
+
+        # ✅ 응답을 JSON 형식으로 변환하여 반환
+        return response.json()
+
     except requests.RequestException as e:
         print(f"❌ 차량 정보 조회 실패: {e}")
         return None
 
+
+
+
 def api_create_vehicle(token, data):
-    url = f"{BASE_URL}/employee_vehicles/"
+    """ 직원 차량 정보 등록/수정 """
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    return requests.post(url, json=data, headers=headers)
+    try:
+        response = requests.post(f"{BASE_URL}/employee_vehicles/", json=data, headers=headers)
+        print(f"🚀 차량 등록 요청: {response.status_code}")  # 응답 코드 출력
+        print(f"🚀 서버 응답 내용: {response.text}")  # 응답 내용 출력
+
+        if response is None:
+            raise ValueError("❌ 서버 응답이 없습니다. (None)")
+
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        print(f"❌ 차량 정보 등록 실패: {e}")
+        return None
+
 
 # 🔹 거래처 관련 API 함수들
-def api_fetch_clients():
+
+def api_fetch_lent_freezers(token, client_id):
+    """
+    특정 거래처의 대여 냉동고 정보를 조회하는 API 요청 함수
+    """
+    url = f"{BASE_URL}/lents/{client_id}"
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()  # JSON 데이터 반환
+    except requests.RequestException as e:
+        print(f"❌ 대여 냉동고 조회 실패: {e}")
+        return []
+    
+def api_fetch_clients(token):
     """ 전체 거래처 목록 조회 """
     try:
-        response = requests.get(f"{BASE_URL}/clients/", headers=HEADERS)
-        response.raise_for_status()
-        return response.json()
+        url = f"{BASE_URL}/clients/"
+        headers = {"Authorization": f"Bearer {token}"}
+        return requests.get(url, headers=headers)
     except requests.RequestException as e:
         print(f"❌ 거래처 목록 조회 실패: {e}")
         return []
 
-def api_create_client(data):
+def api_create_client(token, data):
     """ 거래처 추가 """
     try:
-        response = requests.post(f"{BASE_URL}/clients/", json=data, headers=HEADERS)
-        response.raise_for_status()
-        return response
+        url = f"{BASE_URL}/clients/"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        return requests.post(url, json=data, headers=headers)
     except requests.RequestException as e:
         print(f"❌ 거래처 추가 실패: {e}")
         return None
 
-def api_update_client(client_id, data):
-    """ 거래처 정보 수정 """
+def api_update_client(token, client_id, data):
+    """
+    거래처 정보를 업데이트하는 API 요청 함수
+    """
+    url = f"{BASE_URL}/clients/{client_id}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
     try:
-        response = requests.put(f"{BASE_URL}/clients/{client_id}", json=data, headers=HEADERS)
-        response.raise_for_status()
-        return response
+        resp = requests.put(url, json=data, headers=headers)
+        resp.raise_for_status()
+        return resp
     except requests.RequestException as e:
-        print(f"❌ 거래처 수정 실패: {e}")
+        print(f"❌ 거래처 업데이트 실패: {e}")
         return None
 
-def api_delete_client(client_id):
-    """ 거래처 삭제 """
+def api_delete_client(token, client_id):
+    """ 특정 거래처 삭제 요청 """
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = f"{BASE_URL}/clients/{client_id}"
+
     try:
-        response = requests.delete(f"{BASE_URL}/clients/{client_id}", headers=HEADERS)
+        response = requests.delete(url, headers=headers)
+        print(f"🚀 거래처 삭제 요청: {url}")
+        print(f"🚀 서버 응답 코드: {response.status_code}")
+        print(f"🚀 서버 응답 내용: {response.text}")
+
         response.raise_for_status()
         return response
+
     except requests.RequestException as e:
         print(f"❌ 거래처 삭제 실패: {e}")
         return None
 
-def api_assign_employee_client(client_id, employee_id):
+def api_assign_employee_client(token, client_id, employee_id):
     """ 거래처에 직원 배정 """
     url = f"{BASE_URL}/employee_clients/"
     data = {"client_id": client_id, "employee_id": employee_id}
     try:
-        response = requests.post(url, json=data, headers=HEADERS)
-        response.raise_for_status()
-        return response
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        return requests.post(url, json=data, headers=headers)
     except requests.RequestException as e:
         print(f"❌ 직원 배정 실패: {e}")
         return None
 
-def api_fetch_employee_clients_all():
+def api_fetch_employee_clients_all(token):
     """ 모든 직원-거래처 관계 조회 """
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     url = f"{BASE_URL}/employee_clients/"
+    print(f"🚀 직원-거래처 관계 요청: {url}")  # 요청 URL 로그 출력
     try:
-        response = requests.get(url, headers=HEADERS)
+        response = requests.get(url, headers=headers)
+        print(f"🚀 서버 응답 코드: {response.status_code}")  # 응답 코드 출력
+        print(f"🚀 서버 응답 내용: {response.text}")  # 응답 데이터 출력
+
         response.raise_for_status()
-        return response.json()
+
+        # ✅ 응답이 문자열 또는 bytes라면 JSON 변환
+        if isinstance(response.text, str):
+            return json.loads(response.text)
+
+        return response.json()  # ✅ JSON 반환
+
     except requests.RequestException as e:
         print(f"❌ 직원-거래처 관계 조회 실패: {e}")
         return []
