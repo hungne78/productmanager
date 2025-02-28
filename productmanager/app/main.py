@@ -86,6 +86,3 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
-@app.get("/")
-def root():
-    return {"message": "Hello from FastAPI project!"}

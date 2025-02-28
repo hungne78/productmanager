@@ -6,6 +6,8 @@ from app.db.database import get_db
 from app.models.employee_clients import EmployeeClient
 from app.schemas.employee_clients import EmployeeClientCreate, EmployeeClientOut
 from pydantic import BaseModel
+from datetime import date
+
 router = APIRouter()
 class EmployeeUnassignRequest(BaseModel):
     client_id: int
@@ -23,16 +25,23 @@ def assign_employee_client(payload: EmployeeClientCreate, db: Session = Depends(
     if existing:
         raise HTTPException(status_code=400, detail="Employee-Client relation already exists.")
 
+    # ✅ start_date, end_date 기본값 설정
+    start_date = payload.start_date if payload.start_date else func.now()
+    end_date = payload.end_date if payload.end_date else None
+
     new_ec = EmployeeClient(
         employee_id=payload.employee_id,
         client_id=payload.client_id,
-        start_date=payload.start_date,
-        end_date=payload.end_date
+        start_date=start_date,
+        end_date=end_date
     )
     db.add(new_ec)
     db.commit()
     db.refresh(new_ec)
-    return new_ec
+    return EmployeeClientOut.model_validate(new_ec)  # ✅ `created_at`, `updated_at` 포함
+
+
+
 
 @router.get("/", response_model=List[EmployeeClientOut])
 def list_employee_clients(db: Session = Depends(get_db)):

@@ -1,6 +1,7 @@
 import requests
 from datetime import datetime
 import json
+from datetime import date
 BASE_URL = "http://127.0.0.1:8000"  # FastAPI 서버 주소
 HEADERS = {"Content-Type": "application/json"}
 
@@ -245,13 +246,25 @@ def api_delete_client(token, client_id):
 def api_assign_employee_client(token, client_id, employee_id):
     """ 거래처에 직원 배정 """
     url = f"{BASE_URL}/employee_clients/"
-    data = {"client_id": client_id, "employee_id": employee_id}
+    
+    # ✅ 오늘 날짜를 기본 `start_date`로 설정
+    today_date = date.today().isoformat()
+
+    data = {
+        "client_id": client_id,
+        "employee_id": employee_id,
+        "start_date": today_date,  # ✅ 기본값 추가
+        "end_date": None           # ✅ 기본값 추가
+    }
+
     try:
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         return requests.post(url, json=data, headers=headers)
     except requests.RequestException as e:
         print(f"❌ 직원 배정 실패: {e}")
         return None
+
+
 
 def api_fetch_employee_clients_all(token):
     """ 모든 직원-거래처 관계 조회 """
@@ -546,14 +559,19 @@ def api_update_order_status(order_id, status):
 # 구매관련
 
 # 🔹 구매 목록 조회
-def api_fetch_purchases():
-    """ 전체 구매 목록 조회 """
+def api_fetch_purchases(token):
+    """
+    매입 내역을 서버에서 가져오는 API 요청
+    """
+    url = f"{BASE_URL}/purchases"  # Corrected endpoint for purchases
+    headers = {"Authorization": f"Bearer {token}"}
+
     try:
-        response = requests.get(f"{BASE_URL}/purchases/", headers=HEADERS)
-        response.raise_for_status()
-        return response.json()
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # 오류 발생 시 예외 처리
+        return response.json()  # Return the purchase data from the backend
     except requests.RequestException as e:
-        print(f"❌ 구매 목록 조회 실패: {e}")
+        print(f"API 요청 실패: {e}")
         return []
 
 # 🔹 특정 구매 조회
@@ -632,3 +650,21 @@ def api_update_purchase_status(purchase_id, status):
     except requests.RequestException as e:
         print(f"❌ 구매 상태 변경 실패: {e}")
         return None
+def api_update_product_stock(token, product_id, stock_increase):
+    """
+    상품 재고 업데이트 (매입 후 증가)
+    """
+    url = f"{BASE_URL}/products/{product_id}/stock?stock_increase={stock_increase}"  # ✅ Query 방식으로 변경
+    headers = {"Authorization": f"Bearer {token}"}
+
+    print(f"📌 API 요청: {url}")  # 🔍 디버깅 출력
+
+    try:
+        response = requests.patch(url, headers=headers)  # ✅ Query Parameter 방식으로 요청
+        response.raise_for_status()
+        return response
+    except requests.HTTPError as e:
+        print(f"❌ 서버 오류: {e.response.status_code} {e.response.text}")
+    except requests.RequestException as e:
+        print(f"❌ API 요청 실패: {e}")
+    return None

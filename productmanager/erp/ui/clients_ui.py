@@ -306,6 +306,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
             QMessageBox.critical(self, "실패", "담당 직원 배정에 실패했습니다.")
 
 
+
     def show_lent_freezers(self):
         """
         대여 냉동고 버튼 클릭 시 팝업 창을 띄우는 함수
