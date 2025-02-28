@@ -20,7 +20,7 @@ class ProductDialog(QDialog):
         """
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setFixedSize(400, 350)
+        self.setFixedSize(500, 600)
 
         layout = QVBoxLayout()
         form_layout = QFormLayout()
@@ -62,6 +62,12 @@ class ProductDialog(QDialog):
         self.category_edit = QLineEdit()
         form_layout.addRow("카테고리:", self.category_edit)
 
+        # ✅ 일반가 / 고정가 여부 (Bool → 드롭다운)
+        self.price_type_edit = QComboBox()
+        self.price_type_edit.addItems(["일반가", "고정가"])  # ✅ 0: 일반가 (False), 1: 고정가 (True)
+        form_layout.addRow("가격 유형:", self.price_type_edit)
+
+
         layout.addLayout(form_layout)
 
         # ✅ 버튼 추가
@@ -89,6 +95,7 @@ class ProductDialog(QDialog):
             self.box_quantity_edit.setText(str(product.get("box_quantity", "1")))
             self.active_edit.setCurrentIndex(0 if product.get("is_active", 1) == 1 else 1)
             self.category_edit.setText(product.get("category", ""))
+            self.price_type_edit.setCurrentIndex(1 if product.get("is_fixed_price", False) else 0)  # ✅ bool → index 변환
 
 class ProductSelectionDialog(QDialog):
     def __init__(self, products, parent=None):
@@ -151,7 +158,7 @@ class ProductRightPanel(QWidget):
 class ProductLeftPanel(BaseLeftTableWidget):
     def __init__(self, parent=None):
         labels = [
-            "상품 ID",        # 0
+            
             "브랜드 ID",      # 1
             "상품명",         # 2
             "바코드",         # 3
@@ -159,7 +166,9 @@ class ProductLeftPanel(BaseLeftTableWidget):
             "인센티브",       # 5
             "재고 수량",      # 6
             "박스당 수량",    # 7
-            "카테고리"       # 8
+            "카테고리",
+            "활성화여부",       # 8
+            "가격유형"
         ]
         super().__init__(row_count=len(labels), labels=labels, parent=parent)
          # ✅ "삭제" 버튼 추가 (BaseLeftTableWidget의 btn_layout에 추가)
@@ -170,31 +179,49 @@ class ProductLeftPanel(BaseLeftTableWidget):
         self.btn_new.clicked.connect(self.create_product)
         self.btn_edit.clicked.connect(self.update_product)
         self.btn_delete.clicked.connect(self.delete_product)
+
     def display_product(self, product):
         """
-        검색된 상품 정보를 왼쪽 패널에 표시하는 함수
+        검색된 상품 정보를 왼쪽 패널(테이블)에 표시하는 함수
         """
         if not hasattr(self, "table_info") or self.table_info is None:
             print("Error: table_info is None or deleted")
             return
 
         if not product:
-            # 검색 결과가 없으면 모든 칸 초기화
             for r in range(self.row_count):
                 self.set_value(r, "")
+            self.current_product_id = None  # ✅ 상품 ID 초기화
             return
 
-        # ✅ 상품 정보 표시 (id 및 brand_id 추가)
-        self.set_value(0, str(product.get("id", "")))  # 상품 ID
-        self.set_value(1, str(product.get("brand_id", "")))  # 브랜드 ID
-        self.set_value(2, product.get("product_name", ""))
-        self.set_value(3, product.get("barcode", ""))
-        self.set_value(4, str(product.get("default_price", "")))
-        self.set_value(5, str(product.get("incentive", "")))
-        self.set_value(6, str(product.get("stock", "")))
-        self.set_value(7, str(product.get("box_quantity", "")))
-        self.set_value(8, product.get("category", ""))
-        
+        # ✅ 상품 ID 저장 (수정 및 삭제 시 사용)
+        self.current_product_id = product.get("id", None)
+
+        # ✅ 브랜드 ID를 product 내부에서 가져오기
+        brand_id = product.get("brand_id", "미지정")  # ✅ brand_id를 직접 가져옴
+
+        # ✅ UI에 데이터 채우기
+        self.set_value(0, str(brand_id))  # 브랜드 ID
+        self.set_value(1, product.get("product_name", ""))
+        self.set_value(2, product.get("barcode", ""))
+        self.set_value(3, str(product.get("default_price", "")))
+        self.set_value(4, str(product.get("incentive", "")))
+        self.set_value(5, str(product.get("stock", "")))
+        self.set_value(6, str(product.get("box_quantity", "")))
+        self.set_value(7, product.get("category", "미지정"))  # ✅ 카테고리 기본값 설정
+
+        # ✅ 활성 여부 (`is_active`)는 테이블에 "활성" 또는 "비활성" 텍스트로 표시
+        is_active = product.get("is_active", 1)  # 기본값 1 (활성)
+        if isinstance(is_active, bool):  # boolean이면 변환
+            is_active = 1 if is_active else 0
+        self.set_value(8, "활성" if is_active == 1 else "비활성")  # ✅ 텍스트로 변환
+
+        # ✅ 가격 유형 (`is_fixed_price`)을 테이블에 표시
+        is_fixed_price = product.get("is_fixed_price", False)
+        self.set_value(9, "고정가" if is_fixed_price else "일반가")
+
+
+
     def create_product(self):
         """
         상품 신규 등록
@@ -215,7 +242,8 @@ class ProductLeftPanel(BaseLeftTableWidget):
                 "is_active": 1 if "1" in dialog.active_edit.currentText() else 0,
                 "incentive": float(dialog.incentive_edit.text() or 0),
                 "box_quantity": int(dialog.box_quantity_edit.text() or 1),
-                "category": dialog.category_edit.text()
+                "category": dialog.category_edit.text(),
+                "is_fixed_price": True if dialog.price_type_edit.currentIndex() == 1 else False  # ✅ 가격 유형 추가됨
             }
             resp = api_create_product(global_token, data)
             if resp and resp.status_code in (200, 201):
@@ -228,41 +256,44 @@ class ProductLeftPanel(BaseLeftTableWidget):
         상품 ID를 기준으로 수정
         """
         global global_token
-        product_id = self.get_value(0).strip()  # ✅ 상품 ID 가져오기
-        if not product_id:
-            QMessageBox.warning(self, "주의", "수정할 상품 ID가 없습니다.")
+        if not hasattr(self, "current_product_id") or not self.current_product_id:
+            QMessageBox.warning(self, "주의", "수정할 상품이 선택되지 않았습니다.")
             return
+
+        product_id = self.current_product_id  # ✅ 저장된 상품 ID 사용
 
         # ✅ 기존 상품 정보 불러오기
         current_product = {
-            "id": self.get_value(0),  # ✅ 상품 ID 유지
-            "brand_id": self.get_value(1),  # ✅ 브랜드 ID 유지
-            "product_name": self.get_value(2),
-            "barcode": self.get_value(3),
-            "default_price": self.get_value(4) or "0",
-            "incentive": self.get_value(5) or "0",
-            "stock": self.get_value(6) or "0",
-            "box_quantity": self.get_value(7) or "1",
-            "is_active": 1,
-            "category": self.get_value(8) or "",
-            
+            "brand_id": self.get_value(0),  # ✅ 기존 브랜드 ID 가져오기
+            "product_name": self.get_value(1),
+            "barcode": self.get_value(2),
+            "default_price": self.get_value(3) or "0",
+            "incentive": self.get_value(4) or "0",
+            "stock": self.get_value(5) or "0",
+            "box_quantity": self.get_value(6) or "1",
+            "category": self.get_value(7) or "",
+            "is_active": 1 if self.get_value(8) == "활성" else 0,  # ✅ 리스트 값 가져오기
+            "is_fixed_price": True if self.get_value(9) == "고정가" else False
         }
 
         # ✅ 상품 수정 다이얼로그 실행
         dialog = ProductDialog("상품 수정", product=current_product)
         if dialog.exec_() == QDialog.Accepted:
             try:
+                brand_id_text = dialog.brand_id_edit.text().strip()
+                brand_id = int(brand_id_text) if brand_id_text.isdigit() else None  # ✅ 브랜드 ID가 숫자인지 확인
+
                 data = {
-                    "id": int(product_id),  # ✅ 상품 ID 유지
+                    "brand_id": brand_id,
                     "product_name": dialog.name_edit.text().strip(),
                     "barcode": dialog.barcode_edit.text().strip(),
                     "default_price": float(dialog.price_edit.text().strip() or 0),
                     "stock": int(dialog.stock_edit.text().strip() or 0),
-                    "is_active": 1 if "1" in dialog.active_edit.currentText() else 0,
+                    "is_active": 1 if "1" in dialog.active_edit.currentText() else 0,  # ✅ 수정 다이얼로그에서 가져오기
                     "incentive": float(dialog.incentive_edit.text().strip() or 0),
                     "box_quantity": int(dialog.box_quantity_edit.text().strip() or 1),
                     "category": dialog.category_edit.text().strip(),
-                    "brand_id": int(dialog.brand_id_edit.text().strip() or 0)  # ✅ 브랜드 ID 유지
+                    "is_fixed_price": True if dialog.price_type_edit.currentIndex() == 1 else False
                 }
             except ValueError as e:
                 QMessageBox.critical(self, "오류", f"잘못된 입력값: {e}")
@@ -275,15 +306,17 @@ class ProductLeftPanel(BaseLeftTableWidget):
             else:
                 QMessageBox.critical(self, "실패", f"상품 수정 실패: {resp.status_code}\n{resp.text}")
 
+
     def delete_product(self):
         """
         상품 ID를 기준으로 삭제
         """
         global global_token
-        product_id = self.get_value(0).strip()  # ✅ 상품 ID 가져오기
-        if not product_id:
-            QMessageBox.warning(self, "주의", "삭제할 상품 ID가 없습니다.")
+        if not hasattr(self, "current_product_id") or not self.current_product_id:
+            QMessageBox.warning(self, "주의", "삭제할 상품이 선택되지 않았습니다.")
             return
+
+        product_id = self.current_product_id  # ✅ 저장된 상품 ID 사용
 
         reply = QMessageBox.question(
             self,
@@ -292,6 +325,7 @@ class ProductLeftPanel(BaseLeftTableWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
+
         if reply == QMessageBox.Yes:
             resp = api_delete_product_by_id(global_token, product_id)  # ✅ 상품 ID로 삭제 요청
             if resp and resp.status_code == 200:
@@ -299,6 +333,7 @@ class ProductLeftPanel(BaseLeftTableWidget):
                 # 삭제 후, 테이블 초기화
                 for r in range(self.row_count):
                     self.set_value(r, "")
+                self.current_product_id = None  # ✅ ID 초기화
             else:
                 QMessageBox.critical(self, "실패", f"상품 삭제 실패: {resp.status_code}\n{resp.text}")
 
@@ -376,49 +411,40 @@ class ProductsTab(QWidget):
             return
 
         try:
-            products = api_fetch_products(global_token, search_name=search_text)  # ✅ `dict` 반환 확인
-            if not isinstance(products, dict):  # ✅ `dict`인지 확인
+            # ✅ API 호출 및 응답 가져오기
+            response = api_fetch_products(global_token, search_name=search_text)
+
+            if not isinstance(response, dict):
                 QMessageBox.critical(self, "오류", "상품 목록 응답이 잘못되었습니다.")
                 return
 
-            self.left_widget.table_info.setRowCount(0)  
+            # ✅ 서버 응답을 리스트 형태로 변환
+            products = []
+            for category, items in response.items():  # ✅ 기존 category 키
+                if isinstance(items, list):
+                    for item in items:
+                        brand_id = item.get("brand_id", 0)  # ✅ API에서 brand_id 가져옴
+                        item["brand_id"] = brand_id  # ✅ 상품 데이터에 브랜드 ID 추가
+                        item["category"] = category  # ✅ API에서 내려온 category 값도 저장
+                        products.append(item)
 
-            for category, items in products.items():
-                row = self.left_widget.table_info.rowCount()
-                self.left_widget.table_info.insertRow(row)
-                category_item = QTableWidgetItem(category)
-                category_item.setFont(QFont("Arial", 9, QFont.Bold))
-                category_item.setTextAlignment(Qt.AlignCenter)
-                self.left_widget.table_info.setSpan(row, 0, 1, 3)
-                self.left_widget.table_info.setItem(row, 0, category_item)
+            if not products:
+                self.left_widget.display_product(None)
+                QMessageBox.information(self, "검색 결과", "검색 결과가 없습니다.")
+                return
 
-                for prod in items:
-                    row = self.left_widget.table_info.rowCount()
-                    self.left_widget.table_info.insertRow(row)
-                    self.left_widget.table_info.setItem(row, 0, QTableWidgetItem(str(prod.get("id", "N/A"))))
-                    self.left_widget.table_info.setItem(row, 1, QTableWidgetItem(prod.get("product_name", "Unknown")))
-                    self.left_widget.table_info.setItem(row, 2, QTableWidgetItem(prod.get("barcode", "-")))
+            # ✅ 검색어 포함된 상품 필터링
+            filtered_products = [p for p in products if "product_name" in p and search_text.lower() in p["product_name"].lower()]
+
+            if len(filtered_products) == 1:
+                # ✅ 검색 결과가 1개면 바로 표시
+                self.left_widget.display_product(filtered_products[0])
+            else:
+                # ✅ 여러 개일 경우 선택 다이얼로그 표시
+                dialog = ProductSelectionDialog(filtered_products, parent=self)
+                if dialog.exec_() == QDialog.Accepted and dialog.selected_product:
+                    self.left_widget.display_product(dialog.selected_product)
 
         except Exception as ex:
             QMessageBox.critical(self, "오류", str(ex))
-
-
-        # Filter products based on the keyword
-        filtered_products = [p for p in products if "product_name" in p and search_text.lower() in p["product_name"].lower()]
-
-        if not filtered_products:
-            self.left_widget.display_product(None)
-            QMessageBox.information(self, "검색 결과", "검색 결과가 없습니다.")
-            return
-
-        if len(filtered_products) == 1:
-            # 검색 결과가 1개면 자동 선택
-            self.left_widget.display_product(filtered_products[0])
-        else:
-            # 검색 결과가 여러 개일 경우 팝업 창 띄우기
-            dialog = ProductSelectionDialog(filtered_products, parent=self)
-            if dialog.exec_() == QDialog.Accepted and dialog.selected_product:
-                self.left_widget.display_product(dialog.selected_product)
-
-
 

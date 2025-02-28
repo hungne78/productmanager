@@ -10,7 +10,6 @@ from datetime import datetime
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
-
 from services.api_services import api_fetch_employees, api_create_employee, api_update_employee, api_delete_employee, \
     api_fetch_vehicle, get_auth_headers, api_create_vehicle, api_fetch_employee_vehicle_info
 from baselefttabwidget import BaseLeftTableWidget
@@ -22,7 +21,7 @@ class EmployeeDialog(QDialog):
     def __init__(self, title, employee=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setFixedSize(500, 300)
+        self.setFixedSize(500, 600)
 
         layout = QVBoxLayout()
         form_layout = QFormLayout()

@@ -1,14 +1,9 @@
 # app/models/products.py
-from sqlalchemy import Column, Integer, String, DECIMAL, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, DECIMAL, DateTime, ForeignKey, Boolean
 from datetime import datetime
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 
-class PriceType(str, Enum):
-    REGULAR = "일반가"
-    FIXED = "고정가"
-    SPECIAL = "특별가"
-    
 class Product(Base):
     __tablename__ = "products"
 
@@ -25,9 +20,10 @@ class Product(Base):
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
-    # ✅ Enum 정의 시 `Enum(*PriceType)`으로 값 목록 전달
-    price_type = Column(Enum(PriceType.REGULAR, PriceType.FIXED, PriceType.SPECIAL, name="price_type_enum"), default=PriceType.REGULAR)
+    # ✅ 상품의 가격 유형 (일반가 또는 고정가)
+    is_fixed_price = Column(Boolean, default=False)  # True면 고정가, False면 일반가
 
+    
     # ✅ 올바른 `back_populates` 매칭
     brand = relationship("Brand", back_populates="products")
 

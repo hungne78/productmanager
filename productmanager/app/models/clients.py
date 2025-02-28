@@ -14,6 +14,7 @@ class Client(Base):
     
     regular_price = Column(Float, nullable=True)  # 일반가
     fixed_price = Column(Float, nullable=True)    # 고정가
+    
     business_number = Column(String(50), nullable=True)
     email = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

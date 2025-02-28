@@ -43,7 +43,7 @@ class ClientDialog(QDialog):
     def __init__(self, title, client=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setFixedSize(350, 250)
+        self.setFixedSize(500, 600)
 
         layout = QVBoxLayout()
         form_layout = QFormLayout()
@@ -52,7 +52,8 @@ class ClientDialog(QDialog):
         self.address_edit = QLineEdit()
         self.phone_edit = QLineEdit()
         self.outstanding_edit = QLineEdit("0")
-        self.unit_price_edit = QLineEdit("35")
+        self.regular_price__edit = QLineEdit("35")
+        self.fixed_price_edit = QLineEdit("70")
         self.business_edit = QLineEdit()
         self.email_edit = QLineEdit()
         
@@ -60,7 +61,8 @@ class ClientDialog(QDialog):
         form_layout.addRow("주소:", self.address_edit)
         form_layout.addRow("전화번호:", self.phone_edit)
         form_layout.addRow("미수금:", self.outstanding_edit)
-        form_layout.addRow("거래처 단가:", self.unit_price_edit)
+        form_layout.addRow("일반가단단가:", self.regular_price__edit)
+        form_layout.addRow("고정가단단가:", self.fixed_price_edit)
         form_layout.addRow("사업자번호:", self.business_edit)
         form_layout.addRow("이메일:", self.email_edit)
 
@@ -83,7 +85,10 @@ class ClientDialog(QDialog):
             self.address_edit.setText(client.get("address", ""))
             self.phone_edit.setText(client.get("phone", ""))
             self.outstanding_edit.setText(str(client.get("outstanding_amount", "0")))
-            self.unit_price_edit.setText(str(client.get("unit_price", "0")))
+
+            self.regular_price__edit.setText(str(client.get("unit_price", "0")))
+            self.fixed_price_edit.setText(str(client.get("unit_price", "0")))
+
             self.business_edit.setText(client.get("business_number", ""))
             self.email_edit.setText(client.get("email", ""))
             
@@ -127,14 +132,15 @@ class ClientLeftPanel(BaseLeftTableWidget):
     """ 거래처 상세 정보 및 담당 직원 배정 기능 추가 """
 
     def __init__(self, parent=None):
-        # 이제 8행: 거래처ID, 거래처명, 주소, 전화번호, 미수금, 거래처단가, 사업자번호, 메일주소
+        # 이제 8행: 거래처ID, 거래처명, 주소, 전화번호, 미수금, 일반가단가, 고정가단가, 사업자번호, 메일주소
         labels = [
             "거래처ID",    # 0
             "거래처명",    # 1
             "주소",        # 2
             "전화번호",    # 3
             "미수금",      # 4
-            "거래처단가",  # 5
+            "일반가단가", 
+            "고정가단가",
             "사업자번호",  # 6
             "메일주소"     # 7
         ]
@@ -341,9 +347,10 @@ class ClientLeftPanel(BaseLeftTableWidget):
         self.set_value(2, client.get("address", ""))
         self.set_value(3, client.get("phone", ""))
         self.set_value(4, str(client.get("outstanding_amount", "")))
-        self.set_value(5, str(client.get("unit_price", "")))
-        self.set_value(6, client.get("business_number", ""))
-        self.set_value(7, client.get("email", ""))
+        self.set_value(5, str(client.get("regular_price", "")))
+        self.set_value(6, str(client.get("fixed_price", "")))
+        self.set_value(7, client.get("business_number", ""))
+        self.set_value(8, client.get("email", ""))
         # ✅ 거래처 ID가 있을 경우 담당 직원 목록을 불러옴
         client_id = client.get("id")
         if client_id:
@@ -365,7 +372,8 @@ class ClientLeftPanel(BaseLeftTableWidget):
                 "address": dialog.address_edit.text(),
                 "phone": dialog.phone_edit.text(),
                 "outstanding_amount": float(dialog.outstanding_edit.text() or 0),
-                "unit_price": float(dialog.unit_price_edit.text() or 0),
+                "regular_price": float(dialog.regular_price__edit.text() or 0),
+                "fixed_price": float(dialog.fixed_price_edit.text() or 0),
                 "business_number": dialog.business_edit.text(),
                 "email": dialog.email_edit.text(),
             }
@@ -391,9 +399,10 @@ class ClientLeftPanel(BaseLeftTableWidget):
             "address": self.get_value(2),
             "phone": self.get_value(3),
             "outstanding_amount": self.get_value(4),
-            "unit_price": self.get_value(5),
-            "business_number": self.get_value(6),
-            "email": self.get_value(7),
+            "regular_price": self.get_value(5),
+            "fixed_price": self.get_value(6),
+            "business_number": self.get_value(7),
+            "email": self.get_value(8),
         }
         
         dialog = ClientDialog("거래처 수정", client=current_client)
@@ -403,7 +412,8 @@ class ClientLeftPanel(BaseLeftTableWidget):
                 "address": dialog.address_edit.text(),
                 "phone": dialog.phone_edit.text(),
                 "outstanding_amount": float(dialog.outstanding_edit.text() or 0),
-                "unit_price": float(dialog.unit_price_edit.text() or 0),
+                "regular_price": float(dialog.regular_price__edit.text() or 35),
+                "fixed_price": float(dialog.fixed_price_edit.text() or 70),
                 "business_number": dialog.business_edit.text(),
                 "email": dialog.email_edit.text(),
             }

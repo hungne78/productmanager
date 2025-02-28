@@ -66,22 +66,22 @@ def update_client(client_id: int, payload: ClientCreate, db: Session = Depends(g
     """
     거래처 정보 수정
     """
-    client = db.query(Client).get(client_id)
-    if not client:
+    db_client = db.query(Client).filter(Client.id == client_id).first()
+    if not db_client:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    client.client_name = payload.client_name
-    client.address = payload.address
-    client.phone = payload.phone
-    client.outstanding_amount = payload.outstanding_amount  # 미수금 업데이트 추가
-    client.regular_price = payload.regular_price  # 거래처 단가 업데이트
-    client.fixed_price = payload.fixed_price 
-    client.business_number = payload.business_number  # 사업자번호 업데이트
-    client.email = payload.email  # 메일주소 업데이트
+    db_client.client_name = payload.client_name
+    db_client.address = payload.address
+    db_client.phone = payload.phone
+    db_client.outstanding_amount = payload.outstanding_amount  # 미수금 업데이트 추가
+    db_client.regular_price = payload.regular_price  # 거래처 단가 업데이트
+    db_client.fixed_price = payload.fixed_price 
+    db_client.business_number = payload.business_number  # 사업자번호 업데이트
+    db_client.email = payload.email  # 메일주소 업데이트
 
     db.commit()
-    db.refresh(client)
-    return client
+    db.refresh(db_client)
+    return db_client
 
 @router.delete("/{client_id}")
 def delete_client(client_id: int, db: Session = Depends(get_db)):

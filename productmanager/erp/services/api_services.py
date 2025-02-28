@@ -189,6 +189,8 @@ def api_create_client(token, data):
         print(f"❌ 거래처 추가 실패: {e}")
         return None
 
+import requests
+
 def api_update_client(token, client_id, data):
     """
     거래처 정보를 업데이트하는 API 요청 함수
@@ -201,11 +203,26 @@ def api_update_client(token, client_id, data):
 
     try:
         resp = requests.put(url, json=data, headers=headers)
+
+        # ✅ 응답 상태 코드 출력
+        print(f"📡 요청 URL: {url}")
+        print(f"📡 요청 데이터: {data}")
+        print(f"📡 응답 코드: {resp.status_code}")
+        print(f"📡 응답 본문: {resp.text}")
+
         resp.raise_for_status()
         return resp
-    except requests.RequestException as e:
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ HTTP 오류 발생: {e}")
+    except requests.exceptions.ConnectionError as e:
+        print("❌ 서버에 연결할 수 없습니다.")
+    except requests.exceptions.Timeout as e:
+        print("❌ 요청 시간이 초과되었습니다.")
+    except requests.exceptions.RequestException as e:
         print(f"❌ 거래처 업데이트 실패: {e}")
-        return None
+
+    return None
+
 
 def api_delete_client(token, client_id):
     """ 특정 거래처 삭제 요청 """
@@ -272,45 +289,146 @@ def api_update_product_by_name(token, product_name, data):
     url = f"{BASE_URL}/products/name/{product_name}"  # ✅ 상품명으로 업데이트 요청
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     return requests.put(url, json=data, headers=headers)
-def api_fetch_products():
-    """ 전체 상품 목록 조회 """
+
+
+
+def api_fetch_products(token, search_name=None):
+    """ 상품 목록을 가져오는 API 요청 함수 (이름 검색 가능) """
+    url = f"{BASE_URL}/products/"
+    
+    # ✅ 검색어가 있으면 URL에 `?search=이름` 추가
+    if search_name:
+        url += f"?search={search_name}"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
     try:
-        response = requests.get(f"{BASE_URL}/products/", headers=HEADERS)
+        print("📡 [상품 목록 조회 요청]")  # ✅ 디버깅 로그 추가
+        print(f"📡 요청 URL: {url}")
+
+        response = requests.get(url, headers=headers)
+
+        print(f"📡 응답 코드: {response.status_code}")  # ✅ 응답 코드 확인
+        print(f"📡 응답 본문: {response.text}")  # ✅ 응답 본문 출력
+
         response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
+        return response.json()  # ✅ JSON 데이터 반환
+
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ HTTP 오류 발생: {e}")
+    except requests.exceptions.ConnectionError as e:
+        print("❌ 서버에 연결할 수 없습니다.")
+    except requests.exceptions.Timeout as e:
+        print("❌ 요청 시간이 초과되었습니다.")
+    except requests.exceptions.RequestException as e:
         print(f"❌ 상품 목록 조회 실패: {e}")
-        return []
 
-def api_create_product(data):
-    """ 상품 추가 """
+    return {}  # ✅ 실패 시 빈 `dict` 반환하여 오류 방지
+
+
+
+
+
+def api_create_product(token, data):
+    """ 상품 추가 API 요청 함수 """
+    url = f"{BASE_URL}/products/"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
     try:
-        response = requests.post(f"{BASE_URL}/products/", json=data, headers=HEADERS)
+        print("📡 [상품 등록 요청]")  # ✅ 디버깅 로그 추가
+        print(f"📡 요청 URL: {url}")
+        print(f"📡 요청 데이터: {data}")
+
+        response = requests.post(url, json=data, headers=headers)
+
+        print(f"📡 응답 코드: {response.status_code}")  # ✅ 응답 코드 확인
+        print(f"📡 응답 본문: {response.text}")  # ✅ 응답 본문 출력
+
         response.raise_for_status()
         return response
-    except requests.RequestException as e:
+
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ HTTP 오류 발생: {e}")
+    except requests.exceptions.ConnectionError as e:
+        print("❌ 서버에 연결할 수 없습니다.")
+    except requests.exceptions.Timeout as e:
+        print("❌ 요청 시간이 초과되었습니다.")
+    except requests.exceptions.RequestException as e:
         print(f"❌ 상품 추가 실패: {e}")
-        return None
 
-def api_update_product(product_id, data):
-    """ 상품 정보 수정 """
+    return None
+
+
+
+def api_update_product(token, product_id, data):
+    """ 상품 정보 수정 API 요청 함수 """
+    url = f"{BASE_URL}/products/{product_id}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
     try:
-        response = requests.put(f"{BASE_URL}/products/{product_id}", json=data, headers=HEADERS)
+        print("📡 [상품 수정 요청]")  # ✅ 디버깅 로그 추가
+        print(f"📡 요청 URL: {url}")
+        print(f"📡 요청 데이터: {data}")
+
+        response = requests.put(url, json=data, headers=headers)
+
+        print(f"📡 응답 코드: {response.status_code}")  # ✅ 응답 코드 확인
+        print(f"📡 응답 본문: {response.text}")  # ✅ 응답 본문 출력
+
         response.raise_for_status()
         return response
-    except requests.RequestException as e:
+
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ HTTP 오류 발생: {e}")
+    except requests.exceptions.ConnectionError as e:
+        print("❌ 서버에 연결할 수 없습니다.")
+    except requests.exceptions.Timeout as e:
+        print("❌ 요청 시간이 초과되었습니다.")
+    except requests.exceptions.RequestException as e:
         print(f"❌ 상품 수정 실패: {e}")
-        return None
 
-def api_delete_product(product_id):
-    """ 상품 삭제 """
+    return None
+
+
+
+def api_delete_product(token, product_id):
+    """ 상품 삭제 API 요청 함수 """
+    url = f"{BASE_URL}/products/{product_id}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
     try:
-        response = requests.delete(f"{BASE_URL}/products/{product_id}", headers=HEADERS)
+        print(f"📡 [상품 삭제 요청] ID: {product_id}")  # ✅ 디버깅 로그 추가
+        response = requests.delete(url, headers=headers)
+
+        print(f"📡 응답 코드: {response.status_code}")  # ✅ 응답 코드 확인
+        print(f"📡 응답 본문: {response.text}")  # ✅ 응답 본문 출력
+
         response.raise_for_status()
         return response
-    except requests.RequestException as e:
+
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ HTTP 오류 발생: {e}")
+    except requests.exceptions.ConnectionError as e:
+        print("❌ 서버에 연결할 수 없습니다.")
+    except requests.exceptions.Timeout as e:
+        print("❌ 요청 시간이 초과되었습니다.")
+    except requests.exceptions.RequestException as e:
         print(f"❌ 상품 삭제 실패: {e}")
-        return None
+
+    return None
+
 
 # 직원방문지도탭
 def api_fetch_employee_visits(employee_id):

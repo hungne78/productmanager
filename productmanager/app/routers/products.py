@@ -1,13 +1,14 @@
 # app/routers/products.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.models.products import Product
-from app.schemas.products import ProductCreate, ProductOut
+from app.schemas.products import ProductCreate, ProductOut, ProductResponse, ProductUpdate
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from typing import Optional
+from datetime import datetime
 router = APIRouter()
 
 @router.post("/", response_model=ProductOut)
@@ -21,7 +22,8 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
         is_active=payload.is_active,
         incentive=payload.incentive,
         box_quantity=payload.box_quantity,  # ✅ 박스당 개수 추가
-        category=payload.category  # ✅ 상품 분류 추가
+        category=payload.category,  # ✅ 상품 분류 추가
+        is_fixed_price=payload.is_fixed_price
     )
     db.add(new_product)
     db.commit()
@@ -31,12 +33,31 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
 
 from collections import defaultdict
 
+@router.put("/{product_id}", response_model=ProductOut)
+def update_product(product_id: int, payload: ProductCreate, db: Session = Depends(get_db)):
+    product = db.query(Product).get(product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
 
-@router.get("/all", response_model=list[ProductOut])
-def list_all_products(db: Session = Depends(get_db)):
-    return db.query(Product).all()
+    product.brand_id = payload.brand_id
+    product.product_name = payload.product_name
+    product.barcode = payload.barcode
+    product.default_price = payload.default_price
+    product.stock = payload.stock
+    product.is_active = payload.is_active
+    product.incentive = payload.incentive
+    product.box_quantity = payload.box_quantity
+    product.category = payload.category
+    product.is_fixed_price = payload.is_fixed_price
+    product.updated_at = datetime.utcnow()  # ✅ 업데이트 시간 갱신
 
-@router.get("/", response_model=dict)  # ✅ 상품 검색 및 필터링
+    db.commit()
+    db.refresh(product)
+
+    return ProductOut.model_validate(product)  # ✅ `model_validate`를 사용하여 자동 변환
+
+
+@router.get("/", response_model=dict)
 def get_products(
     brand_id: Optional[int] = None,
     name: Optional[str] = None,
@@ -60,13 +81,15 @@ def get_products(
         category = product.category or "미분류"
         categorized_products[category].append({
             "id": product.id,
+            "brand_id": product.brand_id,
             "product_name": product.product_name,
             "barcode": product.barcode,
             "default_price": product.default_price,
             "stock": product.stock,
             "is_active": product.is_active,
             "incentive": product.incentive,
-            "box_quantity": product.box_quantity
+            "box_quantity": product.box_quantity,
+            "is_fixed_price": product.is_fixed_price  # ✅ 가격 유형 추가
         })
     return categorized_products
 
@@ -89,7 +112,7 @@ def update_product_by_id(product_id: int, payload: ProductCreate, db: Session = 
     product.box_quantity = payload.box_quantity
     product.category = payload.category
     product.brand_id = payload.brand_id  # ✅ 브랜드 ID 유지
-
+    product.is_fixed_price = payload.is_fixed_price 
     db.commit()
     db.refresh(product)
     return product
@@ -151,3 +174,32 @@ def update_product_stock(product_id: int, stock_increase: int, db: Session = Dep
 #     """
 #     products = db.query(Product).all()
 #     return products
+@router.get("/all", response_model=list[ProductOut])
+def list_all_products(db: Session = Depends(get_db)):
+    return db.query(Product).all()
+
+@router.get("/", response_model=dict)
+def fetch_products(search: str = Query(None), db: Session = Depends(get_db)):
+    """
+    상품 목록 조회 (이름 검색 포함)
+    """
+    query = db.query(Product)
+
+    if search:
+        query = query.filter(Product.product_name.ilike(f"%{search}%"))
+
+    products = query.all()
+
+    # ✅ 카테고리별로 상품을 그룹화하여 반환
+    result = {}
+    for product in products:
+        category = product.category or "기타"
+        if category not in result:
+            result[category] = []
+        result[category].append({
+            "id": product.id,
+            "product_name": product.product_name,
+            "barcode": product.barcode,
+        })
+
+    return result

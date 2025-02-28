@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     # --- STARTUP LOGIC ---
     # print("Registered tables before DB creation:", Base.metadata.tables.keys())
 
-    Base.metadata.drop_all(bind=engine)  # ✅ 기존 테이블 삭제
+    # Base.metadata.drop_all(bind=engine)  # ✅ 기존 테이블 삭제
     Base.metadata.create_all(bind=engine)  # ✅ 테이블 재생성
 
     # print("Registered tables after DB creation:", Base.metadata.tables.keys()) 
