@@ -20,7 +20,8 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
         address=payload.address,
         phone=payload.phone,
         outstanding_amount=payload.outstanding_amount,
-        unit_price=payload.unit_price,  # 거래처 단가 추가
+        regular_price=payload.regular_price,  # ✅ 일반가
+        fixed_price=payload.fixed_price,      # ✅ 고정가  # 거래처 단가 추가
         business_number=payload.business_number,  # 사업자번호 추가
         email=payload.email  # 메일주소 추가
     )
@@ -73,7 +74,8 @@ def update_client(client_id: int, payload: ClientCreate, db: Session = Depends(g
     client.address = payload.address
     client.phone = payload.phone
     client.outstanding_amount = payload.outstanding_amount  # 미수금 업데이트 추가
-    client.unit_price = payload.unit_price  # 거래처 단가 업데이트
+    client.regular_price = payload.regular_price  # 거래처 단가 업데이트
+    client.fixed_price = payload.fixed_price 
     client.business_number = payload.business_number  # 사업자번호 업데이트
     client.email = payload.email  # 메일주소 업데이트
 

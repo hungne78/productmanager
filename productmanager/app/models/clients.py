@@ -11,7 +11,9 @@ class Client(Base):
     address = Column(String(255))
     phone = Column(String(50))
     outstanding_amount = Column(DECIMAL(10,2), default=0)
-    unit_price = Column(Float, nullable=True)
+    
+    regular_price = Column(Float, nullable=True)  # 일반가
+    fixed_price = Column(Float, nullable=True)    # 고정가
     business_number = Column(String(50), nullable=True)
     email = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -28,3 +30,8 @@ class Client(Base):
     sales_records = relationship("SalesRecord", back_populates="client")
     client_product_prices = relationship("ClientProductPrice", back_populates="client")
     lents = relationship("Lent", back_populates="client")
+    
+    # ✅ `overlaps="employee_clients"` 추가하여 중복 관계 해결
+    employees = relationship("Employee", secondary="employee_clients", back_populates="clients", overlaps="employee_clients")
+
+

@@ -9,7 +9,8 @@ class ClientCreate(BaseModel):
     address: Optional[str] = None
     phone: Optional[str] = None
     outstanding_amount: float = 0  # 기본값 0
-    unit_price: Optional[float] = None
+    regular_price: Optional[float] = None  # ✅ 일반가
+    fixed_price: Optional[float] = None    # ✅ 고정가
     business_number: Optional[str] = None
     email: Optional[str] = None
     
@@ -19,7 +20,8 @@ class ClientOut(BaseModel):
     address: Optional[str]
     phone: Optional[str]
     outstanding_amount: float
-    unit_price: Optional[float] = None
+    regular_price: Optional[float] = None  # ✅ 일반가
+    fixed_price: Optional[float] = None    # ✅ 고정가
     business_number: Optional[str] = None
     email: Optional[str] = None
     created_at: datetime

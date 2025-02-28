@@ -260,6 +260,18 @@ def api_fetch_employee_clients_all(token):
 
 
 # 🔹 상품 관련 API 함수들
+def api_update_product_by_id(token, product_id, data):
+    url = f"{BASE_URL}/products/{product_id}"  # ✅ 상품 ID로 업데이트 요청
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    return requests.put(url, json=data, headers=headers)
+def api_delete_product_by_id(token, product_id):
+    url = f"{BASE_URL}/products/{product_id}"  # ✅ 상품 ID로 삭제 요청
+    headers = {"Authorization": f"Bearer {token}"}
+    return requests.delete(url, headers=headers)
+def api_update_product_by_name(token, product_name, data):
+    url = f"{BASE_URL}/products/name/{product_name}"  # ✅ 상품명으로 업데이트 요청
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    return requests.put(url, json=data, headers=headers)
 def api_fetch_products():
     """ 전체 상품 목록 조회 """
     try:

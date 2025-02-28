@@ -1,115 +1,306 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
-    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
+    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QDialog, QVBoxLayout, QListWidget, QComboBox, QGroupBox
 import sys
 import os
 
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from services.api_services import api_fetch_products, api_create_product, api_update_product, api_delete_product
+from services.api_services import api_fetch_products, api_create_product, api_update_product, api_delete_product, get_auth_headers, api_delete_product_by_id, api_update_product_by_id, api_update_product_by_id
+from baselefttabwidget import BaseLeftTableWidget
+from PyQt5.QtGui import QFont
+from PyQt5.QtCore import Qt
+global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
+class ProductDialog(QDialog):
+    def __init__(self, title, product=None, parent=None):
+        """
+        상품 등록 및 수정 다이얼로그
+        :param title: 다이얼로그 제목 ("신규 상품 등록" or "상품 수정")
+        :param product: 기존 상품 정보 (수정 시)
+        """
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setFixedSize(400, 350)
 
-class ProductLeftPanel(QWidget):
-    """ 상품 상세 정보 및 조작 패널 (왼쪽 패널) """
-
-    def __init__(self):
-        super().__init__()
-        self.init_ui()
-
-    def init_ui(self):
         layout = QVBoxLayout()
-
         form_layout = QFormLayout()
-        self.id_edit = QLineEdit()
+
+        # ✅ 브랜드 ID (숫자 입력)
+        self.brand_id_edit = QLineEdit()
+        form_layout.addRow("브랜드 ID:", self.brand_id_edit)
+
+        # ✅ 상품명
         self.name_edit = QLineEdit()
-        self.barcode_edit = QLineEdit()
-        self.price_edit = QLineEdit()
-        self.stock_edit = QLineEdit()
-
-        form_layout.addRow("ID:", self.id_edit)
         form_layout.addRow("상품명:", self.name_edit)
-        form_layout.addRow("바코드:", self.barcode_edit)
-        form_layout.addRow("가격:", self.price_edit)
-        form_layout.addRow("재고:", self.stock_edit)
 
-        self.id_edit.setReadOnly(True)  # ID는 수정 불가
+        # ✅ 바코드
+        self.barcode_edit = QLineEdit()
+        form_layout.addRow("바코드:", self.barcode_edit)
+
+        # ✅ 기본 가격
+        self.price_edit = QLineEdit()
+        form_layout.addRow("기본 가격:", self.price_edit)
+
+        # ✅ 인센티브
+        self.incentive_edit = QLineEdit()
+        form_layout.addRow("인센티브:", self.incentive_edit)
+
+        # ✅ 재고 수량
+        self.stock_edit = QLineEdit()
+        form_layout.addRow("재고 수량:", self.stock_edit)
+
+        # ✅ 박스당 수량
+        self.box_quantity_edit = QLineEdit()
+        form_layout.addRow("박스당 수량:", self.box_quantity_edit)
+
+        # ✅ 활성 여부 (1: 활성, 0: 비활성)
+        self.active_edit = QComboBox()
+        self.active_edit.addItems(["1 - 활성", "0 - 비활성"])
+        form_layout.addRow("활성 여부:", self.active_edit)
+
+        # ✅ 카테고리
+        self.category_edit = QLineEdit()
+        form_layout.addRow("카테고리:", self.category_edit)
 
         layout.addLayout(form_layout)
 
-        self.btn_add = QPushButton("신규 등록")
-        self.btn_edit = QPushButton("수정")
-        self.btn_delete = QPushButton("삭제")
-
-        layout.addWidget(self.btn_add)
-        layout.addWidget(self.btn_edit)
-        layout.addWidget(self.btn_delete)
-
-        self.btn_add.clicked.connect(self.add_product)
-        self.btn_edit.clicked.connect(self.edit_product)
-        self.btn_delete.clicked.connect(self.delete_product)
+        # ✅ 버튼 추가
+        btn_layout = QHBoxLayout()
+        self.ok_button = QPushButton("확인")
+        self.cancel_button = QPushButton("취소")
+        btn_layout.addWidget(self.ok_button)
+        btn_layout.addWidget(self.cancel_button)
+        layout.addLayout(btn_layout)
 
         self.setLayout(layout)
 
+        # ✅ 버튼 이벤트 연결
+        self.ok_button.clicked.connect(self.accept)
+        self.cancel_button.clicked.connect(self.reject)
+
+        # ✅ 기존 상품 정보가 있으면 값 채우기 (수정 모드)
+        if product:
+            self.brand_id_edit.setText(str(product.get("brand_id", "")))
+            self.name_edit.setText(product.get("product_name", ""))
+            self.barcode_edit.setText(product.get("barcode", ""))
+            self.price_edit.setText(str(product.get("default_price", "0")))
+            self.incentive_edit.setText(str(product.get("incentive", "0")))
+            self.stock_edit.setText(str(product.get("stock", "0")))
+            self.box_quantity_edit.setText(str(product.get("box_quantity", "1")))
+            self.active_edit.setCurrentIndex(0 if product.get("is_active", 1) == 1 else 1)
+            self.category_edit.setText(product.get("category", ""))
+
+class ProductSelectionDialog(QDialog):
+    def __init__(self, products, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("상품 검색 결과")
+        self.resize(300, 400)
+        self.products = products  # 상품 목록 (dict 리스트)
+        self.selected_product = None
+
+        layout = QVBoxLayout(self)
+        self.list_widget = QListWidget()
+
+        # "ID - 상품명" 형식으로 리스트 추가
+        for product in products:
+            display_text = f"{product.get('id')} - {product.get('product_name')}"
+            self.list_widget.addItem(display_text)
+        layout.addWidget(self.list_widget)
+
+        btn_layout = QHBoxLayout()
+        self.ok_button = QPushButton("선택")
+        self.cancel_button = QPushButton("취소")
+        btn_layout.addWidget(self.ok_button)
+        btn_layout.addWidget(self.cancel_button)
+        layout.addLayout(btn_layout)
+
+        self.ok_button.clicked.connect(self.on_ok)
+        self.cancel_button.clicked.connect(self.reject)
+
+    def on_ok(self):
+        selected_items = self.list_widget.selectedItems()
+        if selected_items:
+            index = self.list_widget.row(selected_items[0])
+            self.selected_product = self.products[index]
+            self.accept()
+        else:
+            QMessageBox.warning(self, "선택", "상품을 선택해주세요.")
+
+class ProductRightPanel(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout()
+
+        # 향후 상품 관련 데이터 및 통계를 표시할 공간
+        self.box1 = QGroupBox("상품 매출 통계")
+        self.label1 = QLabel("여기에 상품별 매출 분석을 표시할 예정")
+        layout.addWidget(self.box1)
+        self.box1_layout = QVBoxLayout()
+        self.box1_layout.addWidget(self.label1)
+        self.box1.setLayout(self.box1_layout)
+
+        self.box2 = QGroupBox("상품 재고 현황")
+        self.label2 = QLabel("여기에 상품 재고 데이터를 표시할 예정")
+        layout.addWidget(self.box2)
+        self.box2_layout = QVBoxLayout()
+        self.box2_layout.addWidget(self.label2)
+        self.box2.setLayout(self.box2_layout)
+
+        self.setLayout(layout)            
+                        
+class ProductLeftPanel(BaseLeftTableWidget):
+    def __init__(self, parent=None):
+        labels = [
+            "상품 ID",        # 0
+            "브랜드 ID",      # 1
+            "상품명",         # 2
+            "바코드",         # 3
+            "기본 가격",      # 4
+            "인센티브",       # 5
+            "재고 수량",      # 6
+            "박스당 수량",    # 7
+            "카테고리"       # 8
+        ]
+        super().__init__(row_count=len(labels), labels=labels, parent=parent)
+         # ✅ "삭제" 버튼 추가 (BaseLeftTableWidget의 btn_layout에 추가)
+        self.btn_delete = QPushButton("삭제")
+        self.layout().itemAt(1).layout().addWidget(self.btn_delete)
+
+        # ✅ 버튼 클릭 이벤트 연결
+        self.btn_new.clicked.connect(self.create_product)
+        self.btn_edit.clicked.connect(self.update_product)
+        self.btn_delete.clicked.connect(self.delete_product)
     def display_product(self, product):
-        """ 검색된 상품 정보를 왼쪽 패널에 표시 """
-        self.id_edit.setText(str(product.get("id", "")))
-        self.name_edit.setText(product.get("product_name", ""))
-        self.barcode_edit.setText(product.get("barcode", ""))
-        self.price_edit.setText(str(product.get("default_price", 0)))
-        self.stock_edit.setText(str(product.get("stock", 0)))
-
-    def add_product(self):
-        name = self.name_edit.text().strip()
-        barcode = self.barcode_edit.text().strip()
-        price = self.price_edit.text().strip()
-        stock = self.stock_edit.text().strip()
-
-        if not name:
-            QMessageBox.warning(self, "경고", "상품명을 입력하세요.")
+        """
+        검색된 상품 정보를 왼쪽 패널에 표시하는 함수
+        """
+        if not hasattr(self, "table_info") or self.table_info is None:
+            print("Error: table_info is None or deleted")
             return
 
-        data = {
-            "product_name": name,
-            "barcode": barcode,
-            "default_price": float(price or 0),
-            "stock": int(stock or 0)
-        }
-        response = api_create_product(data)
-        if response and response.status_code in [200, 201]:
-            QMessageBox.information(self, "성공", "상품이 추가되었습니다.")
+        if not product:
+            # 검색 결과가 없으면 모든 칸 초기화
+            for r in range(self.row_count):
+                self.set_value(r, "")
+            return
 
-    def edit_product(self):
-        product_id = self.id_edit.text().strip()
-        name = self.name_edit.text().strip()
-        barcode = self.barcode_edit.text().strip()
-        price = self.price_edit.text().strip()
-        stock = self.stock_edit.text().strip()
+        # ✅ 상품 정보 표시 (id 및 brand_id 추가)
+        self.set_value(0, str(product.get("id", "")))  # 상품 ID
+        self.set_value(1, str(product.get("brand_id", "")))  # 브랜드 ID
+        self.set_value(2, product.get("product_name", ""))
+        self.set_value(3, product.get("barcode", ""))
+        self.set_value(4, str(product.get("default_price", "")))
+        self.set_value(5, str(product.get("incentive", "")))
+        self.set_value(6, str(product.get("stock", "")))
+        self.set_value(7, str(product.get("box_quantity", "")))
+        self.set_value(8, product.get("category", ""))
+        
+    def create_product(self):
+        """
+        상품 신규 등록
+        """
+        global global_token
+        if not global_token:
+            QMessageBox.warning(self, "경고", "로그인이 필요합니다.")
+            return
 
+        dialog = ProductDialog("신규 상품 등록")  # ✅ `ProductDialog` 사용
+        if dialog.exec_() == QDialog.Accepted:
+            data = {
+                "brand_id": int(dialog.brand_id_edit.text() or 0),
+                "product_name": dialog.name_edit.text(),
+                "barcode": dialog.barcode_edit.text(),
+                "default_price": float(dialog.price_edit.text() or 0),
+                "stock": int(dialog.stock_edit.text() or 0),
+                "is_active": 1 if "1" in dialog.active_edit.currentText() else 0,
+                "incentive": float(dialog.incentive_edit.text() or 0),
+                "box_quantity": int(dialog.box_quantity_edit.text() or 1),
+                "category": dialog.category_edit.text()
+            }
+            resp = api_create_product(global_token, data)
+            if resp and resp.status_code in (200, 201):
+                QMessageBox.information(self, "성공", "상품 등록 완료!")
+            else:
+                QMessageBox.critical(self, "실패", f"상품 등록 실패: {resp.status_code}\n{resp.text}")
+        
+    def update_product(self):
+        """
+        상품 ID를 기준으로 수정
+        """
+        global global_token
+        product_id = self.get_value(0).strip()  # ✅ 상품 ID 가져오기
         if not product_id:
-            QMessageBox.warning(self, "경고", "수정할 상품을 선택하세요.")
+            QMessageBox.warning(self, "주의", "수정할 상품 ID가 없습니다.")
             return
 
-        data = {
-            "product_name": name,
-            "barcode": barcode,
-            "default_price": float(price or 0),
-            "stock": int(stock or 0)
+        # ✅ 기존 상품 정보 불러오기
+        current_product = {
+            "id": self.get_value(0),  # ✅ 상품 ID 유지
+            "brand_id": self.get_value(1),  # ✅ 브랜드 ID 유지
+            "product_name": self.get_value(2),
+            "barcode": self.get_value(3),
+            "default_price": self.get_value(4) or "0",
+            "incentive": self.get_value(5) or "0",
+            "stock": self.get_value(6) or "0",
+            "box_quantity": self.get_value(7) or "1",
+            "is_active": 1,
+            "category": self.get_value(8) or "",
+            
         }
-        response = api_update_product(product_id, data)
-        if response and response.status_code == 200:
-            QMessageBox.information(self, "성공", "상품 정보가 수정되었습니다.")
+
+        # ✅ 상품 수정 다이얼로그 실행
+        dialog = ProductDialog("상품 수정", product=current_product)
+        if dialog.exec_() == QDialog.Accepted:
+            try:
+                data = {
+                    "id": int(product_id),  # ✅ 상품 ID 유지
+                    "product_name": dialog.name_edit.text().strip(),
+                    "barcode": dialog.barcode_edit.text().strip(),
+                    "default_price": float(dialog.price_edit.text().strip() or 0),
+                    "stock": int(dialog.stock_edit.text().strip() or 0),
+                    "is_active": 1 if "1" in dialog.active_edit.currentText() else 0,
+                    "incentive": float(dialog.incentive_edit.text().strip() or 0),
+                    "box_quantity": int(dialog.box_quantity_edit.text().strip() or 1),
+                    "category": dialog.category_edit.text().strip(),
+                    "brand_id": int(dialog.brand_id_edit.text().strip() or 0)  # ✅ 브랜드 ID 유지
+                }
+            except ValueError as e:
+                QMessageBox.critical(self, "오류", f"잘못된 입력값: {e}")
+                return
+
+            # ✅ 상품 ID로 업데이트 요청
+            resp = api_update_product_by_id(global_token, product_id, data)
+            if resp and resp.status_code == 200:
+                QMessageBox.information(self, "성공", "상품 수정 완료!")
+            else:
+                QMessageBox.critical(self, "실패", f"상품 수정 실패: {resp.status_code}\n{resp.text}")
 
     def delete_product(self):
-        product_id = self.id_edit.text().strip()
+        """
+        상품 ID를 기준으로 삭제
+        """
+        global global_token
+        product_id = self.get_value(0).strip()  # ✅ 상품 ID 가져오기
         if not product_id:
-            QMessageBox.warning(self, "경고", "삭제할 상품을 선택하세요.")
+            QMessageBox.warning(self, "주의", "삭제할 상품 ID가 없습니다.")
             return
 
-        confirm = QMessageBox.question(self, "삭제 확인", f"정말 상품 ID {product_id}를 삭제하시겠습니까?",
-                                       QMessageBox.Yes | QMessageBox.No)
-        if confirm == QMessageBox.Yes:
-            response = api_delete_product(product_id)
-            if response and response.status_code == 200:
-                QMessageBox.information(self, "성공", "상품이 삭제되었습니다.")
+        reply = QMessageBox.question(
+            self,
+            "상품 삭제 확인",
+            f"정말 상품 ID {product_id}를 삭제하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            resp = api_delete_product_by_id(global_token, product_id)  # ✅ 상품 ID로 삭제 요청
+            if resp and resp.status_code == 200:
+                QMessageBox.information(self, "성공", f"상품 ID {product_id} 삭제 완료!")
+                # 삭제 후, 테이블 초기화
+                for r in range(self.row_count):
+                    self.set_value(r, "")
+            else:
+                QMessageBox.critical(self, "실패", f"상품 삭제 실패: {resp.status_code}\n{resp.text}")
 
 
 class ProductRightPanel(QWidget):
@@ -120,7 +311,7 @@ class ProductRightPanel(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout()
+        layout = QHBoxLayout()
 
         self.stock_table = QTableWidget()
         self.stock_table.setColumnCount(2)
@@ -159,34 +350,75 @@ class ProductRightPanel(QWidget):
 
 
 class ProductsTab(QWidget):
-    """ 상품 관리 메인 탭 """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        main_layout = QHBoxLayout()
 
-    def __init__(self):
-        super().__init__()
-        self.init_ui()
+        # 왼쪽 패널: 상품 정보 표시 (검색 후 선택된 상품 정보)
+        self.left_widget = ProductLeftPanel()
+        main_layout.addWidget(self.left_widget, 1)  # 왼쪽 패널 크기 비율 1
 
-    def init_ui(self):
-        main_layout = QVBoxLayout()
-
-        self.left_panel = ProductLeftPanel()
+        # 오른쪽 패널: 상품 관련 데이터 (통계 및 분석)
         self.right_panel = ProductRightPanel()
-
-        main_layout.addWidget(self.left_panel, 2)  # 상품 정보 (좌)
-        main_layout.addWidget(self.right_panel, 3)  # 재고 및 판매량 (우)
+        main_layout.addWidget(self.right_panel, 5)  # 오른쪽 패널 크기 비율 5
 
         self.setLayout(main_layout)
 
-        self.load_products()
+    
+    def do_search(self, search_text):
+        """
+        상품명 또는 바코드로 검색 기능 수행
+        """
+        global global_token
+        search_text = search_text.strip()
+        if not search_text:
+            QMessageBox.warning(self, "경고", "검색어를 입력하세요.")
+            return
 
-    def load_products(self):
-        """ 상품 목록을 가져와 테이블에 로드 """
-        products = api_fetch_products()
-        if products:
-            first_product = products[0]
-            self.left_panel.display_product(first_product)
+        try:
+            products = api_fetch_products(global_token, search_name=search_text)  # ✅ `dict` 반환 확인
+            if not isinstance(products, dict):  # ✅ `dict`인지 확인
+                QMessageBox.critical(self, "오류", "상품 목록 응답이 잘못되었습니다.")
+                return
 
-            # 테스트용 데이터
-            sample_stock_data = {"1월": 500, "2월": 450, "3월": 400}
-            sample_sales_data = {"1월": 50, "2월": 60, "3월": 70}
-            self.right_panel.update_stock_data(sample_stock_data)
-            self.right_panel.update_sales_data(sample_sales_data)
+            self.left_widget.table_info.setRowCount(0)  
+
+            for category, items in products.items():
+                row = self.left_widget.table_info.rowCount()
+                self.left_widget.table_info.insertRow(row)
+                category_item = QTableWidgetItem(category)
+                category_item.setFont(QFont("Arial", 9, QFont.Bold))
+                category_item.setTextAlignment(Qt.AlignCenter)
+                self.left_widget.table_info.setSpan(row, 0, 1, 3)
+                self.left_widget.table_info.setItem(row, 0, category_item)
+
+                for prod in items:
+                    row = self.left_widget.table_info.rowCount()
+                    self.left_widget.table_info.insertRow(row)
+                    self.left_widget.table_info.setItem(row, 0, QTableWidgetItem(str(prod.get("id", "N/A"))))
+                    self.left_widget.table_info.setItem(row, 1, QTableWidgetItem(prod.get("product_name", "Unknown")))
+                    self.left_widget.table_info.setItem(row, 2, QTableWidgetItem(prod.get("barcode", "-")))
+
+        except Exception as ex:
+            QMessageBox.critical(self, "오류", str(ex))
+
+
+        # Filter products based on the keyword
+        filtered_products = [p for p in products if "product_name" in p and search_text.lower() in p["product_name"].lower()]
+
+        if not filtered_products:
+            self.left_widget.display_product(None)
+            QMessageBox.information(self, "검색 결과", "검색 결과가 없습니다.")
+            return
+
+        if len(filtered_products) == 1:
+            # 검색 결과가 1개면 자동 선택
+            self.left_widget.display_product(filtered_products[0])
+        else:
+            # 검색 결과가 여러 개일 경우 팝업 창 띄우기
+            dialog = ProductSelectionDialog(filtered_products, parent=self)
+            if dialog.exec_() == QDialog.Accepted and dialog.selected_product:
+                self.left_widget.display_product(dialog.selected_product)
+
+
+

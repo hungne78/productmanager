@@ -14,5 +14,8 @@ class EmployeeClient(Base):
     start_date = Column(DateTime)
     end_date = Column(DateTime)
 
-    employee = relationship("Employee", back_populates="clients")
-    client = relationship("Client", back_populates="employees")
+    employee = relationship("Employee", back_populates="employee_clients", overlaps="clients,employees")
+    client = relationship("Client", back_populates="employee_clients", overlaps="clients,employees")
+
+
+

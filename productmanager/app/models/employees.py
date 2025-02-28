@@ -26,3 +26,6 @@ class Employee(Base):
     vehicle = relationship("EmployeeVehicle", back_populates="employee", uselist=False)
     client_visits = relationship("ClientVisit", back_populates="employee")
     sales = relationship("SalesRecord", back_populates="employee",  viewonly=True)
+    
+    # ✅ `overlaps="employee_clients"` 추가하여 중복 관계 해결
+    clients = relationship("Client", secondary="employee_clients", back_populates="employees", overlaps="employee_clients")
