@@ -41,6 +41,9 @@ class BaseLeftTableWidget(QWidget):
         btn_layout = QHBoxLayout()
         self.btn_new = QPushButton("신규등록")
         self.btn_edit = QPushButton("수정")
+        self.btn_new.setMinimumSize(70, 40)  # 최소 너비 120px, 높이 40px
+        self.btn_edit.setMinimumSize(70, 40)  # 최소 너비 120px, 높이 40px
+
         btn_layout.addWidget(self.btn_new)
         btn_layout.addWidget(self.btn_edit)
         main_layout.addLayout(btn_layout)

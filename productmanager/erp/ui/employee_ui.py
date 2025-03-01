@@ -1,11 +1,13 @@
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
-    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QInputDialog,QVBoxLayout, QListWidget, QDialog, QGroupBox, QDateEdit
+    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QInputDialog,QVBoxLayout, QListWidget, QDialog, QGroupBox, QDateEdit, QPushButton
 import sys
 import os
 import requests
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor
 from datetime import datetime
+import json
+from PyQt5.QtWidgets import QSizePolicy
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -170,7 +172,10 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         self.btn_new.clicked.connect(self.create_employee)
         self.btn_edit.clicked.connect(self.update_employee)
         self.btn_delete = QPushButton("삭제")
-        self.btn_vehicle = QPushButton("차량 정보 등록/수정")
+        self.btn_vehicle = QPushButton("차량등록")
+        self.btn_delete.setMinimumSize(70, 40)  # 최소 너비 120px, 높이 40px
+        self.btn_vehicle.setMinimumSize(70, 40)  # 최소 너비 120px, 높이 40px
+        
         # BaseLeftTableWidget의 레이아웃(버튼이 들어있는 레이아웃)에 추가합니다.
         # (BaseLeftTableWidget의 init_ui()에서 마지막에 addLayout(btn_layout)을 호출함)
         self.layout().itemAt(1).layout().addWidget(self.btn_delete)
@@ -649,8 +654,13 @@ class EmployeesTab(QWidget):
         self.left_panel = EmployeeLeftWidget()
         self.right_panel = EmployeeRightPanel()
 
-        main_layout.addWidget(self.left_panel, 1)  # 직원 정보 (좌)
-        main_layout.addWidget(self.right_panel, 5)  # 매출 및 방문 (우)
+        self.left_panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # ✅ 고정 크기 설정
+        self.left_panel.setFixedWidth(350)  # 1 비율
+        main_layout.addWidget(self.left_panel)
+        main_layout.addWidget(self.right_panel)
 
         self.setLayout(main_layout)
 

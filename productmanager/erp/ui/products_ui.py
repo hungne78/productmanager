@@ -9,6 +9,10 @@ from services.api_services import api_fetch_products, api_create_product, api_up
 from baselefttabwidget import BaseLeftTableWidget
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QSizePolicy
+
+from PyQt5.QtChart import QChart, QChartView, QBarSet, QBarSeries, QBarCategoryAxis, QLineSeries
+from PyQt5.QtWidgets import QHeaderView  # 추가 필요
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 class ProductDialog(QDialog):
@@ -338,35 +342,66 @@ class ProductLeftPanel(BaseLeftTableWidget):
                 QMessageBox.critical(self, "실패", f"상품 삭제 실패: {resp.status_code}\n{resp.text}")
 
 
-class ProductRightPanel(QWidget):
-    """ 상품의 재고 현황 및 매출 정보 (오른쪽 패널) """
 
+
+class ProductRightPanel(QWidget):
+    """
+    오른쪽 패널 - 좌우 1:3 비율로 나눈 상품 재고 & 판매량 테이블 및 그래프
+    """
     def __init__(self):
         super().__init__()
         self.init_ui()
 
     def init_ui(self):
-        layout = QHBoxLayout()
+        main_layout = QHBoxLayout()  # 좌우 레이아웃
 
+        # 🔹 왼쪽 (1) - 기존 테이블
+        self.left_section = QVBoxLayout()
+
+        # ✅ 월별 재고 변화 테이블
         self.stock_table = QTableWidget()
         self.stock_table.setColumnCount(2)
         self.stock_table.setHorizontalHeaderLabels(["월", "재고 변화"])
         self.stock_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.left_section.addWidget(QLabel("📌 월별 재고 변화"))
+        self.left_section.addWidget(self.stock_table)
 
+        # ✅ 월별 판매량 테이블
         self.sales_table = QTableWidget()
         self.sales_table.setColumnCount(2)
         self.sales_table.setHorizontalHeaderLabels(["월", "판매량"])
         self.sales_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.left_section.addWidget(QLabel("📊 월별 판매량"))
+        self.left_section.addWidget(self.sales_table)
 
-        layout.addWidget(QLabel("월별 재고 변화"))
-        layout.addWidget(self.stock_table)
-        layout.addWidget(QLabel("월별 판매량"))
-        layout.addWidget(self.sales_table)
+        main_layout.addLayout(self.left_section, 1)  # 📌 좌측 1 비율
 
-        self.setLayout(layout)
+        # 🔹 오른쪽 (3) - 그래프 영역
+        self.right_section = QVBoxLayout()
+
+        # ✅ 재고 변화 그래프
+        self.stock_chart = QChartView()
+        self.right_section.addWidget(QLabel("📊 월별 재고 변화 그래프"))
+        self.right_section.addWidget(self.stock_chart)
+
+        # ✅ 판매량 그래프
+        self.sales_chart = QChartView()
+        self.right_section.addWidget(QLabel("📊 월별 판매량 그래프"))
+        self.right_section.addWidget(self.sales_chart)
+
+        # ✅ 재고 vs 판매량 비교 그래프 (선 그래프)
+        self.comparison_chart = QChartView()
+        self.right_section.addWidget(QLabel("📊 재고 vs 판매량 비교 그래프"))
+        self.right_section.addWidget(self.comparison_chart)
+
+        main_layout.addLayout(self.right_section, 3)  # 📌 우측 3 비율
+
+        self.setLayout(main_layout)
 
     def update_stock_data(self, stock_data):
-        """ 상품별 월별 재고 데이터 표시 """
+        """
+        상품별 월별 재고 데이터 표시 & 그래프 업데이트
+        """
         self.stock_table.setRowCount(0)
         for month, amount in stock_data.items():
             row = self.stock_table.rowCount()
@@ -374,14 +409,93 @@ class ProductRightPanel(QWidget):
             self.stock_table.setItem(row, 0, QTableWidgetItem(month))
             self.stock_table.setItem(row, 1, QTableWidgetItem(str(amount)))
 
+        # ✅ 그래프 업데이트
+        self.update_stock_chart(stock_data)
+
     def update_sales_data(self, sales_data):
-        """ 상품별 월별 판매량 표시 """
+        """
+        상품별 월별 판매량 표시 & 그래프 업데이트
+        """
         self.sales_table.setRowCount(0)
         for month, sales in sales_data.items():
             row = self.sales_table.rowCount()
             self.sales_table.insertRow(row)
             self.sales_table.setItem(row, 0, QTableWidgetItem(month))
             self.sales_table.setItem(row, 1, QTableWidgetItem(str(sales)))
+
+        # ✅ 그래프 업데이트
+        self.update_sales_chart(sales_data)
+
+    def update_stock_chart(self, data):
+        """
+        월별 재고 변화 그래프 (막대 그래프)
+        """
+        chart = QChart()
+        series = QBarSeries()
+        categories = []
+
+        for month, amount in data.items():
+            bar_set = QBarSet(month)
+            bar_set.append(amount)
+            series.append(bar_set)
+            categories.append(month)
+
+        chart.addSeries(series)
+        axis_x = QBarCategoryAxis()
+        axis_x.append(categories)
+        chart.setAxisX(axis_x, series)
+
+        self.stock_chart.setChart(chart)
+
+    def update_sales_chart(self, data):
+        """
+        월별 판매량 그래프 (막대 그래프)
+        """
+        chart = QChart()
+        series = QBarSeries()
+        categories = []
+
+        for month, sales in data.items():
+            bar_set = QBarSet(month)
+            bar_set.append(sales)
+            series.append(bar_set)
+            categories.append(month)
+
+        chart.addSeries(series)
+        axis_x = QBarCategoryAxis()
+        axis_x.append(categories)
+        chart.setAxisX(axis_x, series)
+
+        self.sales_chart.setChart(chart)
+
+    def update_comparison_chart(self, stock_data, sales_data):
+        """
+        재고 변화 vs 판매량 비교 그래프 (선 그래프)
+        """
+        chart = QChart()
+        series_stock = QLineSeries()
+        series_sales = QLineSeries()
+        axis_x = QBarCategoryAxis()
+        categories = []
+
+        for month in stock_data.keys():
+            stock_amount = stock_data.get(month, 0)
+            sales_amount = sales_data.get(month, 0)
+
+            categories.append(month)
+            series_stock.append(len(categories), stock_amount)
+            series_sales.append(len(categories), sales_amount)
+
+        chart.addSeries(series_stock)
+        chart.addSeries(series_sales)
+
+        axis_x.append(categories)
+        chart.createDefaultAxes()
+        chart.setAxisX(axis_x, series_stock)
+        chart.setAxisX(axis_x, series_sales)
+
+        self.comparison_chart.setChart(chart)
+
 
 
 class ProductsTab(QWidget):
@@ -391,11 +505,18 @@ class ProductsTab(QWidget):
 
         # 왼쪽 패널: 상품 정보 표시 (검색 후 선택된 상품 정보)
         self.left_widget = ProductLeftPanel()
-        main_layout.addWidget(self.left_widget, 1)  # 왼쪽 패널 크기 비율 1
+        
 
         # 오른쪽 패널: 상품 관련 데이터 (통계 및 분석)
         self.right_panel = ProductRightPanel()
-        main_layout.addWidget(self.right_panel, 5)  # 오른쪽 패널 크기 비율 5
+        # ✅ 크기 정책 설정
+        self.left_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # ✅ 고정 크기 설정
+        self.left_widget.setFixedWidth(350)  # 1 비율
+        main_layout.addWidget(self.left_widget)
+        main_layout.addWidget(self.right_panel)
 
         self.setLayout(main_layout)
 

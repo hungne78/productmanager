@@ -9,6 +9,7 @@ from services.api_services import api_fetch_clients, api_create_client, api_upda
     api_assign_employee_client, api_fetch_employee_clients_all, get_auth_headers, api_fetch_lent_freezers, api_fetch_employees, api_unassign_employee_client
 from baselefttabwidget import BaseLeftTableWidget
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QSizePolicy
 global_token = get_auth_headers
 
 class LentDialog(QDialog):
@@ -656,8 +657,14 @@ class ClientsTab(QWidget):
         self.left_panel = ClientLeftPanel()
         self.right_panel = ClientRightPanel()
 
-        main_layout.addWidget(self.left_panel, 1)  # 거래처 정보 (좌)
-        main_layout.addWidget(self.right_panel, 5)  # 매출 및 방문 (우)
+        # ✅ 크기 정책 설정
+        self.left_panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # ✅ 고정 크기 설정
+        self.left_panel.setFixedWidth(350)  # 1 비율
+        main_layout.addWidget(self.left_panel)
+        main_layout.addWidget(self.right_panel)
 
         self.setLayout(main_layout)
 

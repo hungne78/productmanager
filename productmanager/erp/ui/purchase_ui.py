@@ -6,7 +6,7 @@ from datetime import datetime
 import requests
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from services.api_services import api_fetch_purchases, api_fetch_products, api_update_product_stock, get_auth_headers
-
+from PyQt5.QtWidgets import QSizePolicy
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 class PurchaseLeftPanel(QWidget):
@@ -322,8 +322,14 @@ class PurchaseTab(QWidget):
         main_layout = QHBoxLayout()
         self.left_panel = PurchaseLeftPanel(self)
         self.right_panel = PurchaseRightPanel()
-        main_layout.addWidget(self.left_panel, 1)
-        main_layout.addWidget(self.right_panel, 5)
+        # ✅ 크기 정책 설정
+        self.left_panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # ✅ 고정 크기 설정
+        self.left_panel.setFixedWidth(350)  # 1 비율
+        main_layout.addWidget(self.left_panel)
+        main_layout.addWidget(self.right_panel)
         self.setLayout(main_layout)
         self.load_purchase_history()
 

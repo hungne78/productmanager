@@ -8,6 +8,7 @@ import requests
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from services.api_services import api_fetch_orders, api_create_order, api_update_order, api_delete_order, get_auth_headers
+from PyQt5.QtWidgets import QSizePolicy
 
 BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
@@ -237,11 +238,18 @@ class OrdersTab(QWidget):
 
         # 왼쪽 패널: 직원 목록 (세로 버튼 + 날짜 선택)
         self.left_widget = OrderLeftWidget()
-        main_layout.addWidget(self.left_widget, 1)  # 왼쪽 패널 크기 비율 1
+        
 
         # 오른쪽 패널: 상품 분류별, 브랜드별 정리 + 주문 갯수 입력
         self.right_panel = OrderRightWidget()
-        main_layout.addWidget(self.right_panel, 5)  # 오른쪽 패널 크기 비율 5
+        # ✅ 크기 정책 설정
+        self.left_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # ✅ 고정 크기 설정
+        self.left_widget.setFixedWidth(350)  # 1 비율
+        main_layout.addWidget(self.left_widget)
+        main_layout.addWidget(self.right_panel)
 
         self.setLayout(main_layout)
     def do_search(self, keyword):
