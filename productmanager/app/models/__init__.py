@@ -10,3 +10,4 @@ from app.models.orders import Order, OrderItem
 from app.models.payments import Payment
 from app.models.sales_records import SalesRecord
 from app.models.employee_clients import EmployeeClient
+from app.models.sales import Sales

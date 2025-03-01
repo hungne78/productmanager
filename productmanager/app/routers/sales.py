@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from datetime import date
 from app.db.database import get_db
@@ -7,7 +7,8 @@ from app.models.products import Product
 from app.models.employee_clients import EmployeeClient
 from app.schemas.sales import EmployeeClientSalesOut, SalesRecordCreate, SalesRecordOut, SalesOut
 from typing import List
-
+from app.models.sales import Sales
+from app.models.employees import Employee
 router = APIRouter()
 
 # ✅ 특정 직원이 담당하는 거래처들의 매출 조회
@@ -210,3 +211,109 @@ def get_daily_sales(employee_id: int, year: int, month: int, db: Session = Depen
         daily_data[d] = float(row.sum_sales)
 
     return daily_data
+
+@router.get("/sales/employees", response_model=List[dict])
+def get_employee_sales(
+    db: Session = Depends(get_db),
+    start_date: date = Query(None),
+    end_date: date = Query(None)
+):
+    """
+    기간별 직원별 총 매출 조회
+    """
+    query = db.query(
+        Sales.employee_id,
+        Employee.name.label("employee_name"),
+        db.func.sum(Sales.amount).label("total_sales")
+    ).join(Employee, Sales.employee_id == Employee.id).group_by(SalesRecordCreate.employee_id)
+
+    # ✅ 날짜 필터링 추가
+    if start_date:
+        query = query.filter(Sales.date >= start_date)
+    if end_date:
+        query = query.filter(Sales.date <= end_date)
+
+    employee_sales = query.all()
+
+    return [
+        {
+            "employee_id": sale.employee_id,
+            "employee_name": sale.employee_name,
+            "total_sales": sale.total_sales
+        }
+        for sale in employee_sales
+    ]
+
+
+@router.get("/sales/total", response_model=List[dict])
+def get_total_sales(
+    db: Session = Depends(get_db),
+    start_date: date = Query(None),
+    end_date: date = Query(None)
+):
+    """
+    기간별 전체 매출 조회
+    """
+    query = db.query(
+        Sales.date,
+        db.func.sum(Sales.amount).label("total_sales")
+    ).group_by(Sales.date)
+
+    # ✅ 날짜 필터링 추가
+    if start_date:
+        query = query.filter(Sales.date >= start_date)
+    if end_date:
+        query = query.filter(Sales.date <= end_date)
+
+    total_sales = query.all()
+
+    return [
+        {
+            "date": sale.date.strftime("%Y-%m-%d"),
+            "total_sales": sale.total_sales
+        }
+        for sale in total_sales
+    ]
+    
+@router.post("/sales", response_model=SalesRecordOut)
+def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
+    """
+    판매 데이터 등록 API
+    """
+    print(f"📡 판매 등록 요청 데이터: {sale_data.dict()}")  
+
+    try:
+        product = db.query(Product).filter(Product.id == sale_data.product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+
+        # ✅ 재고 차감
+        if product.stock < sale_data.quantity:
+            raise HTTPException(status_code=400, detail="재고 부족")
+
+        product.stock -= sale_data.quantity
+
+        # ✅ 총 판매 금액 계산
+        total_amount = sale_data.quantity * product.default_price
+
+        # ✅ 판매 데이터 저장
+        new_sale = Sales(
+            employee_id=sale_data.employee_id,
+            client_id=sale_data.client_id,
+            product_id=sale_data.product_id,
+            quantity=sale_data.quantity,
+            unit_price=product.default_price,
+            total_amount=total_amount,
+            sale_date=sale_data.sale_date
+        )
+
+        db.add(new_sale)
+        db.commit()
+        db.refresh(new_sale)
+
+        return new_sale
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ 판매 등록 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"판매 등록 실패: {e}")

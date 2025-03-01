@@ -1,7 +1,7 @@
 # app/models/products.py
 from sqlalchemy import Column, Integer, String, DECIMAL, DateTime, ForeignKey, Boolean
 from datetime import datetime
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, declared_attr
 from app.db.base import Base
 
 class Product(Base):
@@ -33,5 +33,5 @@ class Product(Base):
     # ✅ SalesRecord와의 관계 설정
     sales_records = relationship("SalesRecord", back_populates="product")
     client_product_prices = relationship("ClientProductPrice", back_populates="product")
-    
+ 
     # purchases = relationship("Purchase", back_populates="product", lazy="joined")

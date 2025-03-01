@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, Float, ForeignKey, Date
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 
-class Sale(Base):
+class Sales(Base):
     """
     판매 데이터 모델
     """
@@ -18,6 +18,7 @@ class Sale(Base):
     sale_date = Column(Date, nullable=False)  # 판매 날짜
 
     # 관계 설정 (ForeignKey 연결)
-    employee = relationship("Employee", back_populates="sales")
     client = relationship("Client", back_populates="sales")
-    product = relationship("Product", back_populates="sales")
+    employee = relationship("Employee", back_populates="sales")
+    
+    # product = relationship("Product", back_populates="sales")

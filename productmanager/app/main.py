@@ -17,6 +17,7 @@ from app.routers.brands import router as brands_router
 from app.core.security import get_password_hash
 from app.db.database import SessionLocal
 from app.models.employees import Employee
+from app.models.sales import Sales
 
 from app.db.base import Base
 
@@ -27,8 +28,8 @@ async def lifespan(app: FastAPI):
     # --- STARTUP LOGIC ---
     # print("Registered tables before DB creation:", Base.metadata.tables.keys())
 
-    # Base.metadata.drop_all(bind=engine)  # ✅ 기존 테이블 삭제
-    Base.metadata.create_all(bind=engine)  # ✅ 테이블 재생성
+    Base.metadata.drop_all(bind=engine)  # ✅ 기존 테이블 삭제
+    Base.metadata.create_all(bind=engine, )  # ✅ 테이블 재생성
 
     # print("Registered tables after DB creation:", Base.metadata.tables.keys()) 
     db = SessionLocal()
@@ -82,6 +83,7 @@ def create_app() -> FastAPI:
     app.include_router(sales_router, prefix="/sales", tags=["Sales"])
     app.include_router(brands_router, prefix="/brands", tags=["Brands"])
     app.include_router(lent.router, prefix="/lent", tags=["Lent"])
+    app.include_router(sales_router, prefix="/sales", tags=["Sales"])
     return app
 
 app = create_app()
