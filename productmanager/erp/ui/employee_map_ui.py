@@ -38,7 +38,7 @@ class EmployeeMapTab(QWidget):
 
     def load_default_map(self):
         """ 기본 지도 설정 (서울·경기권 중심) """
-        map_object = folium.Map(location=[37.5665, 126.9780], zoom_start=10)  # 서울 시청 기준
+        map_object = folium.Map(location=[37.5665, 126.9780], zoom_start=12)  # 서울 시청 기준
         self.display_map(map_object)
 
     def search_employee(self):

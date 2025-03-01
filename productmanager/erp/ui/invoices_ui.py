@@ -1,8 +1,8 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
-    QHeaderView, QLabel, QComboBox, QFileDialog, QLineEdit
+    QHeaderView, QLabel, QComboBox, QFileDialog, QLineEdit, QGroupBox
 import requests
 import pandas as pd
-from datetime import datetime
+from PyQt5.QtCore import Qt, QSize
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -13,10 +13,11 @@ BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 import pandas as pd
 from datetime import datetime
-from PyQt5.QtCore import QSize
+
+
 class InvoicesLeftPanel(QWidget):
     """
-    왼쪽 패널 - 년도 & 월 선택 + 유형 선택 + 등록/수정/삭제 (버튼 하단 정렬)
+    왼쪽 패널 - 연도 & 월 선택 + 유형 선택 + 등록/수정/삭제 버튼
     """
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -24,14 +25,19 @@ class InvoicesLeftPanel(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout()
+        main_layout = QVBoxLayout()
 
-        # ✅ 년도 & 월 선택 (기본값: 올해, 이번 달)
+        # ✅ [1] 연도 & 월 선택 (그룹박스로 감싸기)
+        date_group = QGroupBox("📅 기간 선택")
+        date_layout = QHBoxLayout()
         self.year_selector = QComboBox()
         self.month_selector = QComboBox()
-        # 📌 **크기 조정 코드 추가**
-        self.year_selector.setMinimumSize(QSize(100, 40))  # ⬅️ 년도 선택창 크기 키우기
-        self.month_selector.setMinimumSize(QSize(100, 40))  # ⬅️ 월 선택창 크기 키우기
+
+        # 📌 크기 조정
+        self.year_selector.setMinimumSize(QSize(80, 30))
+        self.month_selector.setMinimumSize(QSize(80, 30))
+
+        # 📅 현재 연도 & 월 설정
         current_year = datetime.today().year
         current_month = datetime.today().month
         for y in range(current_year - 5, current_year + 6):
@@ -42,54 +48,86 @@ class InvoicesLeftPanel(QWidget):
         self.year_selector.setCurrentText(str(current_year))
         self.month_selector.setCurrentText(str(current_month).zfill(2))
 
-        date_layout = QHBoxLayout()
-        date_layout.addWidget(QLabel("📅 연도:"))
+        # 📅 UI 배치
+        date_layout.addWidget(QLabel("연도:"))
         date_layout.addWidget(self.year_selector)
-        date_layout.addWidget(QLabel("🗓 월:"))
+        date_layout.addWidget(QLabel("월:"))
         date_layout.addWidget(self.month_selector)
-        layout.addLayout(date_layout)
+        date_group.setLayout(date_layout)
+        main_layout.addWidget(date_group)
 
-        # ✅ 세금계산서 유형 선택
+        # ✅ [2] 세금계산서 유형 선택 (그룹박스로 감싸기)
+        type_group = QGroupBox("📑 세금계산서 유형")
+        type_layout = QVBoxLayout()
         self.invoice_type_selector = QComboBox()
         self.invoice_type_selector.addItem("01 (일반)")
         self.invoice_type_selector.addItem("02 (영세율)")
-        # 📌 **크기 조정 코드 추가**
-        self.invoice_type_selector.setMinimumSize(QSize(120, 40))  # ⬅️ 세금계산서 유형 선택 크기 키우기
-        layout.addWidget(QLabel("📑 세금계산서 유형"))
-        layout.addWidget(self.invoice_type_selector)
+        self.invoice_type_selector.setMinimumSize(QSize(140, 30))
 
-        # ✅ 거래처 검색 필터
+        type_layout.addWidget(self.invoice_type_selector)
+        type_group.setLayout(type_layout)
+        main_layout.addWidget(type_group)
+
+        # ✅ [3] 거래처 검색 필터
+        search_group = QGroupBox("🔍 거래처 검색")
+        search_layout = QVBoxLayout()
         self.client_search = QLineEdit()
-        self.client_search.setPlaceholderText("🔍 거래처명 검색")
+        self.client_search.setPlaceholderText("거래처명 입력...")
+        self.client_search.setMinimumSize(QSize(200, 30))
         self.client_search.textChanged.connect(self.filter_clients)
-        layout.addWidget(self.client_search)
 
-        # ✅ 현재 조회된 세금계산서 총 공급가액 & 총 세액
-        self.total_sales_label = QLabel("💰 총 공급가액: ₩0")
-        self.total_tax_label = QLabel("💵 총 세액: ₩0")
-        layout.addWidget(self.total_sales_label)
-        layout.addWidget(self.total_tax_label)
+        search_layout.addWidget(self.client_search)
+        search_group.setLayout(search_layout)
+        main_layout.addWidget(search_group)
 
-        # ✅ 버튼을 가로 정렬하여 하단 배치
-        button_layout = QHBoxLayout()
-        self.add_button = QPushButton("등록")
-        self.edit_button = QPushButton("수정")
-        self.delete_button = QPushButton("삭제")
-        self.search_button = QPushButton("📊 조회")
+        # ✅ [4] 총 공급가액 & 총 세액 (가운데 정렬)
+        total_group = QGroupBox("💰 총 금액")
+        total_layout = QVBoxLayout()
+        self.total_sales_label = QLabel("총 공급가액: ₩0")
+        self.total_tax_label = QLabel("총 세액: ₩0")
 
-        button_layout.addWidget(self.add_button)
-        button_layout.addWidget(self.edit_button)
-        button_layout.addWidget(self.delete_button)
-        layout.addLayout(button_layout)
-        layout.addWidget(self.search_button)
+        # 📌 가운데 정렬
+        self.total_sales_label.setAlignment(Qt.AlignCenter)
+        self.total_tax_label.setAlignment(Qt.AlignCenter)
 
-        # ✅ 파일 불러오기 버튼
+        total_layout.addWidget(self.total_sales_label)
+        total_layout.addWidget(self.total_tax_label)
+        total_group.setLayout(total_layout)
+        main_layout.addWidget(total_group)
+
+        # ✅ [5] 버튼 (등록/수정/삭제) 세로 정렬
+        btn_group = QGroupBox("🛠️ 관리")
+        btn_layout = QVBoxLayout()
+        self.add_button = QPushButton("➕ 등록")
+        self.edit_button = QPushButton("✏️ 수정")
+        self.delete_button = QPushButton("🗑 삭제")
+
+        # 📌 버튼 크기 조정
+        self.add_button.setMinimumSize(QSize(120, 40))
+        self.edit_button.setMinimumSize(QSize(120, 40))
+        self.delete_button.setMinimumSize(QSize(120, 40))
+
+        btn_layout.addWidget(self.add_button)
+        btn_layout.addWidget(self.edit_button)
+        btn_layout.addWidget(self.delete_button)
+        btn_group.setLayout(btn_layout)
+        main_layout.addWidget(btn_group)
+
+        # ✅ [6] 📊 조회 버튼 (가로로 넓게 배치)
+        self.search_button = QPushButton("📊 세금계산서 조회")
+        self.search_button.setMinimumSize(QSize(250, 40))
+        self.search_button.setStyleSheet("font-size: 14px; font-weight: bold;")
+        main_layout.addWidget(self.search_button)
+
+        # ✅ [7] 📂 파일 불러오기 버튼 (하단)
         self.import_button = QPushButton("📂 파일 불러오기")
+        self.import_button.setMinimumSize(QSize(250, 40))
         self.import_button.clicked.connect(self.import_excel)
-        layout.addWidget(self.import_button)
+        main_layout.addWidget(self.import_button)
 
+        # 📌 레이아웃 설정
         self.search_button.clicked.connect(self.fetch_invoices)
-        self.setLayout(layout)
+        self.setLayout(main_layout)
 
     def fetch_invoices(self):
         """

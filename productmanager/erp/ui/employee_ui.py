@@ -173,8 +173,7 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         self.btn_edit.clicked.connect(self.update_employee)
         self.btn_delete = QPushButton("삭제")
         self.btn_vehicle = QPushButton("차량등록")
-        self.btn_delete.setMinimumSize(70, 40)  # 최소 너비 120px, 높이 40px
-        self.btn_vehicle.setMinimumSize(70, 40)  # 최소 너비 120px, 높이 40px
+    
         
         # BaseLeftTableWidget의 레이아웃(버튼이 들어있는 레이아웃)에 추가합니다.
         # (BaseLeftTableWidget의 init_ui()에서 마지막에 addLayout(btn_layout)을 호출함)
