@@ -11,6 +11,7 @@ from products_ui import ProductsTab
 from orders_ui import OrdersTab
 from purchase_ui import PurchaseTab
 from employee_map_ui import EmployeeMapTab
+from sales_ui import SalesTab
 from PyQt5.QtCore import Qt
 def load_dark_theme():
     return """
@@ -74,7 +75,8 @@ class MainApp(QMainWindow):
             ("제품", "icons/product.png", self.show_products_tab),
             ("주문", "icons/order.png", self.show_orders_tab),
             ("매입", "icons/purchase.png", self.show_purchase_tab),
-            ("직원 지도", "icons/map.png", self.show_employee_map_tab)
+            ("직원 지도", "icons/map.png", self.show_employee_map_tab),
+            ("총매출", "icon/sales.png", self.show_sales_tab)
         ]
 
         for name, icon_path, handler in self.toolbar_icons:
@@ -106,7 +108,8 @@ class MainApp(QMainWindow):
             "products": ProductsTab(),
             "orders": OrdersTab(),
             "purchase": PurchaseTab(),
-            "employee_map": EmployeeMapTab()
+            "employee_map": EmployeeMapTab(),
+            "sales": SalesTab()
         }
 
         for tab in self.tabs.values():
@@ -139,6 +142,10 @@ class MainApp(QMainWindow):
         self.stacked.setCurrentWidget(self.tabs["employee_map"])
         self.update_search_placeholder("employee_map")
 
+    def show_sales_tab(self):
+        self.stacked.setCurrentWidget(self.tabs["sales"])
+        self.update_search_placeholder("sales")
+        
     def on_search_clicked(self):
         keyword = self.search_edit.text().strip()
         current_tab = self.stacked.currentWidget()
@@ -158,7 +165,9 @@ class MainApp(QMainWindow):
             current_tab.do_search(keyword)
         elif isinstance(current_tab, EmployeeMapTab):
             current_tab.do_search(keyword)
-
+        elif isinstance(current_tab, SalesTab):
+            current_tab.do_search(keyword)
+            
     def update_search_placeholder(self, tab_name):
         placeholders = {
             "employees": "직원이름 검색",
@@ -166,6 +175,7 @@ class MainApp(QMainWindow):
             "products": "제품명 검색",
             "orders": "주문 검색 (ex: 날짜)",
             "purchase": "매입 검색 (ex: 거래처명, 제품명)",
-            "employee_map": "직원 ID 입력"
+            "employee_map": "직원 ID 입력",
+            "sales": "매출날짜입력"
         }
         self.search_edit.setPlaceholderText(placeholders.get(tab_name, "검색"))
