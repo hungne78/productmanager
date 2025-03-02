@@ -28,11 +28,11 @@ class Client(Base):
 
     # ✅ ClientVisit과 관계 설정 (1:N)
     client_visits = relationship("ClientVisit", back_populates="client")
-    sales_records = relationship("SalesRecord", back_populates="client")
+    
     client_product_prices = relationship("ClientProductPrice", back_populates="client")
     lents = relationship("Lent", back_populates="client")
-    
+    sales = relationship("Sales", back_populates="client", cascade="all, delete-orphan")
     # ✅ `overlaps="employee_clients"` 추가하여 중복 관계 해결
     employees = relationship("Employee", secondary="employee_clients", back_populates="clients", overlaps="employee_clients")
-
+    sales_records = relationship("SalesRecord", back_populates="client", cascade="all, delete-orphan")  # ✅ 삭제 연쇄 적용
 

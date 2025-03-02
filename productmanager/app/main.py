@@ -7,7 +7,7 @@ from app.db.database import engine
 from app.db.base import Base
 from app.routers.employees import router as employees_router
 from app.routers.auth import auth_router
-from app.routers import employees, clients, products, orders, lent, purchases
+from app.routers import employees, clients, products, orders, lent, purchases, sales
 from app.routers.employee_clients import router as employee_clients_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers.client_visits import router as client_visits_router
@@ -16,6 +16,7 @@ from app.routers.sales import router as sales_router
 from app.routers.brands import router as brands_router
 from app.core.security import get_password_hash
 from app.db.database import SessionLocal
+
 from app.models.employees import Employee
 from app.models.sales import Sales
 

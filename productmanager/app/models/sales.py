@@ -1,12 +1,15 @@
 from sqlalchemy import Column, Integer, Float, ForeignKey, Date
 from sqlalchemy.orm import relationship
-from app.db.database import Base
+from app.db.base import Base
+from app.models.clients import Client  # ✅ Client 명확하게 가져오기
+from app.models.products import Product
 
 class Sales(Base):
     """
     판매 데이터 모델
     """
     __tablename__ = "sales"
+    __table_args__ = {'extend_existing': True} 
 
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True)  # 직원 ID (옵션)
@@ -19,6 +22,5 @@ class Sales(Base):
 
     # 관계 설정 (ForeignKey 연결)
     client = relationship("Client", back_populates="sales")
-    employee = relationship("Employee", back_populates="sales")
-    
-    # product = relationship("Product", back_populates="sales")
+    employee = relationship("Employee", back_populates="sales")  # ✅ 관계 유지
+    product = relationship("Product", back_populates="sales")

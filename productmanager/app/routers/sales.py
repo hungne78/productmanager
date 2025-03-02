@@ -9,6 +9,7 @@ from app.schemas.sales import EmployeeClientSalesOut, SalesRecordCreate, SalesRe
 from typing import List
 from app.models.sales import Sales
 from app.models.employees import Employee
+
 router = APIRouter()
 
 # ✅ 특정 직원이 담당하는 거래처들의 매출 조회

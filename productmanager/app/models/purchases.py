@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, ForeignKey, Float, DateTime, Date
 from sqlalchemy.orm import relationship
-from app.db.database import Base
+from app.db.base import Base
 from datetime import datetime
 
 class Purchase(Base):

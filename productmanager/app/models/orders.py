@@ -1,6 +1,6 @@
 # app/models/orders.py
 from sqlalchemy import Column, Integer, Float, String, Date, DateTime, ForeignKey
-from datetime import datetime
+from datetime import datetime, UTC 
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 
@@ -12,9 +12,9 @@ class Order(Base):
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     total_amount = Column(Float, default=0.0)
     status = Column(String(50), default="pending")
-    order_date = Column(Date, default=datetime.utcnow().date)  # 기본값 추가
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)  # ✅ 자동 업데이트
+    order_date = Column(Date, default=lambda: datetime.now(UTC).date())  # ✅ 올바른 방법
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))  # ✅ 수정
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))  # ✅ 수정
 
     # 관계 설정
     client = relationship("Client", back_populates="orders")  # ✅ 활성화

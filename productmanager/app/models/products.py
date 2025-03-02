@@ -31,7 +31,9 @@ class Product(Base):
     order_items = relationship("OrderItem", back_populates="product")
 
     # ✅ SalesRecord와의 관계 설정
-    sales_records = relationship("SalesRecord", back_populates="product")
+    
     client_product_prices = relationship("ClientProductPrice", back_populates="product")
- 
+    sales = relationship("Sales", back_populates="product", cascade="all, delete-orphan")
+
     # purchases = relationship("Purchase", back_populates="product", lazy="joined")
+    sales_records = relationship("SalesRecord", back_populates="product", cascade="all, delete-orphan")

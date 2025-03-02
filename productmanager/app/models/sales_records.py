@@ -7,7 +7,7 @@ from app.db.base import Base
 class SalesRecord(Base):
     __tablename__ = "sales_records"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)  # ✅ 자동 증가 추가
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)  # 거래처 ID
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)  # 제품 ID
@@ -19,4 +19,4 @@ class SalesRecord(Base):
     # 관계
     client = relationship("Client", back_populates="sales_records") 
     product = relationship("Product", back_populates="sales_records")
-    employee = relationship("Employee", back_populates="sales", lazy="joined", cascade="all, delete")
+    employee = relationship("Employee", back_populates="sales_records", lazy="joined", cascade="all, delete")
