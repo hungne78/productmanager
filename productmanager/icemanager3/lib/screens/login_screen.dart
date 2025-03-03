@@ -7,7 +7,8 @@ import 'home_screen.dart';
 import 'package:provider/provider.dart';
 
 import '../auth_provider.dart';  // AuthProvider import
-import '../user.dart';          // User model
+import '../user.dart';        // User model
+import '../product_provider.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -60,7 +61,12 @@ class _LoginScreenState extends State<LoginScreen> {
           // Provider를 통해 user 저장
           context.read<AuthProvider>().setUser(user);
           // 홈화면으로 이동
-
+          // **상품 데이터 불러오기**
+          final productResponse = await ApiService.fetchAllProducts(token);
+          if (productResponse.statusCode == 200) {
+            final productData = jsonDecode(productResponse.body);
+            context.read<ProductProvider>().setProducts(productData);
+          }
           // 로그인 성공 → 홈화면 이동
           Navigator.pushReplacement(
             context,

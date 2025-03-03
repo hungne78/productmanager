@@ -30,6 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  fluttertoast: ^8.2.2
   http: ^0.13.6
 #  barcode_scan2: ^4.1.7
   flutter_reactive_ble: ^5.0.2

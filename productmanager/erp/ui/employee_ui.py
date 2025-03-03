@@ -663,7 +663,12 @@ class EmployeesTab(QWidget):
 
         self.setLayout(main_layout)
 
-        
+    def update_employee_ui(self, employee_id: int):
+        """ 매출 발생 후 직원 데이터 업데이트 """
+        now = datetime.now()
+        year = now.year
+        month = now.month
+        self.right_panel.update_data_from_db(employee_id, year, month)    
 
     def do_search(self, keyword):
         """

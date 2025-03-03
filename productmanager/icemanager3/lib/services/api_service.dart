@@ -56,5 +56,28 @@ class ApiService {
     });
   }
 
+  static Future<http.Response> fetchAllProducts(String token) async {
+    final url = Uri.parse("$baseUrl/products/all");
+    return await http.get(url, headers: {
+      "Authorization": "Bearer $token",
+    });
+  }
+  static Future<http.Response> updateClientOutstanding(String token, int clientId, Map<String, dynamic> data) async {
+    final url = Uri.parse("$baseUrl/sales/outstanding/$clientId");  // ✅ URL 수정
+
+    print("🔹 [PUT 요청] 미수금 업데이트 시작...");
+    print("🔹 요청 URL: $url");
+    print("🔹 요청 데이터: $data");
+    print("🔹 요청 헤더: Bearer $token");
+
+    return await http.put(
+      url,
+      headers: {
+        "Authorization": "Bearer $token", // ✅ 인증 토큰 포함
+        "Content-Type": "application/json",
+      },
+      body: jsonEncode(data),
+    );
+  }
 // etc...
 }

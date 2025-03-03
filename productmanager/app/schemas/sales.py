@@ -47,3 +47,7 @@ class SalesRecordOut(BaseModel):
 
     class Config:
         from_attributes = True  # ✅ Pydantic V2에서는 from_attributes 사용
+
+
+class OutstandingUpdate(BaseModel):
+    outstanding_amount: float  # ✅ FastAPI가 기대하는 데이터 타입

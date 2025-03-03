@@ -9,7 +9,11 @@ from app.schemas.sales import EmployeeClientSalesOut, SalesRecordCreate, SalesRe
 from typing import List
 from app.models.sales import Sales
 from app.models.employees import Employee
-
+from app.routers.auth import get_current_user  # ✅ 인증 미들웨어 추가
+from app.schemas.employees import EmployeeOut
+from app.models.clients import Client
+from app.schemas.sales import OutstandingUpdate
+from app.models.client_visits import ClientVisit
 router = APIRouter()
 
 # ✅ 특정 직원이 담당하는 거래처들의 매출 조회
@@ -73,9 +77,38 @@ def create_sales_record(payload: SalesRecordCreate, db: Session = Depends(get_db
 
     total_price = product.default_price * payload.quantity
 
-    # 추가된 employee_id도 같이 넣음
+    # ✅ 직원 방문 기록 업데이트 (같은 날 중복 방문 방지)
+    employee_client = db.query(EmployeeClient).filter(
+        EmployeeClient.employee_id == payload.employee_id,
+        EmployeeClient.client_id == payload.client_id
+    ).first()
+
+    if not employee_client:
+        new_employee_client = EmployeeClient(
+            employee_id=payload.employee_id,
+            client_id=payload.client_id,
+            visit_count=1  # ✅ 첫 방문
+        )
+        db.add(new_employee_client)
+
+    # ✅ 방문 기록 확인 (하루에 한 번만 방문 횟수 증가)
+    visit = db.query(ClientVisit).filter(
+        ClientVisit.employee_id == payload.employee_id,
+        ClientVisit.client_id == payload.client_id,
+        ClientVisit.visit_datetime == payload.sale_date  # ✅ 올바른 필드명 사용
+    ).first()
+
+    if not visit:
+        new_visit = ClientVisit(
+            employee_id=payload.employee_id,
+            client_id=payload.client_id,
+            visit_datetime=payload.sale_date  # ✅ 올바른 필드 사용
+        )
+        db.add(new_visit)
+
+    # ✅ 매출 데이터 저장
     new_sales = SalesRecord(
-        employee_id=payload.employee_id,  
+        employee_id=payload.employee_id,
         client_id=payload.client_id,
         product_id=payload.product_id,
         quantity=payload.quantity,
@@ -88,7 +121,7 @@ def create_sales_record(payload: SalesRecordCreate, db: Session = Depends(get_db
 
     return {
         "id": new_sales.id,
-        "employee_id": new_sales.employee_id,  # 응답에도 포함
+        "employee_id": new_sales.employee_id,
         "client_id": new_sales.client_id,
         "product_id": new_sales.product_id,
         "product_name": product.product_name,
@@ -97,6 +130,7 @@ def create_sales_record(payload: SalesRecordCreate, db: Session = Depends(get_db
         "total_amount": float(total_price),
         "sale_date": new_sales.sale_date
     }
+
 
 # ✅ 전체 매출 목록 조회
 @router.get("/", response_model=List[SalesOut])
@@ -318,3 +352,29 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         db.rollback()
         print(f"❌ 판매 등록 실패: {e}")
         raise HTTPException(status_code=500, detail=f"판매 등록 실패: {e}")
+    
+@router.put("/outstanding/{client_id}")
+def update_outstanding(
+    client_id: int,
+    update_data: OutstandingUpdate,  # ✅ 요청 바디를 Pydantic 모델로 받음
+    db: Session = Depends(get_db),
+    current_user: EmployeeOut = Depends(get_current_user)
+):
+    print(f"🔹 요청된 클라이언트 ID: {client_id}")
+    print(f"🔹 요청된 미수금 업데이트 금액: {update_data.outstanding_amount}")
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        print("❌ 클라이언트를 찾을 수 없음")
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    if current_user.role not in ["admin", "sales"]:
+        print("❌ 권한 없음")
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    client.outstanding_amount = update_data.outstanding_amount  # ✅ 올바른 데이터 저장
+    db.commit()
+    
+    print(f"✅ 미수금 업데이트 성공: 클라이언트 {client_id}, 새로운 미수금 {update_data.outstanding_amount}")
+
+    return {"detail": "Outstanding amount updated successfully"}

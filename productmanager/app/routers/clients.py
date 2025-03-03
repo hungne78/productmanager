@@ -6,6 +6,7 @@ from app.models.clients import Client
 from app.schemas.clients import ClientCreate, ClientOut
 from fastapi.responses import JSONResponse
 from app.models.employee_clients import EmployeeClient
+
 import json
 
 router = APIRouter()
