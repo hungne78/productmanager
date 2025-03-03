@@ -671,35 +671,45 @@ class EmployeesTab(QWidget):
         self.right_panel.update_data_from_db(employee_id, year, month)    
 
     def do_search(self, keyword):
-        """
-        검색어(부분 일치)로 직원 목록을 조회하고,
-        검색 결과가 여러 건이면 선택 다이얼로그를 띄워서 사용자가 선택하도록 함.
-        """
         global global_token
         employees = api_fetch_employees(global_token, keyword)
 
-        # API가 단일 객체를 반환하면 리스트로 변경
+        # 만약 API가 단일 dict로 줄 수도 있고, list로 줄 수도 있으니 처리
         if isinstance(employees, dict):
             employees = [employees]
 
-        # 만약 결과가 없으면
         if not isinstance(employees, list) or len(employees) == 0:
             self.left_panel.display_employee(None)
             QMessageBox.information(self, "검색 결과", "검색 결과가 없습니다.")
             return
 
-        # 부분 일치를 기준으로 필터링 (대소문자 구분없이)
-        filtered_employees = [emp for emp in employees if keyword.lower() in emp.get("name", "").lower()]
+        # 부분일치 필터
+        filtered_employees = [
+            emp for emp in employees
+            if keyword.lower() in emp.get("name", "").lower()
+        ]
 
         if not filtered_employees:
             self.left_panel.display_employee(None)
             QMessageBox.information(self, "검색 결과", "검색 결과가 없습니다.")
         elif len(filtered_employees) == 1:
-            self.left_panel.display_employee(filtered_employees[0])
+            selected_emp = filtered_employees[0]
+            self.left_panel.display_employee(selected_emp)
+            
+            # 🟢 오른쪽 패널 업데이트 (연도/월은 현재 시점 사용)
+            now = datetime.now()
+            self.right_panel.update_data_from_db(selected_emp["id"], now.year, now.month)
+
         else:
-            # 여러 건일 경우 팝업 다이얼로그 띄우기
+            # 여러 건이면 선택창
             dialog = EmployeeSelectionDialog(filtered_employees, parent=self)
             if dialog.exec_() == QDialog.Accepted and dialog.selected_employee:
-                self.left_panel.display_employee(dialog.selected_employee)
+                selected_emp = dialog.selected_employee
+                self.left_panel.display_employee(selected_emp)
+
+                # 🟢 동일하게 오른쪽 패널 업데이트
+                now = datetime.now()
+                self.right_panel.update_data_from_db(selected_emp["id"], now.year, now.month)
+
 
     

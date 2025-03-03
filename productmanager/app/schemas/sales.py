@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date
+from datetime import datetime
 
 class ProductSalesOut(BaseModel):
     """ 거래처별 판매 상품 정보 """
@@ -51,3 +52,13 @@ class SalesRecordOut(BaseModel):
 
 class OutstandingUpdate(BaseModel):
     outstanding_amount: float  # ✅ FastAPI가 기대하는 데이터 타입
+
+class SaleItem(BaseModel):
+    product_id: int
+    quantity: int
+
+class SalesAggregateCreate(BaseModel):
+    employee_id: int
+    client_id: int
+    items: List[SaleItem]  # 여러 상품
+    sale_datetime: datetime | None = None  # 시간 안 주면 서버에서 now() 사용

@@ -13,6 +13,8 @@ from PyQt5.QtWidgets import QSizePolicy
 
 from PyQt5.QtChart import QChart, QChartView, QBarSet, QBarSeries, QBarCategoryAxis, QLineSeries
 from PyQt5.QtWidgets import QHeaderView  # 추가 필요
+import requests
+from datetime import datetime
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 class ProductDialog(QDialog):
@@ -184,45 +186,36 @@ class ProductLeftPanel(BaseLeftTableWidget):
         self.btn_edit.clicked.connect(self.update_product)
         self.btn_delete.clicked.connect(self.delete_product)
 
-    def display_product(self, product):
+    def display_product(self, product: dict):
         """
-        검색된 상품 정보를 왼쪽 패널(테이블)에 표시하는 함수
+        검색된 상품 정보를 왼쪽 패널에 표시
         """
-        if not hasattr(self, "table_info") or self.table_info is None:
-            print("Error: table_info is None or deleted")
-            return
-
         if not product:
             for r in range(self.row_count):
                 self.set_value(r, "")
-            self.current_product_id = None  # ✅ 상품 ID 초기화
+            self.current_product_id = None
             return
 
-        # ✅ 상품 ID 저장 (수정 및 삭제 시 사용)
-        self.current_product_id = product.get("id", None)
-
-        # ✅ 브랜드 ID를 product 내부에서 가져오기
-        brand_id = product.get("brand_id", "미지정")  # ✅ brand_id를 직접 가져옴
-
-        # ✅ UI에 데이터 채우기
-        self.set_value(0, str(brand_id))  # 브랜드 ID
+        self.current_product_id = product.get("id")
+        self.set_value(0, str(product.get("brand_id", "")))
         self.set_value(1, product.get("product_name", ""))
         self.set_value(2, product.get("barcode", ""))
-        self.set_value(3, str(product.get("default_price", "")))
-        self.set_value(4, str(product.get("incentive", "")))
-        self.set_value(5, str(product.get("stock", "")))
-        self.set_value(6, str(product.get("box_quantity", "")))
-        self.set_value(7, product.get("category", "미지정"))  # ✅ 카테고리 기본값 설정
-
-        # ✅ 활성 여부 (`is_active`)는 테이블에 "활성" 또는 "비활성" 텍스트로 표시
-        is_active = product.get("is_active", 1)  # 기본값 1 (활성)
-        if isinstance(is_active, bool):  # boolean이면 변환
-            is_active = 1 if is_active else 0
-        self.set_value(8, "활성" if is_active == 1 else "비활성")  # ✅ 텍스트로 변환
-
-        # ✅ 가격 유형 (`is_fixed_price`)을 테이블에 표시
+        self.set_value(3, str(product.get("default_price", 0)))
+        self.set_value(4, str(product.get("incentive", 0)))
+        self.set_value(5, str(product.get("stock", 0)))
+        self.set_value(6, str(product.get("box_quantity", 1)))
+        self.set_value(7, product.get("category", ""))
+        is_active = product.get("is_active", 1)
+        self.set_value(8, "활성" if is_active == 1 else "비활성")
         is_fixed_price = product.get("is_fixed_price", False)
         self.set_value(9, "고정가" if is_fixed_price else "일반가")
+
+        # --- (4.1) 여기서 오른쪽 패널 업데이트 시점 (상품 선택 시) ---
+        # parent: ProductsTab
+        if hasattr(self.parent(), "product_selected"):
+            # 호출
+            self.parent().product_selected(product)  
+            # 또는 바로 parent().fetch_and_update_stock(product["id"]) 형식으로 해도 됨
 
 
 
@@ -355,62 +348,78 @@ class ProductRightPanel(QWidget):
     def init_ui(self):
         main_layout = QHBoxLayout()  # 좌우 레이아웃
 
-        # 🔹 왼쪽 (1) - 기존 테이블
+        # 왼쪽 영역(테이블들)
         self.left_section = QVBoxLayout()
 
-        # ✅ 월별 재고 변화 테이블
+        # (A) 월별 재고 변화 테이블
         self.stock_table = QTableWidget()
         self.stock_table.setColumnCount(2)
-        self.stock_table.setHorizontalHeaderLabels(["월", "재고 변화"])
+        self.stock_table.setHorizontalHeaderLabels(["월", "매입수량"])
         self.stock_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.left_section.addWidget(QLabel("📌 월별 재고 변화"))
+        self.left_section.addWidget(QLabel("📌 월별 재고(매입) 변화"))
         self.left_section.addWidget(self.stock_table)
 
-        # ✅ 월별 판매량 테이블
+        # (B) 월별 판매량 테이블 (주문 기능이 없으면 일단 빈 상태)
         self.sales_table = QTableWidget()
         self.sales_table.setColumnCount(2)
-        self.sales_table.setHorizontalHeaderLabels(["월", "판매량"])
+        self.sales_table.setHorizontalHeaderLabels(["월", "판매량(가정)"])
         self.sales_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.left_section.addWidget(QLabel("📊 월별 판매량"))
+        self.left_section.addWidget(QLabel("📊 월별 판매량 (미구현)"))
         self.left_section.addWidget(self.sales_table)
 
-        main_layout.addLayout(self.left_section, 1)  # 📌 좌측 1 비율
+        main_layout.addLayout(self.left_section, 1)  # 왼쪽은 비율 1
 
-        # 🔹 오른쪽 (3) - 그래프 영역
+        # 오른쪽 영역(그래프들)
         self.right_section = QVBoxLayout()
 
-        # ✅ 재고 변화 그래프
+        # (A) 재고(매입) 변화 그래프
         self.stock_chart = QChartView()
-        self.right_section.addWidget(QLabel("📊 월별 재고 변화 그래프"))
+        self.right_section.addWidget(QLabel("📊 월별 매입(재고) 그래프"))
         self.right_section.addWidget(self.stock_chart)
 
-        # ✅ 판매량 그래프
+        # (B) 판매량 그래프
         self.sales_chart = QChartView()
-        self.right_section.addWidget(QLabel("📊 월별 판매량 그래프"))
+        self.right_section.addWidget(QLabel("📊 월별 판매량 그래프 (미구현)"))
         self.right_section.addWidget(self.sales_chart)
 
-        # ✅ 재고 vs 판매량 비교 그래프 (선 그래프)
+        # (C) 비교 그래프
         self.comparison_chart = QChartView()
-        self.right_section.addWidget(QLabel("📊 재고 vs 판매량 비교 그래프"))
+        self.right_section.addWidget(QLabel("📊 재고 vs 판매량 비교 그래프 (미구현)"))
         self.right_section.addWidget(self.comparison_chart)
 
-        main_layout.addLayout(self.right_section, 3)  # 📌 우측 3 비율
+        main_layout.addLayout(self.right_section, 3)  # 오른쪽은 비율 3
 
         self.setLayout(main_layout)
 
-    def update_stock_data(self, stock_data):
+    def update_stock_data(self, stock_data: dict):
         """
-        상품별 월별 재고 데이터 표시 & 그래프 업데이트
+        stock_data: { '1월': 10, '2월': 0, ... } 형식
+        여기서는 '재고'라기보다 '매입수량'을 예시로 표시.
         """
+        # 1) 테이블 채우기
         self.stock_table.setRowCount(0)
-        for month, amount in stock_data.items():
+        for month, qty in stock_data.items():
             row = self.stock_table.rowCount()
             self.stock_table.insertRow(row)
             self.stock_table.setItem(row, 0, QTableWidgetItem(month))
-            self.stock_table.setItem(row, 1, QTableWidgetItem(str(amount)))
+            self.stock_table.setItem(row, 1, QTableWidgetItem(str(qty)))
 
-        # ✅ 그래프 업데이트
-        self.update_stock_chart(stock_data)
+        # 2) 그래프 업데이트
+        chart = QChart()
+        series = QBarSeries()
+        categories = []
+
+        for month, qty in stock_data.items():
+            bar_set = QBarSet(month)
+            bar_set.append(qty)
+            series.append(bar_set)
+            categories.append(month)
+
+        chart.addSeries(series)
+        axis_x = QBarCategoryAxis()
+        axis_x.append(categories)
+        chart.setAxisX(axis_x, series)
+        self.stock_chart.setChart(chart)
 
     def update_sales_data(self, sales_data):
         """
@@ -523,7 +532,7 @@ class ProductsTab(QWidget):
     
     def do_search(self, search_text):
         """
-        상품명 또는 바코드로 검색 기능 수행
+        기존 검색 로직
         """
         global global_token
         search_text = search_text.strip()
@@ -532,21 +541,16 @@ class ProductsTab(QWidget):
             return
 
         try:
-            # ✅ API 호출 및 응답 가져오기
             response = api_fetch_products(global_token, search_name=search_text)
-
             if not isinstance(response, dict):
                 QMessageBox.critical(self, "오류", "상품 목록 응답이 잘못되었습니다.")
                 return
 
-            # ✅ 서버 응답을 리스트 형태로 변환
             products = []
-            for category, items in response.items():  # ✅ 기존 category 키
+            for category, items in response.items():
                 if isinstance(items, list):
                     for item in items:
-                        brand_id = item.get("brand_id", 0)  # ✅ API에서 brand_id 가져옴
-                        item["brand_id"] = brand_id  # ✅ 상품 데이터에 브랜드 ID 추가
-                        item["category"] = category  # ✅ API에서 내려온 category 값도 저장
+                        item["category"] = category
                         products.append(item)
 
             if not products:
@@ -554,18 +558,66 @@ class ProductsTab(QWidget):
                 QMessageBox.information(self, "검색 결과", "검색 결과가 없습니다.")
                 return
 
-            # ✅ 검색어 포함된 상품 필터링
-            filtered_products = [p for p in products if "product_name" in p and search_text.lower() in p["product_name"].lower()]
+            # 부분 일치 필터
+            filtered_products = [
+                p for p in products
+                if "product_name" in p and search_text.lower() in p["product_name"].lower()
+            ]
 
             if len(filtered_products) == 1:
-                # ✅ 검색 결과가 1개면 바로 표시
                 self.left_widget.display_product(filtered_products[0])
             else:
-                # ✅ 여러 개일 경우 선택 다이얼로그 표시
+                from PyQt5.QtWidgets import QDialog
                 dialog = ProductSelectionDialog(filtered_products, parent=self)
                 if dialog.exec_() == QDialog.Accepted and dialog.selected_product:
                     self.left_widget.display_product(dialog.selected_product)
 
         except Exception as ex:
             QMessageBox.critical(self, "오류", str(ex))
+
+    # ========== (5.1) “상품 선택 시” → fetch_and_update_stock_data ==========
+    def product_selected(self, product: dict):
+        """
+        왼쪽 패널에서 display_product 후에 호출됨.
+        여기서 오른쪽 패널의 stock(=매입) 그래프를 업데이트.
+        """
+        product_id = product.get("id", None)
+        if not product_id:
+            return
+
+        # 예시: 올해 기준
+        year = datetime.now().year
+
+        # 1) 서버에서 월별 매입량 가져오기
+        monthly_purchases = self.fetch_monthly_purchases(product_id, year)
+
+        # 2) “1월..12월” label + 수량으로 dict 변환
+        month_labels = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"]
+        purchase_dict = {}
+        for i, qty in enumerate(monthly_purchases):
+            purchase_dict[month_labels[i]] = qty
+
+        # 3) 오른쪽 패널에 전달
+        self.right_panel.update_stock_data(purchase_dict)
+
+    # ========== (5.2) “fetch_monthly_purchases” 함수 ==========
+    def fetch_monthly_purchases(self, product_id: int, year: int):
+        """
+        서버로부터 /purchases/monthly_purchases/{product_id}/{year} 라우트 호출해
+        [10,0,5,20,...12개] 형태를 반환받는다.
+        """
+        url = f"http://127.0.0.1:8000/purchases/monthly_purchases/{product_id}/{year}"
+        headers = {"Authorization": f"Bearer {global_token}"}
+        try:
+            resp = requests.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()  # ex: [10,0,5,20, ...]
+            if not isinstance(data, list) or len(data) != 12:
+                # 형식 체크
+                print("❌ 형식 오류: 월별 매입 데이터가 12개 배열이 아님:", data)
+                return [0]*12
+            return data
+        except Exception as e:
+            print("❌ 월별 매입 데이터 조회 실패:", e)
+            return [0]*12
 

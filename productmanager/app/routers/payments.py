@@ -6,10 +6,12 @@ from app.db.database import get_db
 from app.models.payments import Payment
 from app.schemas.payments import PaymentCreate, PaymentOut
 from typing import List
-from app.models.employees import Employee
+
 from app.models.sales_records import SalesRecord
 from app.models.orders import Order, OrderItem
 from typing import Dict
+from app.models.products import Product
+from app.models.employees import Employee
 router = APIRouter()
 
 @router.post("/", response_model=PaymentOut)
@@ -77,33 +79,77 @@ def delete_payment(payment_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"detail": "Payment record deleted"}
 
-@router.get("/salary/{year}/{month}", response_model=Dict[str, float])
+@router.get("/salary/{year}/{month}")
 def calculate_salary(year: int, month: int, db: Session = Depends(get_db)):
     """
-    특정 연도, 월의 직원 급여 계산 (비율은 UI에서 조정)
+    특정 연/월의 직원별 월매출을 구한 뒤,
+    { 직원명: 매출 } 형태로 반환
     """
+    from sqlalchemy import extract, func
+
+    start_date = f"{year}-{int(month):02d}-01"
+    end_date   = f"{year}-{int(month):02d}-31"
+
+    # SalesRecord + Product 조인 → (Product.default_price * SalesRecord.quantity)
+    # 직원(employee_id)별 sum()
+    results = (
+        db.query(
+            Employee.name.label("emp_name"),
+            func.sum(Product.default_price * SalesRecord.quantity).label("total_sales")
+        )
+        # 기준이 되는 메인 테이블을 명시적으로 잡아줌:
+        .select_from(SalesRecord)
+        # SalesRecord → Employee
+        .join(Employee, SalesRecord.employee_id == Employee.id)
+        # SalesRecord → Product
+        .join(Product, SalesRecord.product_id == Product.id)
+        # 날짜 필터
+        .filter(SalesRecord.sale_date >= start_date)
+        .filter(SalesRecord.sale_date <= end_date)
+        # 직원명으로 그룹
+        .group_by(Employee.name)
+        .all()
+    )
+
+    # { 직원명: 매출 } 형태로 변환
+    output = {}
+    for row in results:
+        emp_name = row.emp_name
+        total_amt = float(row.total_sales or 0)
+        output[emp_name] = total_amt
+
+    return output
+
+
+# app/routers/payments.py
+
+@router.get("/salary/{year}/{month}")
+def get_monthly_sales(year: int, month: int, db: Session = Depends(get_db)):
+    """
+    특정 연도(year), 월(month) 기준:
+    직원별 월매출(=SalesRecord에 의한 총 매출액) 을 Dict[str, float] 형태로 반환
+    예: { "김직원": 500000.0, "박직원": 350000.0, ... }
+    """
+    from sqlalchemy import func
+    from datetime import date
+    start_date = date(year, month, 1)
+    # 실제론 month가 12일 때 날짜 계산 필요하지만, 예시로 31일 fixed
+    end_date = date(year, month, 31)
+
     employees = db.query(Employee).all()
-    salary_data = {}
+    result = {}
 
     for emp in employees:
-        start_date = f"{year}-{month:02d}-01"
-        end_date = f"{year}-{month:02d}-31"
+        # 간단히 SalesRecord만 합산(단가 * 수량)
+        total = (
+            db.query(
+                func.sum(Product.default_price * SalesRecord.quantity)
+            )
+            .join(Product, SalesRecord.product_id == Product.id)
+            .filter(SalesRecord.employee_id == emp.id)
+            .filter(SalesRecord.sale_date >= start_date, SalesRecord.sale_date <= end_date)
+            .scalar()
+        )
+        result[emp.name] = float(total or 0.0)
 
-        total_sales = db.query(SalesRecord).filter(
-            SalesRecord.employee_id == emp.id,
-            SalesRecord.sale_date.between(start_date, end_date)
-        ).with_entities(SalesRecord.quantity * SalesRecord.unit_price).all()
-        
-        total_sales_amount = sum(row[0] for row in total_sales) if total_sales else 0
-
-        total_incentive = db.query(OrderItem).join(Order).filter(
-            Order.employee_id == emp.id,
-            Order.order_date.between(start_date, end_date)
-        ).with_entities(OrderItem.incentive).all()
-
-        total_incentive_amount = sum(row[0] for row in total_incentive) if total_incentive else 0
-
-        salary_data[emp.name] = round(total_sales_amount + total_incentive_amount, 2)
-
-    return salary_data
-
+    return result

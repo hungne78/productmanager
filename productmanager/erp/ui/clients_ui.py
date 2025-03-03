@@ -10,6 +10,8 @@ from services.api_services import api_fetch_clients, api_create_client, api_upda
 from baselefttabwidget import BaseLeftTableWidget
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QSizePolicy
+import requests
+from datetime import datetime
 global_token = get_auth_headers
 
 class LentDialog(QDialog):
@@ -598,49 +600,116 @@ class ClientRightPanel(QWidget):
     def update_data_for_client(self, client_id: int):
         """
         실제로 client_id를 받아서 서버에서
-        - 월별 매출
-        - 영업사원 월별 방문횟수
-        - 이번달 일별 매출
-        - 당일 분류별 판매 내용
-        등을 가져와 테이블에 채우는 로직.
+        - /sales/monthly_sales_client/{client_id}/{year}
+        - /sales/monthly_visits_client/{client_id}/{year}
+        - /sales/daily_sales_client/{client_id}/{year}/{month}
+        - /sales/today_categories_client/{client_id}
+        를 호출해 테이블에 채워넣음
         """
         global global_token
         if not global_token:
+            print("⚠️ 토큰이 없어 서버 호출이 불가합니다.")
             return
 
-        # 예시(더미 데이터):
-        monthly_sales = [200,300,400,500,100,150,700,250,300,600,900,1000]
-        for c, value in enumerate(monthly_sales):
-            self.tbl_box1.setItem(0, c, QTableWidgetItem(str(value)))
+        # 오늘 날짜
+        now = datetime.now()
+        year = now.year
+        month = now.month
 
-        monthly_visits = [2,1,3,0,5,2,7,1,0,2,1,3]
-        for c, val in enumerate(monthly_visits):
-            self.tbl_box2.setItem(0, c, QTableWidgetItem(str(val)))
+        headers = {"Authorization": f"Bearer {global_token}"}
+        base_url = "http://127.0.0.1:8000"  # 서버 주소 (환경에 맞춰 수정)
 
-        # 이번달 일별 매출
-        #   1~15일
-        daily_sales_1to15 = [50,60,0,0,100,300,150,200,80,120,40,60,70,110,90]
-        for c, val in enumerate(daily_sales_1to15):
-            self.tbl_box3_top.setItem(0, c, QTableWidgetItem(str(val)))
+        # 1) 해당 거래처의 월별 매출
+        url_monthly = f"{base_url}/sales/monthly_sales_client/{client_id}/{year}"
+        try:
+            resp = requests.get(url_monthly, headers=headers)
+            resp.raise_for_status()
+            monthly_sales = resp.json()  # 예: 길이 12짜리 리스트
+        except Exception as e:
+            print(f"❌ 월별 매출 조회 실패: {e}")
+            monthly_sales = [0]*12
 
-        #   16~31일
-        daily_sales_16to31 = [0,50,70,80,20,40,30,10,100,200,150,90,110,80,0,60]
-        for c, val in enumerate(daily_sales_16to31):
-            self.tbl_box3_bottom.setItem(0, c, QTableWidgetItem(str(val)))
+        # 테이블( box1 )에 채워넣기
+        for c in range(12):
+            self.tbl_box1.setItem(0, c, QTableWidgetItem(str(monthly_sales[c])))
 
-        # 당일 분류별 판매 내용 (예: 분류 / 판매금액 / 수량 / 직원 / 기타)
-        category_data = [
-            ("음료", 300, 15, "김영업", ""),
-            ("과자", 200, 10, "김영업", ""),
-            ("식품", 150, 5,  "이사원", ""),
-            ("기타", 500, 25, "박사원", ""),
-        ]
-        for row, cat in enumerate(category_data):
-            self.tbl_box4_main.setItem(row, 0, QTableWidgetItem(cat[0]))  # 분류
-            self.tbl_box4_main.setItem(row, 1, QTableWidgetItem(str(cat[1])))  # 판매금액
-            self.tbl_box4_main.setItem(row, 2, QTableWidgetItem(str(cat[2])))  # 수량
-            self.tbl_box4_main.setItem(row, 3, QTableWidgetItem(cat[3]))       # 직원
-            self.tbl_box4_main.setItem(row, 4, QTableWidgetItem(cat[4]))       # 기타
+        # 2) 해당 거래처의 월별 방문 횟수
+        url_visits = f"{base_url}/sales/monthly_visits_client/{client_id}/{year}"
+        try:
+            resp = requests.get(url_visits, headers=headers)
+            resp.raise_for_status()
+            monthly_visits = resp.json()  # 예: 길이 12
+        except Exception as e:
+            print(f"❌ 월별 방문 조회 실패: {e}")
+            monthly_visits = [0]*12
+
+        for c in range(12):
+            self.tbl_box2.setItem(0, c, QTableWidgetItem(str(monthly_visits[c])))
+
+        # 3) 이번달 일별 매출
+        url_daily = f"{base_url}/sales/daily_sales_client/{client_id}/{year}/{month}"
+        try:
+            resp = requests.get(url_daily, headers=headers)
+            resp.raise_for_status()
+            daily_sales = resp.json()  # 최대 길이 31
+        except Exception as e:
+            print(f"❌ 일별 매출 조회 실패: {e}")
+            daily_sales = [0]*31
+
+        # 상단(1~15일)
+        for i in range(15):
+            self.tbl_box3_top.setItem(0, i, QTableWidgetItem(str(daily_sales[i])))
+
+        # 하단(16~31일)
+        for i in range(15, 31):
+            col_index = i - 15
+            self.tbl_box3_bottom.setItem(0, col_index, QTableWidgetItem(str(daily_sales[i])))
+
+        # 4) 당일 분류별 판매
+        url_today = f"{base_url}/sales/today_categories_client/{client_id}"
+        try:
+            resp = requests.get(url_today, headers=headers)
+            resp.raise_for_status()
+            category_data = resp.json()  # [{category, total_amount, total_qty, employee_name}, ...]
+        except Exception as e:
+            print(f"❌ 당일 분류별 판매조회 실패: {e}")
+            category_data = []
+
+        # 테이블 초기화(기존 row 50개라고 했으니, 우선 0행부터 다시 세팅)
+        self.tbl_box4_main.setRowCount(len(category_data) + 1)
+
+        total_amt = 0
+        total_qty = 0
+
+        for row_idx, item in enumerate(category_data):
+            cat = item["category"]
+            amt = item["total_amount"]
+            qty = item["total_qty"]
+            emp = item["employee_name"] or ""
+
+            self.tbl_box4_main.setItem(row_idx, 0, QTableWidgetItem(cat))    # 분류
+            self.tbl_box4_main.setItem(row_idx, 1, QTableWidgetItem(str(amt))) # 판매금액
+            self.tbl_box4_main.setItem(row_idx, 2, QTableWidgetItem(str(qty))) # 수량
+            self.tbl_box4_main.setItem(row_idx, 3, QTableWidgetItem(emp))      # 직원
+            self.tbl_box4_main.setItem(row_idx, 4, QTableWidgetItem(""))       # 기타
+
+            total_amt += amt
+            total_qty += qty
+
+        # 마지막 행(합계)
+        sum_row = len(category_data)
+        self.tbl_box4_main.setItem(sum_row, 0, QTableWidgetItem("합계"))
+        self.tbl_box4_main.setItem(sum_row, 1, QTableWidgetItem(str(total_amt)))
+        self.tbl_box4_main.setItem(sum_row, 2, QTableWidgetItem(str(total_qty)))
+        self.tbl_box4_main.setItem(sum_row, 3, QTableWidgetItem(""))
+        self.tbl_box4_main.setItem(sum_row, 4, QTableWidgetItem(""))
+
+        # 푸터 테이블( self.tbl_box4_footer )도 동일하게 합계 표시
+        self.tbl_box4_footer.setItem(0, 0, QTableWidgetItem("합계"))
+        self.tbl_box4_footer.setItem(0, 1, QTableWidgetItem(str(total_amt)))
+        self.tbl_box4_footer.setItem(0, 2, QTableWidgetItem(str(total_qty)))
+        self.tbl_box4_footer.setItem(0, 3, QTableWidgetItem(""))
+        self.tbl_box4_footer.setItem(0, 4, QTableWidgetItem(""))
 
 
 
@@ -699,3 +768,20 @@ class ClientsTab(QWidget):
             dialog = ClientSelectionDialog(filtered_clients, parent=self)
             if dialog.exec_() == QDialog.Accepted and dialog.selected_client:
                 self.left_panel.display_client(dialog.selected_client)
+        if len(filtered_clients) == 1:
+            selected_client = filtered_clients[0]
+            self.left_panel.display_client(selected_client)
+
+            # 🟢 오른쪽 패널 업데이트
+            cid = selected_client["id"]
+            self.right_panel.update_data_for_client(cid)
+
+        else:
+            # 여러 건이면 팝업창
+            dialog = ClientSelectionDialog(filtered_clients, parent=self)
+            if dialog.exec_() == QDialog.Accepted and dialog.selected_client:
+                self.left_panel.display_client(dialog.selected_client)
+
+                # 동일하게 오른쪽 패널도 갱신
+                cid = dialog.selected_client["id"]
+                self.right_panel.update_data_for_client(cid)

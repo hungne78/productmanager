@@ -32,14 +32,7 @@ def list_client_visits(db: Session = Depends(get_db)):
     visits = db.query(ClientVisit).all()
     return visits
 
-@router.get("/{visit_id}", response_model=ClientVisitOut)
-def get_client_visit(visit_id: int, db: Session = Depends(get_db)):
-    visit = db.query(ClientVisit).get(visit_id)
-    if not visit:
-        raise HTTPException(status_code=404, detail="Client Visit not found")
-    return visit
-# client_visits.py
-from sqlalchemy import extract, func
+
 
 @router.get("/monthly_visits/{employee_id}/{year}")
 def get_monthly_visits(employee_id: int, year: int, db: Session = Depends(get_db)):
@@ -117,7 +110,7 @@ def get_today_visits_details(
         db.query(
             ClientVisit.id.label("visit_id"),
             ClientVisit.visit_datetime,
-            Client.client_id,
+            Client.id.label("client_id"),
             Client.client_name,
             Client.outstanding_amount,
             func.coalesce(
@@ -164,3 +157,12 @@ def get_today_visits_details(
         })
 
     return results
+
+@router.get("/{visit_id}", response_model=ClientVisitOut)
+def get_client_visit(visit_id: int, db: Session = Depends(get_db)):
+    visit = db.query(ClientVisit).get(visit_id)
+    if not visit:
+        raise HTTPException(status_code=404, detail="Client Visit not found")
+    return visit
+# client_visits.py
+from sqlalchemy import extract, func

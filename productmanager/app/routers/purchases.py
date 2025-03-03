@@ -145,3 +145,32 @@ def delete_purchase(purchase_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "매입 내역 삭제 성공"}
 
+@router.get("/purchases/monthly_purchases/{product_id}/{year}")
+def get_monthly_purchases(
+    product_id: int,
+    year: int,
+    db: Session = Depends(get_db)
+):
+    """
+    특정 상품(product_id)에 대해, 해당 연도(year)의 월별 매입수량 합계를 [1..12] 리스트 형태로 반환
+    예: [10, 0, 5, 20, 0, ...] (12개)
+    """
+    from sqlalchemy import extract, func
+
+    results = (
+        db.query(
+            extract('month', Purchase.purchase_date).label('purchase_month'),
+            func.sum(Purchase.quantity).label('sum_qty')
+        )
+        .filter(Purchase.product_id == product_id)
+        .filter(extract('year', Purchase.purchase_date) == year)
+        .group_by(extract('month', Purchase.purchase_date))
+        .all()
+    )
+
+    monthly_data = [0]*12
+    for row in results:
+        m = int(row.purchase_month) - 1  # 1월이면 index=0
+        monthly_data[m] = int(row.sum_qty or 0)
+
+    return monthly_data

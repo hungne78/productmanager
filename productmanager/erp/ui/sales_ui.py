@@ -70,27 +70,35 @@ class SalesLeftPanel(QWidget):
 
             self.parent_widget.load_sales_data(start_date, end_date, compare)
 
-    def update_client_sales_data(self, client_sales):
+    def update_client_sales_data(self, client_sales: list):
         """
-        거래처별 매출 기여도 테이블 업데이트
+        client_sales: [
+        {"client_id": 10, "total_sales": 150000.0},
+        {"client_id": 12, "total_sales":  80000.0},
+        ...
+        ]
         """
-        # ✅ 전체 매출 합계 계산 (0일 경우 대비 1로 설정)
-        total_sales_sum = sum([s["total_sales"] for s in client_sales]) if client_sales else 1
+        self.client_sales_table.setRowCount(0)  # 테이블 초기화
 
-        self.client_sales_table.setRowCount(0)
-        for client in client_sales:
+        if not client_sales:
+            return  # 데이터가 없으면 그대로 반환
+
+        total_sum = sum([c["total_sales"] for c in client_sales])
+        if total_sum == 0:
+            total_sum = 1  # 나누기 0 방지
+
+        for item in client_sales:
             row = self.client_sales_table.rowCount()
             self.client_sales_table.insertRow(row)
 
-            # ✅ 거래처명
-            self.client_sales_table.setItem(row, 0, QTableWidgetItem(str(client["client_id"])))
+            # 거래처 ID (또는 거래처명)
+            self.client_sales_table.setItem(row, 0, QTableWidgetItem(str(item["client_name"])))
+            # 총매출
+            self.client_sales_table.setItem(row, 1, QTableWidgetItem(f"{item['total_sales']:,}"))
+            # 기여도
+            percent = (item["total_sales"] / total_sum)*100
+            self.client_sales_table.setItem(row, 2, QTableWidgetItem(f"{percent:.2f}%"))
 
-            # ✅ 총 매출
-            self.client_sales_table.setItem(row, 1, QTableWidgetItem(f"₩{client['total_sales']:,}"))
-
-            # ✅ 기여도 계산 후 추가 (소수점 2자리 반올림)
-            contribution = (client["total_sales"] / total_sales_sum) * 100
-            self.client_sales_table.setItem(row, 2, QTableWidgetItem(f"{round(contribution, 2)}%"))
 
 
 class SalesRightPanel(QWidget):
@@ -286,49 +294,56 @@ class SalesTab(QWidget):
         self.setLayout(main_layout)
 
     def load_sales_data(self, start_date, end_date, compare):
-        """
-        FastAPI에서 직원별 및 기간별 매출 데이터 가져오기 (작년 같은 기간과 비교 가능)
-        """
         headers = {"Authorization": f"Bearer {global_token}"}
 
-        employee_sales_url = f"http://127.0.0.1:8000/sales/employees?start_date={start_date}&end_date={end_date}"
-        total_sales_url = f"http://127.0.0.1:8000/sales/total?start_date={start_date}&end_date={end_date}"
-        client_sales_url = f"http://127.0.0.1:8000/sales/by_client/{end_date}"
+        employee_sales_url = f"http://127.0.0.1:8000/sales/employees_records?start_date={start_date}&end_date={end_date}"
+        total_sales_url    = f"http://127.0.0.1:8000/sales/total_records?start_date={start_date}&end_date={end_date}"
+        client_sales_url = (
+    f"http://127.0.0.1:8000/sales/by_client_range"
+    f"?start_date={start_date}&end_date={end_date}"
+)
+
+
 
         try:
+            # 1) 직원별 매출
             emp_response = requests.get(employee_sales_url, headers=headers)
-            total_response = requests.get(total_sales_url, headers=headers)
-            client_response = requests.get(client_sales_url, headers=headers)
-
             emp_response.raise_for_status()
-            total_response.raise_for_status()
-            client_response.raise_for_status()
-
             employee_sales = emp_response.json()
+
+            # 2) 전체 매출(날짜별)
+            total_response = requests.get(total_sales_url, headers=headers)
+            total_response.raise_for_status()
             total_sales = total_response.json()
-            client_sales = client_response.json()  # ✅ 거래처별 매출 데이터
 
-            # ✅ 전체 매출 총합 계산 (거래처별 매출 기여도 계산용)
-            total_sales_sum = sum([s["total_sales"] for s in client_sales]) if client_sales else 1
+            # 3) 거래처별 매출 (특정 날짜)
+            client_sales_response = requests.get(client_sales_url, headers=headers)
+            client_sales_response.raise_for_status()
+            client_sales = client_sales_response.json()
 
-            # ✅ 거래처별 매출 기여도 계산
-            for client in client_sales:
-                client["contribution"] = round((client["total_sales"] / total_sales_sum) * 100, 2)
+            # ...이하 로직 동일
+            # 거래처별 매출 합계 등 계산
+            total_sales_sum = sum(s["total_sales"] for s in client_sales) if client_sales else 1
+            for c in client_sales:
+                c["contribution"] = round((c["total_sales"] / total_sales_sum)*100, 2)
 
+            # 이전 기간 비교
             previous_sales = []
             if compare:
-                # ✅ "작년 같은 기간"을 비교 대상으로 설정
                 prev_start_date = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=365)).strftime("%Y-%m-%d")
-                prev_end_date = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=365)).strftime("%Y-%m-%d")
+                prev_end_date   = (datetime.strptime(end_date, "%Y-%m-%d")   - timedelta(days=365)).strftime("%Y-%m-%d")
+                previous_url    = f"http://127.0.0.1:8000/sales/total?start_date={prev_start_date}&end_date={prev_end_date}"
+                prev_r = requests.get(previous_url, headers=headers)
+                prev_r.raise_for_status()
+                previous_sales = prev_r.json()
 
-                previous_url = f"http://127.0.0.1:8000/sales/total?start_date={prev_start_date}&end_date={prev_end_date}"
-                prev_response = requests.get(previous_url, headers=headers)
-                prev_response.raise_for_status()
-                previous_sales = prev_response.json()
-
+            # 왼쪽 패널: 거래처별 기여도 업데이트
             self.left_panel.update_client_sales_data(client_sales)
+
+            # 오른쪽 패널: 직원별, 전체, 거래처별(추가), 이전 매출 비교 등
             self.right_panel.update_sales_data(employee_sales, total_sales, client_sales, previous_sales)
 
         except requests.RequestException as e:
             print(f"❌ 매출 데이터 조회 실패: {e}")
+
 

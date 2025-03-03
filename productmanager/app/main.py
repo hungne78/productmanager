@@ -16,7 +16,7 @@ from app.routers.sales import router as sales_router
 from app.routers.brands import router as brands_router
 from app.core.security import get_password_hash
 from app.db.database import SessionLocal
-
+from app.routers import payments
 from app.models.employees import Employee
 from app.models.sales import Sales
 
@@ -81,10 +81,11 @@ def create_app() -> FastAPI:
     app.include_router(client_visits_router, prefix="/client_visits", tags=["ClientVisits"])
     app.include_router(employee_vehicle_router, prefix="/employee_vehicles", tags=["EmployeeVehicles"])
     app.include_router(purchases.router)
-    app.include_router(sales_router, prefix="/sales", tags=["Sales"])
+    
     app.include_router(brands_router, prefix="/brands", tags=["Brands"])
     app.include_router(lent.router, prefix="/lent", tags=["Lent"])
     app.include_router(sales_router, prefix="/sales", tags=["Sales"])
+    app.include_router(payments.router, prefix="/payments", tags=["Payments"])
     return app
 
 app = create_app()

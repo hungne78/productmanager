@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
-    QHeaderView, QLabel, QComboBox, QLineEdit
+    QHeaderView, QLabel, QComboBox, QLineEdit, QMessageBox
 import requests
 from datetime import datetime
 import sys
@@ -12,7 +12,10 @@ global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 class PaymentsLeftPanel(QWidget):
     """
-    왼쪽 패널 - 직원 목록, 비율 조정, 조회 기능 (년도 & 월 선택 자유롭게, 비율 float 입력)
+    왼쪽 패널:
+    - 연/월 선택
+    - 직원 목록 + 급여 비율(%) 입력
+    - 조회 버튼
     """
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -22,98 +25,118 @@ class PaymentsLeftPanel(QWidget):
     def init_ui(self):
         layout = QVBoxLayout()
 
-        # ✅ 년도 선택 드롭다운 (최근 5년 ~ 향후 5년 선택 가능)
-        self.year_selector = QComboBox()
-        current_year = datetime.today().year
-        years = [str(y) for y in range(current_year - 5, current_year + 6)]
-        self.year_selector.addItems(years)
-
-        # ✅ 월 선택 드롭다운 (1월 ~ 12월)
-        self.month_selector = QComboBox()
-        months = [str(m).zfill(2) for m in range(1, 13)]
-        self.month_selector.addItems(months)
-
+        # (A) 연/월 선택
         date_layout = QHBoxLayout()
-        date_layout.addWidget(QLabel("📅 연도:"))
-        date_layout.addWidget(self.year_selector)
-        date_layout.addWidget(QLabel("🗓 월:"))
-        date_layout.addWidget(self.month_selector)
+        self.year_combo = QComboBox()
+        current_year = datetime.now().year
+        for y in range(current_year - 5, current_year + 6):
+            self.year_combo.addItem(str(y))
+
+        self.month_combo = QComboBox()
+        for m in range(1, 13):
+            self.month_combo.addItem(str(m).zfill(2))
+
+        date_layout.addWidget(QLabel("연도:"))
+        date_layout.addWidget(self.year_combo)
+        date_layout.addWidget(QLabel("월:"))
+        date_layout.addWidget(self.month_combo)
 
         layout.addLayout(date_layout)
 
-        # ✅ 직원 목록 + 비율 입력 (float 값 입력 가능)
-        self.employee_table = QTableWidget()
-        self.employee_table.setColumnCount(2)
-        self.employee_table.setHorizontalHeaderLabels(["직원", "비율(%)"])
-        self.employee_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        layout.addWidget(QLabel("👥 직원별 급여 비율"))
-        layout.addWidget(self.employee_table)
+        # (B) 직원별 비율 입력 테이블
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["직원명", "급여 비율(%)"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        layout.addWidget(QLabel("직원별 급여 비율 설정"))
+        layout.addWidget(self.table)
 
-        # ✅ 조회 버튼
-        self.search_button = QPushButton("📊 조회")
-        self.search_button.clicked.connect(self.fetch_payments)
-        layout.addWidget(self.search_button)
+        # (C) 조회 버튼
+        self.btn_search = QPushButton("조회")
+        self.btn_search.clicked.connect(self.on_search)
+        layout.addWidget(self.btn_search)
 
         self.setLayout(layout)
 
-        # ✅ 직원 목록 불러오기
+        # 직원 목록 로딩
         self.load_employees()
 
     def load_employees(self):
         """
-        직원 목록을 불러와 테이블에 추가 (비율 입력란을 float으로 변경)
+        직원 목록을 /employees로부터 가져온 뒤, 테이블 행을 생성
+        각 행마다 '직원명' 표시, '비율(%)'은 디폴트 8.0
         """
         global global_token
-        url = "http://127.0.0.1:8000/employees/"
+        url = f"{BASE_URL}/employees/"
         headers = {"Authorization": f"Bearer {global_token}"}
 
         try:
             resp = requests.get(url, headers=headers)
             resp.raise_for_status()
-            employees = resp.json()
-        except:
+            employees = resp.json()  # list[dict]
+        except Exception as e:
+            print(f"직원 목록 조회 실패: {e}")
             employees = []
 
-        self.employee_table.setRowCount(0)
+        self.table.setRowCount(0)
         for emp in employees:
-            row = self.employee_table.rowCount()
-            self.employee_table.insertRow(row)
-            self.employee_table.setItem(row, 0, QTableWidgetItem(emp["name"]))
+            row = self.table.rowCount()
+            self.table.insertRow(row)
 
-            # ✅ 비율 입력란 (float 가능하도록 변경)
-            percentage_input = QLineEdit()
-            percentage_input.setPlaceholderText("8.0")  # 기본값 8%
-            self.employee_table.setCellWidget(row, 1, percentage_input)
+            # (1) 직원명
+            emp_name = emp.get("name", "")
+            self.table.setItem(row, 0, QTableWidgetItem(emp_name))
 
-    def fetch_payments(self):
+            # (2) 비율 입력칸 (default 8.0)
+            line_edit = QLineEdit()
+            line_edit.setText("8.0")  # 기본값
+            self.table.setCellWidget(row, 1, line_edit)
+
+    def on_search(self):
         """
-        직원별 급여 계산 및 결과 전송
+        '조회' 버튼 클릭 → year, month, 각 직원별 비율을 가져와
+        parent_widget.load_payments(...) 호출
         """
-        if self.parent_widget:
-            selected_year = self.year_selector.currentText()
-            selected_month = self.month_selector.currentText()
-            selected_period = f"{selected_year}-{selected_month}"
+        if not self.parent_widget:
+            return
 
-            employee_ratios = {}
+        sel_year = self.year_combo.currentText()
+        sel_month = self.month_combo.currentText()
 
-            for row in range(self.employee_table.rowCount()):
-                name = self.employee_table.item(row, 0).text()
-                percentage = self.employee_table.cellWidget(row, 1).text()
+        try:
+            year = int(sel_year)
+            month = int(sel_month)
+        except ValueError:
+            QMessageBox.warning(self, "주의", "연도/월이 숫자가 아닙니다.")
+            return
 
-                try:
-                    percentage = float(percentage)  # ✅ float 변환
-                except ValueError:
-                    percentage = 8.0  # 기본값 8.0%
+        # 직원별 비율 dict
+        ratio_dict = {}
+        row_count = self.table.rowCount()
+        for row in range(row_count):
+            emp_item = self.table.item(row, 0)
+            if not emp_item:
+                continue
+            emp_name = emp_item.text()
 
-                employee_ratios[name] = percentage
+            widget = self.table.cellWidget(row, 1)
+            ratio_str = widget.text() if widget else "8.0"
+            try:
+                ratio_val = float(ratio_str)
+            except ValueError:
+                ratio_val = 8.0
 
-            self.parent_widget.load_payments(selected_period, employee_ratios)
+            ratio_dict[emp_name] = ratio_val
 
+        # 부모로 넘김
+        self.parent_widget.load_payments(year, month, ratio_dict)
 
 
 class PaymentsRightPanel(QWidget):
     """
-    오른쪽 패널 - 직원별 급여 테이블 (세부 정보 추가)
+    오른쪽 패널:
+    - 테이블에 (직원명 / 월매출 / 비율 / 계산식 / 결과) 표시
+    - 인센티브 = 월매출 × (비율/100)
     """
     def __init__(self):
         super().__init__()
@@ -122,82 +145,86 @@ class PaymentsRightPanel(QWidget):
     def init_ui(self):
         layout = QVBoxLayout()
 
-        self.salary_table = QTableWidget()
-        self.salary_table.setColumnCount(6)  # ✅ 컬럼 수 증가
-        self.salary_table.setHorizontalHeaderLabels(["직원명", "월매출", "비율(%)", "인센티브", "계산과정", "월급"])
-        self.salary_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        
-        layout.addWidget(QLabel("💰 직원별 급여 내역"))
-        layout.addWidget(self.salary_table)
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["직원명", "월매출", "비율(%)", "계산식", "급여/인센티브"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        layout.addWidget(QLabel("직원별 계산 결과"))
+        layout.addWidget(self.table)
 
         self.setLayout(layout)
 
-    def update_salary_data(self, salary_data):
+    def update_data(self, monthly_sales: dict, ratio_dict: dict):
         """
-        직원별 급여 업데이트
+        monthly_sales: { 직원명: 월매출 }
+        ratio_dict: { 직원명: 비율(%) }
+        계산 = 월매출 × (비율/100)
         """
-        self.salary_table.setRowCount(0)
+        self.table.setRowCount(0)
 
-        for emp, data in salary_data.items():
-            row = self.salary_table.rowCount()
-            self.salary_table.insertRow(row)
+        for emp_name, sales_amt in monthly_sales.items():
+            row = self.table.rowCount()
+            self.table.insertRow(row)
 
-            monthly_sales = data.get("monthly_sales", 0)  # ✅ 월매출 (없으면 0)
-            percentage = data.get("percentage", 8.0)  # ✅ 비율 (기본 8%)
-            incentive = data.get("incentive", 0)  # ✅ 인센티브 (없으면 0)
-            calculated_salary = round((monthly_sales * (percentage / 100)) + incentive, 2)  # ✅ 월급 계산
-            calculation_process = f"({monthly_sales} × {percentage/100:.2f}) + {incentive}"  # ✅ 계산과정
+            # 1) 직원명
+            self.table.setItem(row, 0, QTableWidgetItem(emp_name))
+            # 2) 월매출 (ex: 200000)
+            sales_val = float(sales_amt or 0)
+            self.table.setItem(row, 1, QTableWidgetItem(f"{sales_val:,.0f}"))
 
-            # ✅ 테이블에 값 추가
-            self.salary_table.setItem(row, 0, QTableWidgetItem(emp))  # 직원명
-            self.salary_table.setItem(row, 1, QTableWidgetItem(f"₩{monthly_sales:,.0f}"))  # 월매출
-            self.salary_table.setItem(row, 2, QTableWidgetItem(f"{percentage:.1f}%"))  # 비율
-            self.salary_table.setItem(row, 3, QTableWidgetItem(f"₩{incentive:,.0f}"))  # 인센티브
-            self.salary_table.setItem(row, 4, QTableWidgetItem(calculation_process))  # 계산과정
-            self.salary_table.setItem(row, 5, QTableWidgetItem(f"₩{calculated_salary:,.0f}"))  # 월급
+            # 3) 비율(%) (없으면 8%)
+            ratio_val = ratio_dict.get(emp_name, 8.0)
+            self.table.setItem(row, 2, QTableWidgetItem(f"{ratio_val:.1f}%"))
+
+            # 4) 계산식
+            calc_expr = f"{sales_val:,.0f} × {ratio_val/100:.3f}"
+            self.table.setItem(row, 3, QTableWidgetItem(calc_expr))
+
+            # 5) 최종 인센티브/급여
+            final_pay = round(sales_val * (ratio_val/100), 2)
+            self.table.setItem(row, 4, QTableWidgetItem(f"{final_pay:,.0f}"))
 
 
 class PaymentsTab(QWidget):
     """
-    급여 관리 탭
+    메인 탭
+    - 왼쪽 패널(PaymentsLeftPanel) / 오른쪽 패널(PaymentsRightPanel)
     """
     def __init__(self):
         super().__init__()
-        layout = QHBoxLayout()
+        main_layout = QHBoxLayout()
+
         self.left_panel = PaymentsLeftPanel(self)
         self.right_panel = PaymentsRightPanel()
-        # ✅ 크기 정책 설정
+
         self.left_panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # ✅ 고정 크기 설정
-        self.left_panel.setFixedWidth(350)  # 1 비율
-        layout.addWidget(self.left_panel)
-        layout.addWidget(self.right_panel)
-        self.setLayout(layout)
+        self.left_panel.setFixedWidth(350)
 
-    def load_payments(self, period, employee_ratios):
+        main_layout.addWidget(self.left_panel)
+        main_layout.addWidget(self.right_panel)
+
+        self.setLayout(main_layout)
+
+    def load_payments(self, year: int, month: int, ratio_dict: dict):
         """
-        직원별 급여 계산 API 호출
+        왼쪽에서 (연/월, 직원별 비율 dict) 전달 → 이 메서드에서
+        1) GET /payments/salary/{year}/{month} 호출 (월매출 dict)
+        2) 오른쪽 패널 update_data(월매출, ratio_dict) 호출
         """
         global global_token
-        year, month = period.split("-")
-        url = f"http://127.0.0.1:8000/payments/salary/{year}/{int(month)}"
+        url = f"{BASE_URL}/payments/salary/{year}/{month}"
         headers = {"Authorization": f"Bearer {global_token}"}
-
+        
         try:
             resp = requests.get(url, headers=headers)
             resp.raise_for_status()
-            salary_data = resp.json()  # ✅ FastAPI에서 반환한 Dict[str, float] 받음
-
-            # ✅ 사용자 입력 비율 적용하여 최종 급여 계산
-            final_salary_data = {}
-            for name, base_salary in salary_data.items():
-                percentage = employee_ratios.get(name, 8.0) / 100  # ✅ 사용자 입력 비율 적용
-                final_salary_data[name] = round(base_salary * percentage, 2)
-
-            self.right_panel.update_salary_data(final_salary_data)
+            monthly_sales = resp.json()  # { "김영업": 500000, "이사원": 300000, ...}
         except Exception as e:
-            print(f"❌ 급여 데이터 조회 실패: {e}")
+            QMessageBox.critical(self, "오류", f"급여 계산 실패: {str(e)}")
+            return
 
-
+        # 오른쪽 패널에 업데이트 (월매출 + 사용자가 입력한 ratio_dict)
+        self.right_panel.update_data(monthly_sales, ratio_dict)
