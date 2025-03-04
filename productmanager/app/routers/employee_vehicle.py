@@ -3,73 +3,56 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.employee_vehicle import EmployeeVehicle
 from app.schemas.employee_vehicle import EmployeeVehicleCreate, EmployeeVehicleOut
-import json  # 로그 출력용
+from app.utils.time_utils import convert_utc_to_kst  # ✅ UTC → KST 변환 함수 추가
 
 router = APIRouter()
 
-@router.post("/", response_model=EmployeeVehicleOut)  # ✅ 응답은 EmployeeVehicleOut 유지
+@router.post("/", response_model=EmployeeVehicleOut)
 def create_employee_vehicle(vehicle_data: EmployeeVehicleCreate, db: Session = Depends(get_db)):
-    """ 차량 정보 등록 """
+    """ 차량 정보 등록 (KST 변환 적용) """
     try:
-        new_vehicle = EmployeeVehicle(**vehicle_data.dict())  # ✅ `id` 없이 생성
+        new_vehicle = EmployeeVehicle(**vehicle_data.dict())  
         db.add(new_vehicle)
         db.commit()
         db.refresh(new_vehicle)
 
-        # ✅ `datetime`을 `str`로 변환하여 반환
-        return {
-            "id": new_vehicle.id,
-            "employee_id": new_vehicle.employee_id,
-            "monthly_fuel_cost": new_vehicle.monthly_fuel_cost,
-            "current_mileage": new_vehicle.current_mileage,
-            "last_engine_oil_change": new_vehicle.last_engine_oil_change.strftime("%Y-%m-%d") if new_vehicle.last_engine_oil_change else None,
-            "created_at": new_vehicle.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            "updated_at": new_vehicle.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
-        }
+        # ✅ `datetime`을 `str`로 변환하여 반환 (KST 변환 적용)
+        return convert_employee_vehicle_to_kst(new_vehicle)
 
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"차량 등록 오류: {str(e)}")
 
-
-
 @router.get("/", response_model=list[EmployeeVehicleOut])
 def list_employee_vehicles(db: Session = Depends(get_db)):
+    """
+    모든 직원 차량 정보 조회 (KST 변환 적용)
+    """
     vehicles = db.query(EmployeeVehicle).all()
-    
-    # ✅ date와 datetime을 문자열로 변환
-    response_data = []
-    for v in vehicles:
-        response_data.append({
-            "id": v.id,
-            "monthly_fuel_cost": v.monthly_fuel_cost,
-            "current_mileage": v.current_mileage,
-            "last_engine_oil_change": v.last_engine_oil_change.strftime("%Y-%m-%d") if v.last_engine_oil_change else None,
-            "created_at": v.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            "updated_at": v.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
-        })
-
-    return response_data  # ✅ FastAPI가 JSON 변환 가능하도록 수정
-
-
+    return [convert_employee_vehicle_to_kst(v) for v in vehicles]  # ✅ KST 변환 적용
 
 @router.get("/{emp_id}", response_model=EmployeeVehicleOut)
 def get_employee_vehicle(emp_id: int, db: Session = Depends(get_db)):
-    """ 특정 직원의 차량 정보 조회 """
-    print(f"🚀 차량 정보 조회 요청: 직원 ID = {emp_id}")
+    """ 특정 직원의 차량 정보 조회 (KST 변환 적용) """
     vehicle = db.query(EmployeeVehicle).filter(EmployeeVehicle.employee_id == emp_id).first()
 
     if not vehicle:
         raise HTTPException(status_code=404, detail="차량 정보가 존재하지 않습니다.")
 
-    # ✅ `datetime`을 `str`로 변환
+    return convert_employee_vehicle_to_kst(vehicle)  # ✅ KST 변환 적용
+
+def convert_employee_vehicle_to_kst(vehicle: EmployeeVehicle):
+    """
+    EmployeeVehicle 객체의 날짜/시간 필드를 KST로 변환하여 반환
+    """
     return {
         "id": vehicle.id,
+        "employee_id": vehicle.employee_id,
         "monthly_fuel_cost": vehicle.monthly_fuel_cost,
         "current_mileage": vehicle.current_mileage,
-        "last_engine_oil_change": vehicle.last_engine_oil_change.strftime("%Y-%m-%d") if vehicle.last_engine_oil_change else None,
-        "created_at": vehicle.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-        "updated_at": vehicle.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "last_engine_oil_change": convert_utc_to_kst(vehicle.last_engine_oil_change).strftime("%Y-%m-%d") if vehicle.last_engine_oil_change else None,
+        "created_at": convert_utc_to_kst(vehicle.created_at).strftime("%Y-%m-%d %H:%M:%S"),
+        "updated_at": convert_utc_to_kst(vehicle.updated_at).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 @router.put("/{vehicle_id}", response_model=EmployeeVehicleOut)

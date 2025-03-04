@@ -9,30 +9,27 @@ from app.models.orders import Order, OrderItem
 from app.schemas.orders import (
     OrderCreate, OrderOut, OrderItemCreate
 )
+from app.utils.time_utils import get_kst_today, convert_utc_to_kst 
 
 router = APIRouter()
 
 @router.post("/", response_model=OrderOut)
 def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
     """
-    주문 생성
+    주문 생성 (KST 적용)
     """
     new_order = Order(
         client_id=payload.client_id,
         employee_id=payload.employee_id,
-        status=payload.status if payload.status else "pending"
+        status=payload.status if payload.status else "pending",
+        order_date=payload.order_date if payload.order_date else get_kst_today()  # ✅ KST 적용
     )
-
-    # order_date가 들어왔다면 적용
-    if payload.order_date:
-        new_order.order_date = payload.order_date
 
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
 
     total_amount = 0.0
-    # 주문 항목 생성
     for item_data in payload.items:
         order_item = OrderItem(
             order_id=new_order.id,
@@ -45,32 +42,55 @@ def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
         total_amount += item_data.line_total
         db.add(order_item)
 
-    # 총액 업데이트
     new_order.total_amount = total_amount
     db.commit()
     db.refresh(new_order)
 
-    return new_order
-
+    return convert_order_to_kst(new_order)  # ✅ KST 변환 후 반환
 
 @router.get("/", response_model=List[OrderOut])
 def list_orders(db: Session = Depends(get_db)):
     """
-    전체 주문 목록
+    전체 주문 목록 (KST 변환 적용)
     """
     orders = db.query(Order).all()
-    return orders
-
+    return [convert_order_to_kst(order) for order in orders]  # ✅ KST 변환 적용
 
 @router.get("/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: Session = Depends(get_db)):
     """
-    특정 주문 조회
+    특정 주문 조회 (KST 변환 적용)
     """
     order = db.query(Order).get(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    return order
+    return convert_order_to_kst(order)  # ✅ KST 변환 적용
+
+@router.get("/search", response_model=List[OrderOut])
+def search_orders(
+    date_query: Optional[date] = Query(None),
+    employee_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    - date_query만 있으면: 해당 날짜(KST)의 모든 주문
+    - date_query + employee_id 둘 다 있으면: 해당 날짜 + 해당 직원의 주문
+    - 둘 다 없으면: 전체 주문
+    """
+    query = db.query(Order)
+
+    if date_query:
+        query = query.filter(Order.order_date == date_query)
+    else:
+        query = query.filter(Order.order_date == get_kst_today())  # ✅ 기본값: 오늘(KST)
+
+    if employee_id:
+        query = query.filter(Order.employee_id == employee_id)
+
+    orders = query.all()
+    return [convert_order_to_kst(order) for order in orders]  # ✅ KST 변환 후 반환
+
+
 
 
 @router.delete("/{order_id}")
@@ -126,32 +146,13 @@ def update_order(order_id: int, payload: OrderCreate, db: Session = Depends(get_
 
     db.commit()
     db.refresh(order)
-    return order
-
-# ---------------------------------------------------------
-# 추가 요구사항: 날짜 + 직원 검색
-# ---------------------------------------------------------
-@router.get("/search", response_model=List[OrderOut])
-def search_orders(
-    date_query: Optional[date] = Query(None),
-    employee_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db),
-):
+    
+def convert_order_to_kst(order: Order):
     """
-    - date_query만 있으면: 해당 날짜의 모든 주문
-    - date_query + employee_id 둘 다 있으면: 해당 날짜 + 해당 직원의 주문
-    - 둘 다 없으면: 전체 주문
+    Order 객체의 `order_date`, `created_at`, `updated_at`을 KST 변환 후 반환
     """
-    query = db.query(Order)
-
-    # 날짜 필터
-    if date_query:
-        # order_date == date_query
-        query = query.filter(Order.order_date == date_query)
-
-    # 직원 필터
-    if employee_id:
-        query = query.filter(Order.employee_id == employee_id)
-
-    orders = query.all()
-    return orders
+    order_dict = OrderOut.model_validate(order).model_dump()
+    order_dict["order_date"] = convert_utc_to_kst(order.order_date).isoformat() if order.order_date else None
+    order_dict["created_at"] = convert_utc_to_kst(order.created_at).isoformat()
+    order_dict["updated_at"] = convert_utc_to_kst(order.updated_at).isoformat()
+    return order_dict

@@ -634,7 +634,7 @@ class ClientRightPanel(QWidget):
             self.tbl_box1.setItem(0, c, QTableWidgetItem(str(monthly_sales[c])))
 
         # 2) 해당 거래처의 월별 방문 횟수
-        url_visits = f"{base_url}/sales/monthly_visits_client/{client_id}/{year}"
+        url_visits = f"{base_url}/client_visits/monthly_visits_client/{client_id}/{year}"
         try:
             resp = requests.get(url_visits, headers=headers)
             resp.raise_for_status()

@@ -52,6 +52,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    print(f"🔹 [DEBUG] 인증된 사용자 정보: ID={user.id}, Name={user.name}, Role={user.role}")  # ✅ role 값 확인
+
     return EmployeeOut(
         id=user.id,
         name=user.name,

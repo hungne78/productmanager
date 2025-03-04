@@ -6,7 +6,8 @@ from app.models.clients import Client
 from app.schemas.clients import ClientCreate, ClientOut
 from fastapi.responses import JSONResponse
 from app.models.employee_clients import EmployeeClient
-
+from app.utils.time_utils import convert_utc_to_kst
+from starlette.responses import JSONResponse, StreamingResponse
 import json
 
 router = APIRouter()
@@ -31,13 +32,26 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
     db.refresh(new_client)
     return new_client
 
-def convert_datetime(obj):
-    """
-    datetime 타입을 JSON 직렬화할 수 있도록 변환
-    """
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    raise TypeError("Type not serializable")
+async def convert_datetime_to_kst(request, call_next):
+    response = await call_next(request)
+
+    # Check if the response is a StreamingResponse
+    if isinstance(response, StreamingResponse):
+        # If it's a StreamingResponse, skip KST conversion and just return the response
+        return response
+
+    # Apply KST conversion only for JSON responses (or other responses that have a body)
+    if isinstance(response, JSONResponse):
+        content = response.body.decode()  # Get the content from the body
+
+        try:
+            # Convert the UTC datetimes inside the JSON content to KST
+            content = convert_utc_to_kst(content)
+            response.body = content.encode()  # Re-encode the body with the converted content
+        except Exception as e:
+            print(f"❌ KST 변환 오류: {str(e)}")
+
+    return response
 
 @router.get("/", response_model=list[ClientOut])
 def list_clients(db: Session = Depends(get_db)):
@@ -45,22 +59,46 @@ def list_clients(db: Session = Depends(get_db)):
     거래처 목록 조회
     """
     clients = db.query(Client).all()
+
     # Pydantic V2에서는 from_orm 대신 model_validate 사용
     result = [ClientOut.model_validate(client).model_dump() for client in clients]
+
+    # Convert datetime fields to isoformat
+    for client in result:
+        if 'created_at' in client and client['created_at']:
+            client['created_at'] = client['created_at'].isoformat()
+        if 'updated_at' in client and client['updated_at']:
+            client['updated_at'] = client['updated_at'].isoformat()
+
+    # Now, we directly exclude the keys while building the response
+    content = [
+        {key: value for key, value in client.items() if key not in {"employee_clients", "client_visits", "employees"}}
+        for client in result
+    ]
+
     return JSONResponse(
-        content=json.loads(json.dumps(result, default=convert_datetime)),
+        content=content,
         media_type="application/json; charset=utf-8"
     )
+
+
+
 
 @router.get("/{client_id}", response_model=ClientOut)
 def get_client(client_id: int, db: Session = Depends(get_db)):
     """
-    특정 거래처 조회
+    특정 거래처 조회 (KST 변환 적용)
     """
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    return client
+    
+    # ✅ UTC → KST 변환 적용
+    client_dict = ClientOut.model_validate(client).model_dump()
+    client_dict["created_at"] = convert_utc_to_kst(client.created_at).isoformat()
+    client_dict["updated_at"] = convert_utc_to_kst(client.updated_at).isoformat()
+
+    return JSONResponse(content=client_dict, media_type="application/json; charset=utf-8")
 
 @router.put("/{client_id}", response_model=ClientOut)
 def update_client(client_id: int, payload: ClientCreate, db: Session = Depends(get_db)):

@@ -7,8 +7,9 @@ from app.models.products import Product
 from app.schemas.products import ProductCreate, ProductOut, ProductResponse, ProductUpdate
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
+from app.utils.time_utils import get_kst_now, convert_utc_to_kst 
 router = APIRouter()
 
 @router.post("/", response_model=ProductOut)
@@ -21,14 +22,14 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
         stock=payload.stock,
         is_active=payload.is_active,
         incentive=payload.incentive,
-        box_quantity=payload.box_quantity,  # ✅ 박스당 개수 추가
-        category=payload.category,  # ✅ 상품 분류 추가
+        box_quantity=payload.box_quantity,
+        category=payload.category,
         is_fixed_price=payload.is_fixed_price
     )
     db.add(new_product)
     db.commit()
     db.refresh(new_product)
-    return new_product
+    return convert_product_to_kst(new_product)  # ✅ KST 변환 후 반환
 
 
 from collections import defaultdict
@@ -49,12 +50,11 @@ def update_product(product_id: int, payload: ProductCreate, db: Session = Depend
     product.box_quantity = payload.box_quantity
     product.category = payload.category
     product.is_fixed_price = payload.is_fixed_price
-    product.updated_at = datetime.utcnow()  # ✅ 업데이트 시간 갱신
+    product.updated_at = get_kst_now()  # ✅ KST 적용
 
     db.commit()
     db.refresh(product)
-
-    return ProductOut.model_validate(product)  # ✅ `model_validate`를 사용하여 자동 변환
+    return convert_product_to_kst(product)  # ✅ KST 변환 후 반환
 
 
 @router.get("/", response_model=dict)
@@ -176,7 +176,8 @@ def update_product_stock(product_id: int, stock_increase: int, db: Session = Dep
 #     return products
 @router.get("/all", response_model=list[ProductOut])
 def list_all_products(db: Session = Depends(get_db)):
-    return db.query(Product).all()
+    products = db.query(Product).all()
+    return [convert_product_to_kst(product) for product in products]  # ✅ KST 변환 적용
 
 @router.get("/", response_model=dict)
 def fetch_products(search: str = Query(None), db: Session = Depends(get_db)):
@@ -203,3 +204,12 @@ def fetch_products(search: str = Query(None), db: Session = Depends(get_db)):
         })
 
     return result
+
+def convert_product_to_kst(product: Product):
+    """
+    Product 객체의 날짜/시간 필드를 KST로 변환하여 반환
+    """
+    product_dict = ProductOut.model_validate(product).model_dump()
+    product_dict["created_at"] = convert_utc_to_kst(product.created_at).isoformat()
+    product_dict["updated_at"] = convert_utc_to_kst(product.updated_at).isoformat()
+    return product_dict

@@ -1,8 +1,9 @@
 # app/schemas/products.py
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
-from pydantic import field_serializer
+from app.utils.time_utils import get_kst_now, convert_utc_to_kst  # ✅ KST 변환 함수 추가
+
 class ProductBase(BaseModel):
     product_name: str
     is_fixed_price: bool  # ✅ 상품이 고정가인지 여부
@@ -31,26 +32,24 @@ class ProductOut(BaseModel):
     box_quantity: int
     category: Optional[str]
     is_fixed_price: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
+    updated_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
 
-    # ✅ datetime 값을 문자열로 변환하는 함수
-    @field_serializer("created_at", "updated_at")
-    def serialize_datetime(self, value: datetime, _info) -> str:
-        if isinstance(value, datetime):
-            return value.strftime("%Y-%m-%d %H:%M:%S")
-        return ""  # 혹시 None 값이 있으면 빈 문자열 반환
+    @staticmethod
+    def convert_kst(obj):
+        """ UTC → KST 변환 함수 (Pydantic 자동 변환) """
+        return convert_utc_to_kst(obj) if obj else None
 
     class Config:
         from_attributes = True
 
-
 class ProductUpdate(ProductBase):
     pass
+
 class ProductResponse(ProductBase):
     id: int
-    created_at: str
-    updated_at: str
+    created_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
+    updated_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
 
     class Config:
         from_attributes = True

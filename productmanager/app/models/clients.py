@@ -2,6 +2,12 @@ from sqlalchemy import Column, Integer, String, DECIMAL, DateTime, Float
 from datetime import datetime
 from app.db.base import Base
 from sqlalchemy.orm import relationship
+from pytz import timezone
+
+def get_kst_now():
+    """ 현재 시간을 한국 시간(KST)으로 변환 """
+    kst = timezone("Asia/Seoul")
+    return datetime.utcnow().astimezone(kst)
 
 class Client(Base):
     __tablename__ = "clients"
@@ -17,8 +23,10 @@ class Client(Base):
     
     business_number = Column(String(50), nullable=True)
     email = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # ✅ KST 기준으로 생성/수정 시간 저장
+    created_at = Column(DateTime, default=get_kst_now)
+    updated_at = Column(DateTime, default=get_kst_now, onupdate=get_kst_now)
 
     # ✅ EmployeeClient와 관계 설정 (다대다)
     employee_clients = relationship("EmployeeClient", back_populates="client")
@@ -35,4 +43,3 @@ class Client(Base):
     # ✅ `overlaps="employee_clients"` 추가하여 중복 관계 해결
     employees = relationship("Employee", secondary="employee_clients", back_populates="clients", overlaps="employee_clients")
     sales_records = relationship("SalesRecord", back_populates="client", cascade="all, delete-orphan")  # ✅ 삭제 연쇄 적용
-

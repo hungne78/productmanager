@@ -4,9 +4,11 @@ from app.db.database import get_db
 from app.models.purchases import Purchase
 from app.models.products import Product
 from app.schemas.purchases import PurchaseOut
+from app.utils.time_utils import get_kst_today, convert_utc_to_kst  # ✅ KST 변환 함수 추가
 from typing import List
 from datetime import date
 from pydantic import BaseModel
+
 router = APIRouter()
 
 class PurchaseCreate(BaseModel):
@@ -20,40 +22,44 @@ class PurchaseUpdate(BaseModel):
     quantity: int
     unit_price: float
     purchase_date: date
+
 @router.post("/purchases")
 def create_purchase(purchase_data: PurchaseCreate, db: Session = Depends(get_db)):
     """
-    매입 등록 시 상품 재고 업데이트
+    매입 등록 시 상품 재고 업데이트 (KST 적용)
     """
     print(f"📡 매입 등록 요청 데이터 (서버): {purchase_data.dict()}")  
 
     try:
-        # ✅ 매입 데이터 추가
         new_purchase = Purchase(
             product_id=purchase_data.product_id,
             quantity=purchase_data.quantity,
             unit_price=purchase_data.unit_price,
-            purchase_date=purchase_data.purchase_date
+            purchase_date=purchase_data.purchase_date if purchase_data.purchase_date else get_kst_today()  # ✅ KST 적용
         )
         db.add(new_purchase)
 
-        # ✅ 재고 업데이트 (상품 테이블에서 stock 증가)
         product = db.query(Product).filter(Product.id == purchase_data.product_id).first()
         if product:
-            product.stock += purchase_data.quantity  # ✅ 기존 재고에 추가
+            product.stock += purchase_data.quantity  
             db.commit()
             db.refresh(product)
 
         db.commit()
         db.refresh(new_purchase)
-        print(f"✅ 매입 등록 및 재고 업데이트 완료: {new_purchase}")
-        return {"message": "매입 등록 성공", "purchase_id": new_purchase.id}
+
+        # ✅ `dict()` 사용하여 반환
+        purchase_dict = new_purchase.__dict__
+        purchase_dict["purchase_date"] = convert_utc_to_kst(purchase_dict["purchase_date"]).isoformat() if purchase_dict["purchase_date"] else None
+
+        print(f"✅ 매입 등록 및 재고 업데이트 완료: {purchase_dict}")
+        return purchase_dict  # `dict()` 반환
 
     except Exception as e:
         db.rollback()
         print(f"❌ 매입 등록 실패: {e}")
         raise HTTPException(status_code=500, detail=f"매입 등록 실패: {e}")
-
+    
     
 @router.get("/products/{product_id}/purchases")
 def get_product_purchases(product_id: int, db: Session = Depends(get_db)):
@@ -68,7 +74,7 @@ def list_purchases(
     end_date: date = Query(None)
 ):
     """
-    매입 내역 조회 (상품명 포함)
+    매입 내역 조회 (상품명 포함, KST 변환 적용)
     """
     query = db.query(
         Purchase.id,
@@ -76,33 +82,35 @@ def list_purchases(
         Purchase.quantity,
         Purchase.unit_price,
         Purchase.purchase_date,
-        Product.product_name  # ✅ 상품명 추가
+        Product.product_name  
     ).join(Product, Product.id == Purchase.product_id)
 
-    # 날짜 필터링 추가
     if start_date:
-        query = query.filter(Purchase.purchase_date >= start_date)
+        query = query.filter(Purchase.purchase_date >= convert_utc_to_kst(start_date))  # ✅ KST 변환 적용
     if end_date:
-        query = query.filter(Purchase.purchase_date <= end_date)
+        query = query.filter(Purchase.purchase_date <= convert_utc_to_kst(end_date))  # ✅ KST 변환 적용
 
     purchases = query.all()
 
-    # ✅ 반환 데이터 수정하여 상품명을 포함
-    result = [
-        {
-            "id": purchase.id,
-            "product_id": purchase.product_id,
-            "quantity": purchase.quantity,
-            "unit_price": purchase.unit_price,
-            "purchase_date": purchase.purchase_date,
-            "product_name": purchase.product_name  # ✅ 상품명 반환
-        }
-        for purchase in purchases
-    ]
+    result = [convert_purchase_to_kst({
+        "id": p.id,
+        "product_id": p.product_id,
+        "quantity": p.quantity,
+        "unit_price": p.unit_price,
+        "purchase_date": p.purchase_date,
+        "product_name": p.product_name
+    }) for p in purchases]
 
-    print(f"📡 반환 데이터: {result}")  # ✅ FastAPI에서 반환되는 데이터 확인
+    print(f"📡 반환 데이터: {result}")  
     return result
 
+def convert_purchase_to_kst(purchase: dict):
+    """
+    Purchase 객체의 `purchase_date`를 KST로 변환하여 반환
+    """
+    purchase["purchase_date"] = convert_utc_to_kst(purchase["purchase_date"]).isoformat() if purchase["purchase_date"] else None
+    return purchase
+    
 @router.put("/purchases/{purchase_id}")
 def update_purchase(purchase_id: int, purchase_data: PurchaseUpdate, db: Session = Depends(get_db)):
     """
