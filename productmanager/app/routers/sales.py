@@ -673,4 +673,65 @@ def get_sales_by_client_range(
             "total_sales": float(sum_amt or 0)
         })
     return output
+# 예: /sales/clients/{year}/{month} 라우터 새로 추가
+@router.get("/clients/{year}/{month}")
+def get_clients_invoices(year: int, month: int, db: Session = Depends(get_db)):
+    """
+    특정 연도/월의 세금계산서(혹은 매출) 목록을 반환한다는 가정 하여 작성
+    """
+    # 1) year, month → 해당 월의 시작일/끝일 계산
+    #    예: 2025/03 이면 2025-03-01 ~ 2025-03-31
+    import calendar
+    from datetime import date
+    start_date = date(year, month, 1)
+    last_day = calendar.monthrange(year, month)[1]
+    end_date = date(year, month, last_day)
+
+    # 2) SalesRecord(혹은 Sales) 등에서 기간 필터
+    #    아래는 예시: sales_records 테이블을 전부 뒤져서
+    #    client_id, client_name, total_sales, tax_amount 등
+    #    원하는 형태로 집계해서 return
+    #    (실제 테이블 이름/칼럼명에 맞춰 수정!)
+    from sqlalchemy import func
+    from app.models.sales_records import SalesRecord
+    from app.models.clients import Client
+    from app.models.products import Product
+
+    query = (
+        db.query(
+            SalesRecord.client_id,
+            Client.client_name,
+            # 임의로 대표자명 client_ceo 라고 했다고 치면:
+            # 실제 Client 모델에 `ceo` 필드가 있어야 합니다.
+            # 없으면 DB칼럼명에 맞춰 수정!
+            Client.address.label("client_ceo"),  
+            func.sum(Product.default_price * SalesRecord.quantity).label("total_sales"),
+        )
+        .join(Client, SalesRecord.client_id == Client.id)
+        .join(Product, SalesRecord.product_id == Product.id)
+        .filter(SalesRecord.sale_date >= start_date)
+        .filter(SalesRecord.sale_date <= end_date)
+        .group_by(SalesRecord.client_id, Client.client_name, Client.address)
+    )
+
+    results = query.all()
+
+    # 부가세 등은 별도 로직이 필요하면 추가
+    # 여기서는 총매출 x 10% 정도를 세액이라 가정해봄
+    data = []
+    for row in results:
+        total = float(row.total_sales or 0)
+        vat = total * 0.1  # 예시
+        data.append({
+            "supplier_id": "",        # 우리회사 번호 (프론트 쪽에서 set_company_info 활용)
+            "supplier_name": "",      # ""
+            "supplier_ceo": "",       # ""
+            "client_id": str(row.client_id),  # 실제론 Client.business_number?
+            "client_name": row.client_name,
+            "client_ceo": row.client_ceo,
+            "total_sales": total,
+            "tax_amount": vat
+        })
+
+    return data
 
