@@ -33,10 +33,17 @@ class ApiService {
 
 
   static Future<http.Response> fetchClients(String token) async {
-    final url = Uri.parse("$baseUrl/clients");
+    final url = Uri.parse("$baseUrl/clients/clients");
     return await http.get(url, headers: {
       "Content-Type": "application/json",
       "Authorization": "Bearer $token",
+    });
+  }
+  static Future<http.Response> fetchClientById(String token, int clientId) async {
+    final url = Uri.parse("$baseUrl/clients/$clientId"); // ✅ client_id를 경로에 전달
+    return await http.get(url, headers: {
+      "Authorization": "Bearer $token",
+      "Content-Type": "application/json",
     });
   }
 
@@ -63,21 +70,17 @@ class ApiService {
     });
   }
   static Future<http.Response> updateClientOutstanding(String token, int clientId, Map<String, dynamic> data) async {
-    final url = Uri.parse("$baseUrl/sales/outstanding/$clientId");  // ✅ URL 수정
-
-    print("🔹 [PUT 요청] 미수금 업데이트 시작...");
-    print("🔹 요청 URL: $url");
-    print("🔹 요청 데이터: $data");
-    print("🔹 요청 헤더: Bearer $token");
+    final url = Uri.parse("$baseUrl/clients/$clientId/outstanding");
 
     return await http.put(
       url,
       headers: {
-        "Authorization": "Bearer $token", // ✅ 인증 토큰 포함
+        "Authorization": "Bearer $token",
         "Content-Type": "application/json",
       },
       body: jsonEncode(data),
     );
   }
+
 // etc...
 }

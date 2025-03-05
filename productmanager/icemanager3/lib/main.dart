@@ -7,6 +7,7 @@ void main() {
   runApp(
     MultiProvider(
       providers: [
+
         ChangeNotifierProvider<AuthProvider>(
           create: (_) => AuthProvider(),
         ),

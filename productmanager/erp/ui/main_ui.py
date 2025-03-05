@@ -14,6 +14,7 @@ from employee_map_ui import EmployeeMapTab
 from sales_ui import SalesTab
 from payments_ui import PaymentsTab
 from invoices_ui import InvoicesTab
+from employee_sales_ui import EmployeeSalesTab
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QSpacerItem, QSizePolicy
 import json
@@ -121,6 +122,7 @@ class MainApp(QMainWindow):
             ("매입관리", os.path.join(ICONS_DIR, "purchase.png"), self.show_purchase_tab),
             ("직원 지도", os.path.join(ICONS_DIR, "map.png"), self.show_employee_map_tab),
             ("총매출", os.path.join(ICONS_DIR, "sales.png"), self.show_sales_tab),
+            ("방문주기", os.path.join(ICONS_DIR, "sales.png"), self.show_employee_sales_tab),
             ("월급여", os.path.join(ICONS_DIR, "payments.png"), self.show_payments_tab),
             ("세금계산서", os.path.join(ICONS_DIR, "invoices.png"), self.show_invoices_tab)
         ]
@@ -174,6 +176,7 @@ class MainApp(QMainWindow):
             "purchase": PurchaseTab(),
             "employee_map": EmployeeMapTab(),
             "sales": SalesTab(),
+            "employee_sales" : EmployeeSalesTab(),
             "payments": PaymentsTab(),
             "invoices": InvoicesTab()
         }
@@ -261,6 +264,10 @@ class MainApp(QMainWindow):
         self.stacked.setCurrentWidget(self.tabs["sales"])
         self.update_search_placeholder("sales")
 
+    def show_employee_sales_tab(self):
+        self.stacked.setCurrentWidget(self.tabs["employee_sales"])
+        self.update_search_placeholder("employee_sales")
+        
     def show_payments_tab(self):
         self.stacked.setCurrentWidget(self.tabs["payments"])
         self.update_search_placeholder("payments")
@@ -290,6 +297,8 @@ class MainApp(QMainWindow):
             current_tab.do_search(keyword)
         elif isinstance(current_tab, SalesTab):
             current_tab.do_search(keyword)
+        elif isinstance(current_tab, EmployeeSalesTab):
+            current_tab.do_search(keyword)
         elif isinstance(current_tab, PaymentsTab):
             current_tab.do_search(keyword) 
         elif isinstance(current_tab, InvoicesTab):
@@ -304,6 +313,7 @@ class MainApp(QMainWindow):
             "purchase": "매입 검색 (ex: 거래처명, 제품명)",
             "employee_map": "직원 ID 입력",
             "sales": "매출날짜입력",
+            "employee_sales": "직원이름 검색",
             "payments" : "직원이름 검색",
             "invoices" : "거래처명 검색"
         }

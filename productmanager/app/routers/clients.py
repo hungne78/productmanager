@@ -30,7 +30,7 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
     db.refresh(new_client)
     return new_client  # ✅ 변환 없이 그대로 반환
 
-@router.get("/", response_model=list[ClientOut])
+@router.get("/clients", response_model=list[ClientOut])
 def list_clients(db: Session = Depends(get_db)):
     """ 모든 거래처 목록 조회 (KST 그대로 반환) """
     clients = db.query(Client).all()
@@ -88,3 +88,24 @@ def delete_client(client_id: int, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"거래처 삭제 실패: {str(e)}")
 
+@router.put("/{client_id}/outstanding")
+def update_outstanding(client_id: int, payload: dict, db: Session = Depends(get_db)):
+    """ 거래처 미수금(outstanding_amount) 업데이트 """
+    db_client = db.query(Client).filter(Client.id == client_id).first()
+
+    if not db_client:
+        raise HTTPException(status_code=404, detail="거래처를 찾을 수 없습니다.")
+
+    if "outstanding_amount" not in payload:
+        raise HTTPException(status_code=400, detail="outstanding_amount 필드가 필요합니다.")
+
+    try:
+        db_client.outstanding_amount = payload["outstanding_amount"]
+        db.commit()
+        db.refresh(db_client)
+
+        return {"message": "미수금이 업데이트되었습니다.", "outstanding_amount": db_client.outstanding_amount}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"미수금 업데이트 실패: {str(e)}")

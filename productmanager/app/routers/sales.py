@@ -17,6 +17,8 @@ from app.schemas.sales import OutstandingUpdate
 from app.models.client_visits import ClientVisit
 from app.schemas.sales import SalesAggregateCreate, SaleItem
 from app.utils.time_utils import get_kst_now, convert_utc_to_kst 
+
+
 router = APIRouter()
 
 def get_kst_today():
@@ -732,3 +734,72 @@ def get_monthly_sales(employee_id: int, year: int, db: Session = Depends(get_db)
         monthly_data[m] = float(row.sum_sales)
 
     return monthly_data
+@router.get("/employee_sales/{employee_id}/{year}/{month}")
+def get_employee_sales_data(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
+    """
+    직원 기준 해당 월의 거래처 매출 데이터 조회 (MariaDB 호환)
+    """
+    # 🔹 해당 직원이 담당하는 거래처 목록 가져오기
+    client_ids = [c[0] for c in db.query(EmployeeClient.client_id)
+                  .filter(EmployeeClient.employee_id == employee_id).all()]
+    if not client_ids:
+        return []
+
+    # 🔹 현재 월 매출 조회
+    current_month_sales = db.query(SalesRecord.client_id, func.sum(SalesRecord.quantity * Product.default_price).label("total_sales"))\
+        .join(Product, SalesRecord.product_id == Product.id)\
+        .filter(SalesRecord.client_id.in_(client_ids),
+                extract('year', SalesRecord.sale_datetime) == year,
+                extract('month', SalesRecord.sale_datetime) == month)\
+        .group_by(SalesRecord.client_id)\
+        .all()
+
+    # 🔹 전월 매출 조회
+    prev_month = month - 1 if month > 1 else 12
+    prev_year = year if month > 1 else year - 1
+    prev_month_sales = db.query(SalesRecord.client_id, func.sum(SalesRecord.quantity * Product.default_price).label("total_sales"))\
+        .join(Product, SalesRecord.product_id == Product.id)\
+        .filter(SalesRecord.client_id.in_(client_ids),
+                extract('year', SalesRecord.sale_datetime) == prev_year,
+                extract('month', SalesRecord.sale_datetime) == prev_month)\
+        .group_by(SalesRecord.client_id)\
+        .all()
+
+    # 🔹 전년도 같은 달 매출 조회
+    last_year_sales = db.query(SalesRecord.client_id, func.sum(SalesRecord.quantity * Product.default_price).label("total_sales"))\
+        .join(Product, SalesRecord.product_id == Product.id)\
+        .filter(SalesRecord.client_id.in_(client_ids),
+                extract('year', SalesRecord.sale_datetime) == year - 1,
+                extract('month', SalesRecord.sale_datetime) == month)\
+        .group_by(SalesRecord.client_id)\
+        .all()
+
+    # 🔹 방문 주기 평균 계산 (Python에서 직접 계산)
+    visit_frequencies = {}
+    for client_id in client_ids:
+        visits = db.query(ClientVisit.visit_datetime)\
+            .filter(ClientVisit.client_id == client_id)\
+            .order_by(ClientVisit.visit_datetime)\
+            .all()
+
+        if len(visits) > 1:
+            intervals = [(visits[i].visit_datetime - visits[i - 1].visit_datetime).days for i in range(1, len(visits))]
+            avg_visit_frequency = sum(intervals) / len(intervals)
+        else:
+            avg_visit_frequency = 0  # 방문이 1회 이하라면 0 처리
+
+        visit_frequencies[client_id] = avg_visit_frequency
+
+    # 🔹 결과 데이터 정리
+    results = []
+    for client_id in client_ids:
+        results.append({
+            "client_id": client_id,
+            "client_name": db.query(Client.client_name).filter(Client.id == client_id).scalar(),
+            "prev_month_sales": next((s[1] for s in prev_month_sales if s[0] == client_id), 0),
+            "last_year_sales": next((s[1] for s in last_year_sales if s[0] == client_id), 0),
+            "current_month_sales": next((s[1] for s in current_month_sales if s[0] == client_id), 0),
+            "visit_frequency": visit_frequencies.get(client_id, 0)
+        })
+    
+    return results
