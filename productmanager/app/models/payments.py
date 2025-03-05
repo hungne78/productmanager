@@ -1,14 +1,14 @@
-# app/models/payments.py
 from sqlalchemy import Column, BigInteger, Integer, DECIMAL, DateTime, String, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
+import pytz
 from app.db.base import Base
-from pytz import timezone
+
+KST = pytz.timezone("Asia/Seoul")
 
 def get_kst_now():
-    """ 현재 시간을 한국 시간(KST)으로 변환 """
-    kst = timezone("Asia/Seoul")
-    return datetime.utcnow().astimezone(kst)
+    """ 현재 시간을 한국 시간(KST)으로 변환하여 반환 """
+    return datetime.now(KST)
 
 class Payment(Base):
     __tablename__ = "payments"
@@ -26,4 +26,4 @@ class Payment(Base):
     created_at = Column(DateTime, default=get_kst_now)
     updated_at = Column(DateTime, default=get_kst_now, onupdate=get_kst_now)
 
-    client = relationship("Client", backref="payments") # optional
+    client = relationship("Client", backref="payments")  # optional

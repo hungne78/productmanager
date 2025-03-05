@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import cast, Date, extract, func
 from app.db.database import get_db
 from app.models.sales_records import SalesRecord
@@ -19,19 +19,9 @@ from app.schemas.sales import SalesAggregateCreate, SaleItem
 from app.utils.time_utils import get_kst_now, convert_utc_to_kst 
 router = APIRouter()
 
-def convert_sales_to_kst(sale: SalesRecord):
-    """
-    SalesRecord 객체의 `sale_datetime`을 KST로 변환하여 반환
-    """
-    sale_dict = {
-        "id": sale.id,
-        "employee_id": sale.employee_id,
-        "client_id": sale.client_id,
-        "product_id": sale.product_id,
-        "quantity": sale.quantity,
-        "sale_datetime": sale.sale_datetime.isoformat() if sale.sale_datetime else None
-    }
-    return sale_dict
+def get_kst_today():
+    """KST 기준으로 오늘 날짜 가져오기"""
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9))).date()
 # -----------------------------------------------------------------------------
 # 1. 특정 직원이 담당하는 거래처들의 매출 조회
 # -----------------------------------------------------------------------------
@@ -86,41 +76,34 @@ def get_sales_by_employee(employee_id: int, sale_date: date, db: Session = Depen
 # -----------------------------------------------------------------------------
 # 2. 새로운 매출 데이터 등록 (단가 자동 계산)
 # -----------------------------------------------------------------------------
-@router.post("", response_model=SalesRecordOut)
+@router.post("/", response_model=SalesRecordOut)
 def create_sales_record(payload: SalesRecordCreate, db: Session = Depends(get_db)):
-    """
-    새로운 매출 데이터를 등록합니다. (KST 적용)
-    """
+    """ 새로운 매출 데이터 등록 (KST로 저장) """
     product = db.query(Product).filter(Product.id == payload.product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
-
-    total_price = product.default_price * payload.quantity
 
     new_sales = SalesRecord(
         employee_id=payload.employee_id,
         client_id=payload.client_id,
         product_id=payload.product_id,
         quantity=payload.quantity,
-        sale_datetime=payload.sale_datetime if payload.sale_datetime else get_kst_now()  # ✅ KST 적용
+        sale_datetime=payload.sale_datetime
     )
 
     db.add(new_sales)
     db.commit()
     db.refresh(new_sales)
 
-    return convert_sales_to_kst(new_sales)  # ✅ KST 변환 후 반환
+    return new_sales  # ✅ 변환 없이 그대로 반환
 
 # -----------------------------------------------------------------------------
 # 3. 전체 매출 목록 조회
 # -----------------------------------------------------------------------------
-@router.get("/", response_model=List[SalesOut])
+@router.get("/", response_model=List[SalesRecordOut])
 def list_sales_records(db: Session = Depends(get_db)):
-    """
-    전체 매출 목록 조회 (KST 변환 적용)
-    """
-    sales = db.query(SalesRecord).all()
-    return [convert_sales_to_kst(s) for s in sales]  # ✅ KST 변환 적용
+    """ 전체 매출 목록 조회 (KST 그대로 반환) """
+    return db.query(SalesRecord).all()  # ✅ 변환 없이 그대로 반환
 
 # -----------------------------------------------------------------------------
 # 4. 특정 직원의 매출 조회
@@ -294,57 +277,96 @@ def get_total_sales(
         for sale in total_sales
     ]
 
-
+from fastapi.exceptions import RequestValidationError
 # -----------------------------------------------------------------------------
 # 13. 판매 데이터 등록 (매출 등록 API)
 # -----------------------------------------------------------------------------
-@router.post("/sales", response_model=SalesRecordOut)
+@router.post("", response_model=SalesRecordOut)
 def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
-    print(f"📡 판매 등록 요청 데이터: {sale_data.dict()}")
-
+    print("📡 [FastAPI] create_sale() 호출됨")  # ✅ 강제 출력
+    print(f"📡 [FastAPI] 받은 요청 데이터: {sale_data.model_dump()}")  # 
     try:
+        print(f"📡 판매 등록 요청 데이터: {sale_data.model_dump()}")
+
         product = db.query(Product).filter(Product.id == sale_data.product_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
         
         # 재고 차감
-        # product.stock -= sale_data.quantity
+        if product.stock < sale_data.quantity:
+            raise HTTPException(status_code=400, detail="재고 부족")
+
+        product.stock -= sale_data.quantity
         total_amount = sale_data.quantity * product.default_price
 
-        # 매출 기록 저장 (Sales 테이블)
-        new_sale = Sales(
-            employee_id=sale_data.employee_id,
-            client_id=sale_data.client_id,
-            product_id=sale_data.product_id,
-            total_quantity=sale_data.quantity,
-            total_amount=total_amount,
-            sale_datetime=sale_data.sale_datetime if sale_data.sale_datetime else get_kst_now()  # ✅ KST 적용
-        )
-        db.add(new_sale)
-        db.flush()  # 즉시 반영
+        # ✅ `sale_datetime`을 변환 없이 그대로 저장
+        sale_datetime_kst = sale_data.sale_datetime
 
-        # SalesRecord 테이블에도 기록이 필요할 수 있음
-        new_sales_record = SalesRecord(
+        # ✅ 방문 기록 확인 (해당 직원이 오늘 이 거래처 방문했는지 조회)
+        existing_visit = (
+            db.query(ClientVisit)
+            .filter(ClientVisit.employee_id == sale_data.employee_id)
+            .filter(ClientVisit.client_id == sale_data.client_id)
+            .filter(cast(ClientVisit.visit_datetime, Date) == cast(get_kst_now(), Date))
+            .first()
+        )
+
+        if not existing_visit:
+            # ✅ 방문 기록이 없으면 새 방문 기록 생성
+            new_visit = ClientVisit(
+                employee_id=sale_data.employee_id,
+                client_id=sale_data.client_id,
+                visit_datetime=get_kst_now(),
+            )
+            db.add(new_visit)
+            db.flush()  # 즉시 `id` 반영
+            visit_id = new_visit.id
+        else:
+            visit_id = existing_visit.id  # 기존 방문 ID 사용
+
+        # ✅ 매출 기록 저장 (변환 없이 저장)
+        new_sale = SalesRecord(
             employee_id=sale_data.employee_id,
             client_id=sale_data.client_id,
             product_id=sale_data.product_id,
             quantity=sale_data.quantity,
-            sale_datetime=sale_data.sale_datetime if sale_data.sale_datetime else get_kst_now()  # ✅ KST 적용
+            sale_datetime=sale_datetime_kst  # ✅ 변환 없이 저장
         )
-        db.add(new_sales_record)
+        db.add(new_sale)
         db.flush()  # 즉시 반영
+
         db.commit()  # 최종 저장
-        db.refresh(new_sale)
-        db.refresh(new_sales_record)
+        db.refresh(new_sale)  # `id` 자동 증가 적용
 
-        print(f"✅ 매출 저장 완료: ID={new_sale.id}, 총액={new_sale.total_amount}")
+        print(f"✅ 매출 저장 완료: ID={new_sale.id}, 총액={total_amount}")
 
-        return convert_sales_to_kst(new_sale)
-
+        return new_sale  # ✅ 변환 없이 반환
+    
     except Exception as e:
         db.rollback()
         print(f"❌ 판매 등록 실패: {e}")
         raise HTTPException(status_code=500, detail=f"판매 등록 실패: {e}")
+
+def convert_sales_to_kst(sale: SalesRecord, db: Session, visit_id: int):
+    """
+    SalesRecord 객체의 `sale_datetime`을 그대로 반환 (변환 없음)
+    """
+    product = db.query(Product).filter(Product.id == sale.product_id).first()
+    
+    sale_dict = {
+        "id": sale.id,
+        "employee_id": sale.employee_id,
+        "client_id": sale.client_id,
+        "product_id": sale.product_id,
+        "product_name": product.product_name if product else "Unknown",  # ✅ 제품명 추가
+        "quantity": sale.quantity,
+        "unit_price": float(product.default_price) if product else 0.0,  # ✅ 단가 추가
+        "total_amount": float(sale.quantity * product.default_price) if product else 0.0,  # ✅ 총액 추가
+        "sale_datetime": sale.sale_datetime.isoformat() if sale.sale_datetime else None,  # ✅ 변환 없이 반환
+        "visit_id": visit_id  # ✅ 방문 기록 ID 포함
+    }
+    return sale_dict
+
 
 
 # -----------------------------------------------------------------------------
@@ -504,7 +526,10 @@ def get_today_categories_for_client(client_id: int, db: Session = Depends(get_db
     """
     '오늘' 날짜 기준, 특정 거래처의 상품 카테고리별 집계 반환
     """
-    today = date.today()
+    today_kst = get_kst_today()
+    start_of_day = datetime.combine(today_kst, datetime.min.time())  # 00:00:00
+    end_of_day = datetime.combine(today_kst, datetime.max.time())    # 23:59:59
+
     results = (
         db.query(
             Product.category.label('category'),
@@ -515,11 +540,11 @@ def get_today_categories_for_client(client_id: int, db: Session = Depends(get_db
         .join(SalesRecord, SalesRecord.product_id == Product.id)
         .join(Employee, SalesRecord.employee_id == Employee.id, isouter=True)
         .filter(SalesRecord.client_id == client_id)
-        .filter(cast(SalesRecord.sale_datetime, Date) == today)
+        .filter(SalesRecord.sale_datetime.between(start_of_day, end_of_day))  # ✅ KST 기준 필터링
         .group_by(Product.category, Employee.name)
         .all()
     )
-    
+
     data = []
     for row in results:
         data.append({
@@ -528,8 +553,9 @@ def get_today_categories_for_client(client_id: int, db: Session = Depends(get_db
             "total_qty": int(row.total_qty or 0),
             "employee_name": row.employee_name or "",
         })
-    return data
 
+    print(f"📌 오늘 카테고리별 판매 데이터: {data}")  # ✅ 디버깅 로그 추가
+    return data
 
 
 # -----------------------------------------------------------------------------

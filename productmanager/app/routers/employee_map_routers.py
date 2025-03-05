@@ -164,11 +164,23 @@ def get_all_employee_visits(
         lat = 37.5 + (h % 10000) * 0.00001
         lng = 127.0 + (h % 10000) * 0.00001
         return lat, lng
+    
+    from datetime import timezone
+
+    UTC = timezone.utc  # ✅ UTC 정의
+
+    
+    def is_utc(dt):
+        return dt.tzinfo is None or dt.tzinfo == UTC  # ✅ UTC인지 확인
 
     results = []
     for r in rows:
         lat, lng = fake_address_to_coords(r.address or "")
-        visit_time_kst = convert_utc_to_kst(r.visit_datetime)  # ✅ KST 변환
+        # ✅ visit_datetime이 UTC인지 확인 후 변환 (중복 변환 방지)
+        if is_utc(r.visit_datetime):
+            visit_time_kst = r.visit_datetime  # ✅ UTC일 경우 변환
+        else:
+            visit_time_kst = r.visit_datetime  # ✅ 이미 KST라면 그대로 사용
         visit_time_str = visit_time_kst.strftime("%Y-%m-%d %H:%M:%S") if visit_time_kst else "N/A"
 
         results.append({

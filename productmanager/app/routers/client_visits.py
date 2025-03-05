@@ -6,7 +6,7 @@ from app.models.clients import Client
 from typing import List
 from app.schemas.client_visits import ClientVisitCreate, ClientVisitOut
 from sqlalchemy import func, cast, Date
-from datetime import date
+from datetime import datetime, timedelta, timezone
 from app.models.sales_records import SalesRecord
 from app.models.products import Product
 # ✅ extract 함수 임포트 추가
@@ -17,24 +17,23 @@ router = APIRouter()
 
 @router.post("/", response_model=ClientVisitOut)
 def create_client_visit(payload: ClientVisitCreate, db: Session = Depends(get_db)):
+    """ 방문 기록 추가 (KST로 저장) """
     new_visit = ClientVisit(
         employee_id=payload.id,
         client_id=payload.client_id,
-        visit_datetime=payload.visit_datetime,
+        visit_datetime=payload.visit_datetime,  # ✅ KST로 저장됨
         order_id=payload.order_id
     )
     db.add(new_visit)
     db.commit()
     db.refresh(new_visit)
-    result = new_visit.__dict__.copy()
-    result["id_employee"] = result.pop("employee_id")
-    return result
+    return new_visit  # ✅ 변환 없이 KST 그대로 반환
 
 @router.get("/", response_model=list[ClientVisitOut])
 def list_client_visits(db: Session = Depends(get_db)):
+    """ 모든 방문 기록 조회 (KST 그대로 반환) """
     visits = db.query(ClientVisit).all()
-    return visits
-
+    return visits  # ✅ 변환 없이 그대로 반환
 
 
 @router.get("/monthly_visits/{employee_id}/{year}")
@@ -88,21 +87,24 @@ def get_daily_visits(employee_id: int, year: int, month: int, db: Session = Depe
 
     return daily_counts
 
+def get_kst_today():
+    """현재 날짜를 KST(Asia/Seoul) 기준으로 변환"""
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9))).date()
+
 @router.get("/today_visits_details")
 def get_today_visits_details(
     employee_id: int = Query(...),
     db: Session = Depends(get_db)
 ):
-    """
-    '오늘(KST)' 날짜에 해당 직원(employee_id)이 방문한 거래처 목록 반환
-    """
+    """ 오늘(KST) 방문한 거래처 목록 조회 """
 
-    today = get_kst_today()  # ✅ UTC → KST 변경
+    today_kst = get_kst_today()  # ✅ KST 기준 오늘 날짜 가져오기
+    print(f"🔍 KST 기준 오늘 날짜: {today_kst}")  # ✅ 로그 추가
 
     query = (
         db.query(
             ClientVisit.id.label("visit_id"),
-            ClientVisit.visit_datetime,
+            ClientVisit.visit_datetime,  # KST 변환 없이 그대로 가져옴
             Client.id.label("client_id"),
             Client.client_name,
             Client.outstanding_amount,
@@ -119,65 +121,45 @@ def get_today_visits_details(
         )
         .outerjoin(Product, Product.id == SalesRecord.product_id)
         .filter(ClientVisit.employee_id == employee_id)
-        .filter(cast(ClientVisit.visit_datetime, Date) == today)  # ✅ UTC → KST 변경
-        .group_by(
-            ClientVisit.id,
-            ClientVisit.visit_datetime,
-            Client.id,  # client_id
-            Client.client_name,
-            Client.outstanding_amount
-        )
-        .order_by(ClientVisit.visit_datetime.asc())
-    )
-
-    rows = query.all()
-    results = []
-    for row in rows:
-        # ✅ 방문일시를 KST로 변환 후 문자열 변환
-        visit_time_str = convert_utc_to_kst(row.visit_datetime).strftime("%Y-%m-%d %H:%M:%S")
-
-        # Decimal -> float 변환
-        out_amt = float(row.outstanding_amount or 0)
-        sales_amt = float(row.today_sales or 0)
-
-        results.append({
-            "visit_id": row.visit_id,
-            "visit_datetime": visit_time_str,  # ✅ KST 변환 후 반환
-            "client_id": row.client_id,
-            "client_name": row.client_name,
-            "outstanding_amount": out_amt,
-            "today_sales": sales_amt,
-        })
-
-    return results
-
-@router.get("/{visit_id}", response_model=ClientVisitOut)
-def get_client_visit(visit_id: int, db: Session = Depends(get_db)):
-    visit = db.query(ClientVisit).get(visit_id)
-    if not visit:
-        raise HTTPException(status_code=404, detail="Client Visit not found")
-    return visit
-# client_visits.py
-@router.get("/monthly_visits_client/{client_id}/{year}")
-def get_monthly_visits_by_client(client_id: int, year: int, db: Session = Depends(get_db)):
-    """
-    특정 거래처(client_id)의 해당 연도 월별 방문 횟수 반환
-    """
-    results = (
-        db.query(
-            extract('month', ClientVisit.visit_datetime).label('visit_month'),
-            func.count(ClientVisit.id).label('cnt')
-        )
-        .filter(ClientVisit.client_id == client_id)
-        .filter(extract('year', ClientVisit.visit_datetime) == year)
-        .group_by(extract('month', ClientVisit.visit_datetime))
         .all()
     )
 
-    monthly_counts = [0] * 12
-    for row in results:
-        m = int(row.visit_month) - 1
-        monthly_counts[m] = row.cnt
+    # ✅ Python에서 KST 기준으로 필터링
+    results = []
+    for row in query:
+        visit_datetime_kst = row.visit_datetime.astimezone(timezone(timedelta(hours=9)))  # UTC → KST 변환
+        if visit_datetime_kst.date() == today_kst:  # ✅ 날짜만 비교
+            results.append({
+                "visit_id": row.visit_id,
+                "visit_datetime": visit_datetime_kst.strftime("%Y-%m-%d %H:%M:%S"),  # ✅ KST 기준 변환
+                "client_id": row.client_id,
+                "client_name": row.client_name,
+                "outstanding_amount": float(row.outstanding_amount or 0),
+                "today_sales": float(row.today_sales or 0),
+            })
 
-    return monthly_counts
+    print(f"📝 조회된 방문 데이터 (KST 기준 필터링 후): {results}")  # ✅ 디버깅용 로그 추가
+    return results
+
+@router.get("/monthly_visits_client/{client_id}/{year}")
+def get_monthly_visits_by_client(client_id: int, year: int, db: Session = Depends(get_db)):
+    """ 클라이언트 기준 월별 방문 조회 API """
+    
+    # ✅ 기본적으로 12개월(1~12월) 데이터를 0으로 초기화
+    monthly_visits = [0] * 12  
+
+    # ✅ 데이터베이스에서 방문 기록 조회
+    visits = (
+        db.query(extract("month", ClientVisit.visit_datetime), func.count())
+        .filter(ClientVisit.client_id == client_id)
+        .filter(extract("year", ClientVisit.visit_datetime) == year)
+        .group_by(extract("month", ClientVisit.visit_datetime))
+        .all()
+    )
+
+    # ✅ 조회된 방문 데이터를 리스트에 적용
+    for month, count in visits:
+        monthly_visits[month - 1] = count  # `month-1` (0부터 시작하는 인덱스 맞추기)
+
+    return monthly_visits
 

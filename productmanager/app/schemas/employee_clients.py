@@ -1,31 +1,23 @@
-# app/schemas/employee_clients.py
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
-from app.utils.time_utils import get_kst_now, convert_utc_to_kst  # ✅ KST 변환 함수 추가
 
 class EmployeeClientCreate(BaseModel):
-    """
-    Many-to-Many 관계 등록용 (사원ID, 거래처ID, start_date 등)
-    """
+    """ 사원과 거래처 연결 등록 요청 스키마 (기본값 제거) """
     employee_id: int
     client_id: int
-    start_date: Optional[datetime] = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-    end_date: Optional[datetime] = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
+    start_date: Optional[datetime] = None  # ✅ 기본값 제거
+    end_date: Optional[datetime] = None  # ✅ 기본값 제거
 
 class EmployeeClientOut(BaseModel):
+    """ 사원과 거래처 연결 응답 스키마 (KST 값 그대로 사용) """
     id: int
     employee_id: int
     client_id: int
-    start_date: Optional[datetime] = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-    end_date: Optional[datetime] = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-    created_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-    updated_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-
-    @staticmethod
-    def convert_kst(obj):
-        """ UTC → KST 변환 함수 (Pydantic 자동 변환) """
-        return convert_utc_to_kst(obj) if obj else None
+    start_date: Optional[datetime]  # ✅ 변환 없이 그대로 반환
+    end_date: Optional[datetime]  # ✅ 변환 없이 그대로 반환
+    created_at: datetime  # ✅ 변환 없이 그대로 반환
+    updated_at: datetime  # ✅ 변환 없이 그대로 반환
 
     class Config:
-        from_attributes = True
+        from_attributes = True  # ✅ ORM 모델을 Pydantic 스키마로 변환

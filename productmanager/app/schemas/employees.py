@@ -2,34 +2,30 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime, date
-from app.utils.time_utils import get_kst_now, convert_utc_to_kst  # ✅ KST 변환 함수 추가
+
 
 class EmployeeCreate(BaseModel):
+    """ 직원 등록 요청 스키마 (KST 값 그대로 사용) """
     password: str
     name: str
     phone: Optional[str] = None
     role: Optional[str] = "sales"
-    birthday: Optional[date] = None      
-    address: Optional[str] = None         
+    birthday: Optional[date] = None
+    address: Optional[str] = None
 
 class EmployeeOut(BaseModel):
+    """ 직원 조회 응답 스키마 (KST 값 그대로 사용) """
     id: int
     name: str
     phone: Optional[str]
     role: str
-    birthday: Optional[date] = None       
-    address: Optional[str] = None         
-    created_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-    updated_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-
-    @staticmethod
-    def convert_kst(obj):
-        """ UTC → KST 변환 함수 (Pydantic 자동 변환) """
-        return convert_utc_to_kst(obj) if obj else None
+    birthday: Optional[date] = None
+    address: Optional[str] = None
+    created_at: datetime = None # ✅ 변환 없이 KST 값 그대로 사용
+    updated_at: datetime = None # ✅ 변환 없이 KST 값 그대로 사용
 
     class Config:
         from_attributes = True
-
 class EmployeeUpdate(BaseModel):
     password: Optional[str]
     name: Optional[str]

@@ -406,7 +406,7 @@ class EmployeeRightPanel(QWidget):
     def init_ui(self):
         main_layout = QVBoxLayout()
         # 1) box1
-        self.box1 = QGroupBox("당해년도 월별 매출")
+        self.box1 = QGroupBox("월별 매출")
         self.tbl_box1 = QTableWidget(2, 12)  # 2행 12열
         # box1 (월별 매출)에서,
         # - 열 헤더가 "1월"~"12월"
@@ -428,7 +428,7 @@ class EmployeeRightPanel(QWidget):
         main_layout.addWidget(self.box1)
 
         # 2) box2
-        self.box2 = QGroupBox("당해년도 월별 방문횟수")
+        self.box2 = QGroupBox("월별 방문횟수")
         self.tbl_box2 = QTableWidget(2, 12)
         # box1 (월별 매출)에서,
         # - 열 헤더가 "1월"~"12월"
@@ -449,7 +449,7 @@ class EmployeeRightPanel(QWidget):
         main_layout.addWidget(self.box2)
 
        
-        self.box3 = QGroupBox("이번달 일별 매출 (2줄)")
+        self.box3 = QGroupBox("일별 매출")
         v = QVBoxLayout()
 
 
@@ -588,55 +588,58 @@ class EmployeeRightPanel(QWidget):
         # -----------------------------
         # (4) 당일 방문 + 미수금 + 오늘 매출 (box4)
         # -----------------------------
+        
         url_today_visits = f"{BASE_URL}/client_visits/today_visits_details?employee_id={employee_id}"
+
+       
         try:
             resp = requests.get(url_today_visits, headers=headers)
             resp.raise_for_status()
             visits_data = resp.json()
+            print(f"📌 오늘 방문 데이터: {visits_data}")  # ✅ API 응답 확인 로그 추가
         except Exception as e:
-            print("오늘 방문 데이터 조회 오류:", e)
+            print("🚨 오늘 방문 데이터 조회 오류:", e)
             visits_data = []
 
-        # (4-1) 오늘 매출 합계, 미수금 합계를 계산
+        # ✅ 기본 행 개수를 유지 (예: 50개)
+        default_row_count = max(50, len(visits_data) + 1)
+        self.tbl_box4_main.setRowCount(default_row_count)
+
+        # ✅ 총 매출 및 미수금 계산
         total_today_sales = sum(item.get("today_sales", 0) for item in visits_data)
         total_outstanding = sum(item.get("outstanding_amount", 0) for item in visits_data)
 
-        # (4-2) 테이블 행 갯수를 visits_data 길이+1 로 지정
-        #       마지막 행을 '합계'로 쓸 것이므로 +1
-        self.tbl_box4_main.setRowCount(len(visits_data) + 1)
+        # 🔹 **기존 테이블 유지하며, 방문 데이터만 갱신**
+        for row_index in range(default_row_count - 1):
+            if row_index < len(visits_data):
+                info = visits_data[row_index]
+                client_name = str(info.get("client_name", "N/A"))
+                today_sales = str(f"{info.get('today_sales', 0):,} 원")  # ✅ 천 단위 콤마 추가
+                outstanding = str(f"{info.get('outstanding_amount', 0):,} 원")
+                visit_time = str(info.get("visit_datetime", ""))
 
-        # (4-3) 각 방문 데이터를 행별로 표시
-        for row_index, info in enumerate(visits_data):
-            client_name = info.get("client_name", "N/A")
-            today_sales = info.get("today_sales", 0)
-            outstanding = info.get("outstanding_amount", 0)
-            visit_time  = info.get("visit_datetime", "")
+                self.tbl_box4_main.setItem(row_index, 0, QTableWidgetItem(client_name))
+                self.tbl_box4_main.setItem(row_index, 1, QTableWidgetItem(today_sales))
+                self.tbl_box4_main.setItem(row_index, 2, QTableWidgetItem(outstanding))
+                self.tbl_box4_main.setItem(row_index, 3, QTableWidgetItem(visit_time))
+                self.tbl_box4_main.setItem(row_index, 4, QTableWidgetItem(""))
+            else:
+                # ✅ 데이터가 없는 행은 빈 값으로 유지
+                self.tbl_box4_main.setItem(row_index, 0, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row_index, 1, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row_index, 2, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row_index, 3, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row_index, 4, QTableWidgetItem(""))
 
-            self.tbl_box4_main.setItem(row_index, 0, QTableWidgetItem(client_name))
-            self.tbl_box4_main.setItem(row_index, 1, QTableWidgetItem(str(today_sales)))
-            self.tbl_box4_main.setItem(row_index, 2, QTableWidgetItem(str(outstanding)))
-            self.tbl_box4_main.setItem(row_index, 3, QTableWidgetItem(visit_time))
-            self.tbl_box4_main.setItem(row_index, 4, QTableWidgetItem(""))
-
-        # (4-4) 마지막 행(합계 행)을 표시
-        total_row = len(visits_data)
-        self.tbl_box4_main.setItem(total_row, 0, QTableWidgetItem("합계"))
-        self.tbl_box4_main.setItem(total_row, 1, QTableWidgetItem(str(total_today_sales)))
-        self.tbl_box4_main.setItem(total_row, 2, QTableWidgetItem(str(total_outstanding)))
-        # 나머지 열(방문시간, 기타)은 비워둠
-        self.tbl_box4_main.setItem(total_row, 3, QTableWidgetItem(""))
-        self.tbl_box4_main.setItem(total_row, 4, QTableWidgetItem(""))
-
-         # 합계 계산
-        total_sales = sum(x["today_sales"] for x in visits_data)
-        total_outstanding = sum(x["outstanding_amount"] for x in visits_data)
-
-        # 푸터 테이블(1행 5열) → 첫 번째 셀에 "합계"
-        self.tbl_box4_footer.setItem(0, 0, QTableWidgetItem("합계"))
-        self.tbl_box4_footer.setItem(0, 1, QTableWidgetItem(str(total_sales)))
-        self.tbl_box4_footer.setItem(0, 2, QTableWidgetItem(str(total_outstanding)))
-        self.tbl_box4_footer.setItem(0, 3, QTableWidgetItem(""))  # 방문시간 칸은 비움
-        self.tbl_box4_footer.setItem(0, 4, QTableWidgetItem(""))  # 기타 칸 비움    
+        # 🔹 **합계 행 업데이트 (항상 마지막 행)**
+        last_row_index = default_row_count - 1
+        self.tbl_box4_main.setItem(last_row_index, 0, QTableWidgetItem("합계"))
+        self.tbl_box4_main.setItem(last_row_index, 1, QTableWidgetItem(f"{total_today_sales:,} 원"))
+        self.tbl_box4_main.setItem(last_row_index, 2, QTableWidgetItem(f"{total_outstanding:,} 원"))
+        self.tbl_box4_main.setItem(last_row_index, 3, QTableWidgetItem(""))  # 방문시간 칸 비움
+        self.tbl_box4_main.setItem(last_row_index, 4, QTableWidgetItem(""))  # 기타 칸 비움
+        self.tbl_box4_footer.setItem(0, 4, QTableWidgetItem(""))  # 기타 칸 비움
+        
 
 
 

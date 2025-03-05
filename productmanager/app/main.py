@@ -22,9 +22,25 @@ from app.routers.employee_map_routers import router as employee_map_router
 from app.routers import client_visits
 from app.utils.time_utils import convert_utc_to_kst  # ✅ KST 변환 함수 추가
 import json
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+import logging
+from fastapi.routing import APIRoute
+
+
+logging.basicConfig(level=logging.DEBUG)  # DEBUG 레벨로 설정하여 모든 로그 출력
+logger = logging.getLogger(__name__)
+
+# ✅ `422 Unprocessable Content` 오류 발생 시 강제로 로그 출력
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """ 서버 시작 및 종료 시 실행되는 코드 """
+    print("\n📡 [FastAPI] 등록된 엔드포인트 목록:")
+    for route in app.router.routes:
+        if isinstance(route, APIRoute):
+            print(f"➡️ {route.path} ({route.methods})")
     # Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
@@ -100,6 +116,27 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # ✅ `422 Unprocessable Content` 오류 발생 시 강제로 로그 출력
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        print("🚨 [FastAPI] 422 오류 발생: 요청 검증 실패")  # ✅ 강제 출력
+        logger.error(f"🚨 [422 오류 발생] 요청 경로: {request.url}")
+
+        try:
+            request_body = await request.json()
+            logger.error(f"📡 [요청 데이터] {request_body}")
+            print(f"📡 [요청 데이터] {request_body}")  # ✅ 강제 출력
+        except Exception:
+            logger.error("📡 [요청 데이터] 본문 없음")
+            print("📡 [요청 데이터] 본문 없음")  # ✅ 강제 출력
+
+        logger.error(f"❌ [FastAPI 오류 상세] {exc.errors()}")
+        print(f"❌ [FastAPI 오류 상세] {exc.errors()}")  # ✅ 강제 출력
+
+        return JSONResponse(
+            status_code=422,
+            content={"detail": exc.errors()},
+        )
 
     # 라우터 등록
     app.include_router(auth_router, prefix="", tags=["Auth"])

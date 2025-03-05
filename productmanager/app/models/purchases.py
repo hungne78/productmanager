@@ -2,12 +2,13 @@ from sqlalchemy import Column, Integer, ForeignKey, Float, Date
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from datetime import datetime
-from pytz import timezone
+import pytz
+
+KST = pytz.timezone("Asia/Seoul")
 
 def get_kst_today():
     """ 현재 날짜를 한국 시간(KST) 기준으로 반환 """
-    kst = timezone("Asia/Seoul")
-    return datetime.utcnow().astimezone(kst).date()
+    return datetime.now(KST).date()
 
 class Purchase(Base):
     __tablename__ = "purchases"

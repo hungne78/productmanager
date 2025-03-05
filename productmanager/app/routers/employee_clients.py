@@ -16,10 +16,7 @@ class EmployeeUnassignRequest(BaseModel):
 
 @router.post("/", response_model=EmployeeClientOut)
 def assign_employee_client(payload: EmployeeClientCreate, db: Session = Depends(get_db)):
-    """
-    사원과 거래처를 연결(전담 배정)하는 엔드포인트 (KST 적용)
-    """
-    # 중복 체크(같은 employee_id + client_id가 이미 있는지)
+    """ 사원과 거래처를 연결(전담 배정)하는 엔드포인트 (KST로 저장) """
     existing = db.query(EmployeeClient).filter(
         EmployeeClient.employee_id == payload.employee_id,
         EmployeeClient.client_id == payload.client_id
@@ -27,51 +24,34 @@ def assign_employee_client(payload: EmployeeClientCreate, db: Session = Depends(
     if existing:
         raise HTTPException(status_code=400, detail="Employee-Client relation already exists.")
 
-    # ✅ start_date, end_date KST 변환 적용
-    start_date = payload.start_date if payload.start_date else get_kst_today()
-    end_date = payload.end_date if payload.end_date else get_kst_today()
-
     new_ec = EmployeeClient(
         employee_id=payload.employee_id,
         client_id=payload.client_id,
-        start_date=start_date,
-        end_date=end_date
+        start_date=payload.start_date if payload.start_date else get_kst_today(),
+        end_date=payload.end_date if payload.end_date else get_kst_today()
     )
     db.add(new_ec)
     db.commit()
     db.refresh(new_ec)
-    return EmployeeClientOut.model_validate(new_ec)  # ✅ `created_at`, `updated_at` 포함
+    return new_ec  # ✅ 변환 없이 그대로 반환
 
 
 @router.get("/", response_model=List[EmployeeClientOut])
 def list_employee_clients(db: Session = Depends(get_db)):
-    """
-    모든 employee-client 전담 관계 조회 (KST 변환 적용)
-    """
-    ec_list = db.query(EmployeeClient).all()
-    return [convert_employee_client_to_kst(ec) for ec in ec_list]  # ✅ KST 변환 적용
+    """ 모든 employee-client 전담 관계 조회 (KST 그대로 반환) """
+    return db.query(EmployeeClient).all()  # ✅ 변환 없이 그대로 반환
 
 @router.get("/{ec_id}", response_model=EmployeeClientOut)
 def get_employee_client(ec_id: int, db: Session = Depends(get_db)):
-    """
-    특정 employee-client 관계 조회 (KST 변환 적용)
-    """
+    """ 특정 employee-client 관계 조회 (KST 변환 없음) """
     ec = db.query(EmployeeClient).get(ec_id)
     if not ec:
         raise HTTPException(status_code=404, detail="Employee-Client relation not found")
-    return convert_employee_client_to_kst(ec)  # ✅ KST 변환 적용
-
-def convert_employee_client_to_kst(ec: EmployeeClient):
-    """
-    EmployeeClient 객체의 `start_date`, `end_date`를 KST로 변환하여 반환
-    """
-    ec_dict = EmployeeClientOut.model_validate(ec).model_dump()
-    ec_dict["start_date"] = convert_utc_to_kst(ec.start_date).isoformat() if ec.start_date else None
-    ec_dict["end_date"] = convert_utc_to_kst(ec.end_date).isoformat() if ec.end_date else None
-    return ec_dict
+    return ec  # ✅ 변환 없이 그대로 반환
 
 @router.delete("/{ec_id}")
 def delete_employee_client(ec_id: int, db: Session = Depends(get_db)):
+    """ 특정 employee-client 관계 삭제 """
     ec = db.query(EmployeeClient).get(ec_id)
     if not ec:
         raise HTTPException(status_code=404, detail="Employee-Client relation not found")
@@ -81,7 +61,7 @@ def delete_employee_client(ec_id: int, db: Session = Depends(get_db)):
 
 @router.post("/unassign")
 def unassign_employee(data: EmployeeUnassignRequest, db: Session = Depends(get_db)):
-    """ 특정 직원과 거래처의 관계 해제 (DELETE 대신 POST 사용) """
+    """ 특정 직원과 거래처의 관계 해제 """
     employee_client = db.query(EmployeeClient).filter(
         EmployeeClient.client_id == data.client_id,
         EmployeeClient.employee_id == data.employee_id
@@ -98,4 +78,3 @@ def unassign_employee(data: EmployeeUnassignRequest, db: Session = Depends(get_d
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"담당 직원 해제 실패: {str(e)}")
-

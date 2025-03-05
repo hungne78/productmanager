@@ -1,13 +1,14 @@
 from sqlalchemy import Column, Integer, DateTime, ForeignKey
-from datetime import datetime
-from app.db.base import Base
 from sqlalchemy.orm import relationship
-from pytz import timezone
+from datetime import datetime
+import pytz
+from app.db.base import Base
+
+KST = pytz.timezone("Asia/Seoul")
 
 def get_kst_now():
-    """ 현재 시간을 한국 시간(KST)으로 변환 """
-    kst = timezone("Asia/Seoul")
-    return datetime.utcnow().astimezone(kst)
+    """ 현재 시간을 한국 시간(KST)으로 변환하여 반환 """
+    return datetime.now(KST)
 
 class ClientVisit(Base):
     __tablename__ = "client_visits"
@@ -15,14 +16,11 @@ class ClientVisit(Base):
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
-    
-    # ✅ 방문 기록을 KST 기준으로 저장
+
+    # ✅ KST로 저장
     visit_datetime = Column(DateTime, nullable=False, default=get_kst_now)
 
-    # 방문 시 주문이 있으면 연결 (없으면 NULL)
-    order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
-
-    # ✅ KST 기준으로 생성/수정 시간 저장
+    # ✅ 생성/수정 시간도 KST로 저장
     created_at = Column(DateTime, default=get_kst_now)
     updated_at = Column(DateTime, default=get_kst_now, onupdate=get_kst_now)
 

@@ -3,26 +3,21 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional, List
 from datetime import date
 from sqlalchemy.orm import Session
-
 from app.db.database import get_db
 from app.models.orders import Order, OrderItem
-from app.schemas.orders import (
-    OrderCreate, OrderOut, OrderItemCreate
-)
-from app.utils.time_utils import get_kst_today, convert_utc_to_kst 
+from app.schemas.orders import OrderCreate, OrderOut, OrderItemCreate
+from app.utils.time_utils import get_kst_today  # ✅ KST 변환 제거
 
 router = APIRouter()
 
 @router.post("/", response_model=OrderOut)
 def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
-    """
-    주문 생성 (KST 적용)
-    """
+    """ 주문 생성 (KST로 저장) """
     new_order = Order(
         client_id=payload.client_id,
         employee_id=payload.employee_id,
         status=payload.status if payload.status else "pending",
-        order_date=payload.order_date if payload.order_date else get_kst_today()  # ✅ KST 적용
+        order_date=payload.order_date if payload.order_date else get_kst_today()
     )
 
     db.add(new_order)
@@ -46,25 +41,20 @@ def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_order)
 
-    return convert_order_to_kst(new_order)  # ✅ KST 변환 후 반환
+    return new_order  # ✅ 변환 없이 그대로 반환
 
 @router.get("/", response_model=List[OrderOut])
 def list_orders(db: Session = Depends(get_db)):
-    """
-    전체 주문 목록 (KST 변환 적용)
-    """
-    orders = db.query(Order).all()
-    return [convert_order_to_kst(order) for order in orders]  # ✅ KST 변환 적용
+    """ 전체 주문 목록 (KST 그대로 반환) """
+    return db.query(Order).all()  # ✅ 변환 없이 그대로 반환
 
 @router.get("/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: Session = Depends(get_db)):
-    """
-    특정 주문 조회 (KST 변환 적용)
-    """
+    """ 특정 주문 조회 (KST 변환 없음) """
     order = db.query(Order).get(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    return convert_order_to_kst(order)  # ✅ KST 변환 적용
+    return order  # ✅ 변환 없이 그대로 반환
 
 @router.get("/search", response_model=List[OrderOut])
 def search_orders(
@@ -88,7 +78,7 @@ def search_orders(
         query = query.filter(Order.employee_id == employee_id)
 
     orders = query.all()
-    return [convert_order_to_kst(order) for order in orders]  # ✅ KST 변환 후 반환
+    return [order for order in orders]  # ✅ KST 변환 후 반환
 
 
 
@@ -147,12 +137,3 @@ def update_order(order_id: int, payload: OrderCreate, db: Session = Depends(get_
     db.commit()
     db.refresh(order)
     
-def convert_order_to_kst(order: Order):
-    """
-    Order 객체의 `order_date`, `created_at`, `updated_at`을 KST 변환 후 반환
-    """
-    order_dict = OrderOut.model_validate(order).model_dump()
-    order_dict["order_date"] = convert_utc_to_kst(order.order_date).isoformat() if order.order_date else None
-    order_dict["created_at"] = convert_utc_to_kst(order.created_at).isoformat()
-    order_dict["updated_at"] = convert_utc_to_kst(order.updated_at).isoformat()
-    return order_dict

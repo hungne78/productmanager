@@ -1,13 +1,14 @@
 from sqlalchemy import Column, Integer, String, DECIMAL, DateTime, Float
-from datetime import datetime
-from app.db.base import Base
 from sqlalchemy.orm import relationship
-from pytz import timezone
+from datetime import datetime
+import pytz
+from app.db.base import Base
+
+KST = pytz.timezone("Asia/Seoul")
 
 def get_kst_now():
-    """ 현재 시간을 한국 시간(KST)으로 변환 """
-    kst = timezone("Asia/Seoul")
-    return datetime.utcnow().astimezone(kst)
+    """ 현재 시간을 한국 시간(KST)으로 변환하여 반환 """
+    return datetime.now(KST)
 
 class Client(Base):
     __tablename__ = "clients"
@@ -28,18 +29,12 @@ class Client(Base):
     created_at = Column(DateTime, default=get_kst_now)
     updated_at = Column(DateTime, default=get_kst_now, onupdate=get_kst_now)
 
-    # ✅ EmployeeClient와 관계 설정 (다대다)
+    # 관계 설정
     employee_clients = relationship("EmployeeClient", back_populates="client")
-
-    # ✅ Order와 관계 설정 (1:N)
     orders = relationship("Order", back_populates="client")
-
-    # ✅ ClientVisit과 관계 설정 (1:N)
     client_visits = relationship("ClientVisit", back_populates="client")
-    
     client_product_prices = relationship("ClientProductPrice", back_populates="client")
     lents = relationship("Lent", back_populates="client")
     sales = relationship("Sales", back_populates="client", cascade="all, delete-orphan")
-    # ✅ `overlaps="employee_clients"` 추가하여 중복 관계 해결
     employees = relationship("Employee", secondary="employee_clients", back_populates="clients", overlaps="employee_clients")
-    sales_records = relationship("SalesRecord", back_populates="client", cascade="all, delete-orphan")  # ✅ 삭제 연쇄 적용
+    sales_records = relationship("SalesRecord", back_populates="client", cascade="all, delete-orphan")

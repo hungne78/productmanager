@@ -1,10 +1,9 @@
-# app/schemas/orders.py
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, date
-from app.utils.time_utils import get_kst_now, get_kst_today, convert_utc_to_kst  # ✅ KST 변환 함수 추가
 
 class OrderItemCreate(BaseModel):
+    """ 주문 항목 등록 요청 스키마 """
     product_id: int
     quantity: int
     unit_price: float
@@ -12,40 +11,38 @@ class OrderItemCreate(BaseModel):
     incentive: float = 0.0
 
 class OrderItemOut(BaseModel):
+    """ 주문 항목 조회 응답 스키마 """
     id: int
     product_id: int
     quantity: int
     unit_price: float
     line_total: float
     incentive: float
-    created_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-    updated_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
 
 class OrderCreate(BaseModel):
+    """ 주문 등록 요청 스키마 (KST 값 그대로 사용) """
     client_id: int
     employee_id: int
-    items: List[OrderItemCreate] = []  # 주문 항목
+    items: List[OrderItemCreate] = []
     status: Optional[str] = "pending"
-    order_date: Optional[date] = Field(default_factory=get_kst_today)  # ✅ KST 변환 적용
+    order_date: Optional[date] = None  # ✅ 기본값 제거
 
 class OrderOut(BaseModel):
+    """ 주문 조회 응답 스키마 (KST 값 그대로 사용) """
     id: int
     client_id: int
     employee_id: int
     total_amount: float
     status: str
-    order_date: date = Field(default_factory=get_kst_today)  # ✅ KST 변환 적용
+    order_date: date
     order_items: List[OrderItemOut]
-    created_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-    updated_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-
-    @staticmethod
-    def convert_kst(obj):
-        """ UTC → KST 변환 함수 (Pydantic 자동 변환) """
-        return convert_utc_to_kst(obj) if obj else None
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

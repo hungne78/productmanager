@@ -641,8 +641,11 @@ class ClientRightPanel(QWidget):
             monthly_visits = resp.json()  # 예: 길이 12
         except Exception as e:
             print(f"❌ 월별 방문 조회 실패: {e}")
-            monthly_visits = [0]*12
-
+            monthly_visits = []
+        # ✅ 리스트 길이가 12가 아닐 경우 기본값(0)으로 채우기
+        
+        if len(monthly_visits) < 12:
+            monthly_visits += [0] * (12 - len(monthly_visits))
         for c in range(12):
             self.tbl_box2.setItem(0, c, QTableWidgetItem(str(monthly_visits[c])))
 
@@ -676,41 +679,76 @@ class ClientRightPanel(QWidget):
             category_data = []
 
         # 테이블 초기화(기존 row 50개라고 했으니, 우선 0행부터 다시 세팅)
-        self.tbl_box4_main.setRowCount(len(category_data) + 1)
+        # ✅ 기본 행 개수 설정 (예: 50행 유지)
+        default_row_count = max(50, len(category_data) + 1)  # 최소 50개 유지
+        self.tbl_box4_main.setRowCount(default_row_count)
 
+        # ✅ API 응답 확인
+        print(f"📌 category_data: {category_data}")
+
+        # ✅ 데이터가 없으면 테이블 초기화 (합계만 남김)
+        if not category_data:
+            print("⚠️ API에서 받은 데이터가 없습니다! 테이블을 초기화합니다.")
+            self.tbl_box4_main.setRowCount(default_row_count)  # 기본 행 개수 유지
+            for row in range(default_row_count):
+                self.tbl_box4_main.setItem(row, 0, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row, 1, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row, 2, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row, 3, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row, 4, QTableWidgetItem(""))
+
+            # ✅ 마지막 합계 행 추가
+            self.tbl_box4_main.setItem(default_row_count - 1, 0, QTableWidgetItem("합계"))
+            self.tbl_box4_main.setItem(default_row_count - 1, 1, QTableWidgetItem("0 원"))
+            self.tbl_box4_main.setItem(default_row_count - 1, 2, QTableWidgetItem("0 개"))
+            self.tbl_box4_main.setItem(default_row_count - 1, 3, QTableWidgetItem(""))
+            self.tbl_box4_main.setItem(default_row_count - 1, 4, QTableWidgetItem(""))
+            return
+
+        # ✅ 데이터가 있을 경우 기존 테이블에 업데이트 (행 개수 유지)
         total_amt = 0
         total_qty = 0
 
-        for row_idx, item in enumerate(category_data):
-            cat = item["category"]
-            amt = item["total_amount"]
-            qty = item["total_qty"]
-            emp = item["employee_name"] or ""
+        for row_idx in range(default_row_count - 1):
+            if row_idx < len(category_data):
+                item = category_data[row_idx]
+                cat = item.get("category", "기타")  # ✅ None 방지
+                amt = float(item.get("total_amount", 0))  # ✅ None 방지 후 변환
+                qty = int(item.get("total_qty", 0))  # ✅ None 방지 후 변환
+                emp = item.get("employee_name", "")  # ✅ None 방지
 
-            self.tbl_box4_main.setItem(row_idx, 0, QTableWidgetItem(cat))    # 분류
-            self.tbl_box4_main.setItem(row_idx, 1, QTableWidgetItem(str(amt))) # 판매금액
-            self.tbl_box4_main.setItem(row_idx, 2, QTableWidgetItem(str(qty))) # 수량
-            self.tbl_box4_main.setItem(row_idx, 3, QTableWidgetItem(emp))      # 직원
-            self.tbl_box4_main.setItem(row_idx, 4, QTableWidgetItem(""))       # 기타
+                self.tbl_box4_main.setItem(row_idx, 0, QTableWidgetItem(cat))  # 분류
+                self.tbl_box4_main.setItem(row_idx, 1, QTableWidgetItem(f"{amt:,} 원"))  # ✅ 천 단위 콤마 추가
+                self.tbl_box4_main.setItem(row_idx, 2, QTableWidgetItem(f"{qty:,} 개"))  # ✅ 천 단위 콤마 추가
+                self.tbl_box4_main.setItem(row_idx, 3, QTableWidgetItem(emp))  # 직원
+                self.tbl_box4_main.setItem(row_idx, 4, QTableWidgetItem(""))  # 기타
 
-            total_amt += amt
-            total_qty += qty
+                total_amt += amt
+                total_qty += qty
+            else:
+                # ✅ 남은 행은 빈 값으로 초기화
+                self.tbl_box4_main.setItem(row_idx, 0, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row_idx, 1, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row_idx, 2, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row_idx, 3, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row_idx, 4, QTableWidgetItem(""))
 
-        # 마지막 행(합계)
-        sum_row = len(category_data)
+        # ✅ 마지막 행(합계) 업데이트 (테이블 크기 유지)
+        sum_row = default_row_count - 1
         self.tbl_box4_main.setItem(sum_row, 0, QTableWidgetItem("합계"))
-        self.tbl_box4_main.setItem(sum_row, 1, QTableWidgetItem(str(total_amt)))
-        self.tbl_box4_main.setItem(sum_row, 2, QTableWidgetItem(str(total_qty)))
+        self.tbl_box4_main.setItem(sum_row, 1, QTableWidgetItem(f"{total_amt:,} 원"))  # ✅ 천 단위 콤마 추가
+        self.tbl_box4_main.setItem(sum_row, 2, QTableWidgetItem(f"{total_qty:,} 개"))  # ✅ 천 단위 콤마 추가
         self.tbl_box4_main.setItem(sum_row, 3, QTableWidgetItem(""))
         self.tbl_box4_main.setItem(sum_row, 4, QTableWidgetItem(""))
 
-        # 푸터 테이블( self.tbl_box4_footer )도 동일하게 합계 표시
+        # ✅ 푸터 테이블도 동일하게 업데이트
         self.tbl_box4_footer.setItem(0, 0, QTableWidgetItem("합계"))
-        self.tbl_box4_footer.setItem(0, 1, QTableWidgetItem(str(total_amt)))
-        self.tbl_box4_footer.setItem(0, 2, QTableWidgetItem(str(total_qty)))
+        self.tbl_box4_footer.setItem(0, 1, QTableWidgetItem(f"{total_amt:,} 원"))
+        self.tbl_box4_footer.setItem(0, 2, QTableWidgetItem(f"{total_qty:,} 개"))
         self.tbl_box4_footer.setItem(0, 3, QTableWidgetItem(""))
         self.tbl_box4_footer.setItem(0, 4, QTableWidgetItem(""))
 
+        print(f"✅ 테이블 업데이트 완료! 총 판매금액: {total_amt:,} 원, 총 판매수량: {total_qty:,} 개")
 
 
 class ClientsTab(QWidget):

@@ -200,7 +200,7 @@ class _SalesScreenState extends State<SalesScreen> {
           "client_id": clientId,
           "product_id": item['product_id'],
           "quantity": totalUnits,
-          "sale_date": today,
+          "sale_datetime": DateTime.now().toIso8601String(), // ✅ `sale_datetime` 필드 추가 및 ISO 8601 형식 변환
         };
 
         final resp = await ApiService.createSales(widget.token, payload);

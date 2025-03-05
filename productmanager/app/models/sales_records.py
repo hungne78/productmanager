@@ -13,7 +13,7 @@ def get_kst_now():
 class SalesRecord(Base):
     __tablename__ = "sales_records"
 
-    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)  # ✅ 자동 증가 추가
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)  # ✅ 자동 증가 추가
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)  # 거래처 ID
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)  # 제품 ID

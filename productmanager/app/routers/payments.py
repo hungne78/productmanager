@@ -6,7 +6,7 @@ from app.db.database import get_db
 from app.models.payments import Payment
 from app.schemas.payments import PaymentCreate, PaymentOut
 from typing import List
-from app.utils.time_utils import get_kst_now, get_kst_today, convert_utc_to_kst 
+
 from app.models.sales_records import SalesRecord
 from app.models.orders import Order, OrderItem
 from typing import Dict
@@ -16,12 +16,10 @@ router = APIRouter()
 
 @router.post("/", response_model=PaymentOut)
 def create_payment(payload: PaymentCreate, db: Session = Depends(get_db)):
-    """
-    새로운 결제(급여) 기록 추가 (KST 적용)
-    """
+    """ 새로운 결제 기록 추가 (KST로 저장) """
     new_payment = Payment(
         client_id=payload.client_id,
-        payment_date=payload.payment_date if payload.payment_date else get_kst_now(),  # ✅ KST 적용
+        payment_date=payload.payment_date,
         amount=payload.amount,
         payment_method=payload.payment_method,
         note=payload.note
@@ -29,31 +27,24 @@ def create_payment(payload: PaymentCreate, db: Session = Depends(get_db)):
     db.add(new_payment)
     db.commit()
     db.refresh(new_payment)
-    return convert_payment_to_kst(new_payment)  # ✅ KST 변환 후 반환
+    return new_payment  # ✅ 변환 없이 그대로 반환
 
 @router.get("/", response_model=List[PaymentOut])
 def list_payments(db: Session = Depends(get_db)):
-    """
-    모든 결제(급여) 목록 조회 (KST 변환 적용)
-    """
-    payments = db.query(Payment).all()
-    return [convert_payment_to_kst(payment) for payment in payments]  # ✅ KST 변환 적용
+    """ 모든 결제 목록 조회 (KST 그대로 반환) """
+    return db.query(Payment).all()  # ✅ 변환 없이 그대로 반환
 
 @router.get("/{payment_id}", response_model=PaymentOut)
 def get_payment(payment_id: int, db: Session = Depends(get_db)):
-    """
-    특정 급여 내역 조회 (KST 변환 적용)
-    """
+    """ 특정 결제 내역 조회 (KST 변환 없음) """
     payment = db.query(Payment).get(payment_id)
     if not payment:
         raise HTTPException(status_code=404, detail="Payment record not found")
-    return convert_payment_to_kst(payment)  # ✅ KST 변환 적용
+    return payment  # ✅ 변환 없이 그대로 반환
 
 @router.put("/{payment_id}", response_model=PaymentOut)
 def update_payment(payment_id: int, payload: PaymentCreate, db: Session = Depends(get_db)):
-    """
-    특정 급여 내역 수정
-    """
+    """ 특정 결제 내역 수정 """
     payment = db.query(Payment).get(payment_id)
     if not payment:
         raise HTTPException(status_code=404, detail="Payment record not found")
@@ -66,7 +57,7 @@ def update_payment(payment_id: int, payload: PaymentCreate, db: Session = Depend
 
     db.commit()
     db.refresh(payment)
-    return payment
+    return payment  # ✅ 변환 없이 그대로 반환
 
 @router.delete("/{payment_id}")
 def delete_payment(payment_id: int, db: Session = Depends(get_db)):
@@ -80,48 +71,47 @@ def delete_payment(payment_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"detail": "Payment record deleted"}
 
-def convert_payment_to_kst(payment: Payment):
-    """
-    Payment 객체의 날짜/시간 필드를 KST로 변환하여 반환
-    """
-    return {
-        "id": payment.id,
-        "client_id": payment.client_id,
-        "payment_date": convert_utc_to_kst(payment.payment_date).strftime("%Y-%m-%d %H:%M:%S") if payment.payment_date else None,
-        "amount": float(payment.amount),
-        "payment_method": payment.payment_method,
-        "note": payment.note,
-        "created_at": convert_utc_to_kst(payment.created_at).strftime("%Y-%m-%d %H:%M:%S"),
-        "updated_at": convert_utc_to_kst(payment.updated_at).strftime("%Y-%m-%d %H:%M:%S"),
-    }
-
 @router.get("/salary/{year}/{month}")
 def calculate_salary(year: int, month: int, db: Session = Depends(get_db)):
     """
     특정 연/월의 직원별 월매출을 구한 뒤,
-    { 직원명: 매출 } 형태로 반환 (KST 적용)
+    { 직원명: 매출 } 형태로 반환
     """
-    from sqlalchemy import func
+    from sqlalchemy import extract, func
 
-    start_date = get_kst_today().replace(year=year, month=month, day=1)  # ✅ KST 적용
-    end_date = get_kst_today().replace(year=year, month=month, day=31)   # ✅ KST 적용
+    start_date = f"{year}-{int(month):02d}-01"
+    end_date   = f"{year}-{int(month):02d}-31"
 
+    # SalesRecord + Product 조인 → (Product.default_price * SalesRecord.quantity)
+    # 직원(employee_id)별 sum()
     results = (
         db.query(
             Employee.name.label("emp_name"),
             func.sum(Product.default_price * SalesRecord.quantity).label("total_sales")
         )
+        # 기준이 되는 메인 테이블을 명시적으로 잡아줌:
         .select_from(SalesRecord)
+        # SalesRecord → Employee
         .join(Employee, SalesRecord.employee_id == Employee.id)
+        # SalesRecord → Product
         .join(Product, SalesRecord.product_id == Product.id)
-        .filter(SalesRecord.sale_date >= start_date)
-        .filter(SalesRecord.sale_date <= end_date)
+        # 날짜 필터
+        .filter(SalesRecord.sale_datetime >= start_date)
+        .filter(SalesRecord.sale_datetime <= end_date)
+        # 직원명으로 그룹
         .group_by(Employee.name)
         .all()
     )
 
-    output = {row.emp_name: float(row.total_sales or 0) for row in results}
+    # { 직원명: 매출 } 형태로 변환
+    output = {}
+    for row in results:
+        emp_name = row.emp_name
+        total_amt = float(row.total_sales or 0)
+        output[emp_name] = total_amt
+
     return output
+
 
 # app/routers/payments.py
 
@@ -130,7 +120,7 @@ def get_monthly_sales(year: int, month: int, db: Session = Depends(get_db)):
     """
     특정 연도(year), 월(month) 기준:
     직원별 월매출(=SalesRecord에 의한 총 매출액) 을 Dict[str, float] 형태로 반환
-    예: { "김직원": 500000.0, "박직원": 350000.0, ... }
+    예: { "김승태": 500000.0, "한종현": 350000.0, ... }
     """
     from sqlalchemy import func
     from datetime import date

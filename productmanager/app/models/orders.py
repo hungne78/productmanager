@@ -1,14 +1,14 @@
-# app/models/orders.py
 from sqlalchemy import Column, Integer, Float, String, Date, DateTime, ForeignKey
-from datetime import datetime
 from sqlalchemy.orm import relationship
+from datetime import datetime
+import pytz
 from app.db.base import Base
-from pytz import timezone
+
+KST = pytz.timezone("Asia/Seoul")
 
 def get_kst_now():
-    """ 현재 시간을 한국 시간(KST)으로 변환 """
-    kst = timezone("Asia/Seoul")
-    return datetime.utcnow().astimezone(kst)
+    """ 현재 시간을 한국 시간(KST)으로 변환하여 반환 """
+    return datetime.now(KST)
 
 def get_kst_today():
     """ 현재 날짜를 한국 시간(KST) 기준으로 반환 """

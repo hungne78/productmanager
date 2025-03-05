@@ -8,7 +8,9 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit, QPushButton, QMessageBox
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-
+from datetime import datetime
+import pytz
+KST = pytz.timezone("Asia/Seoul")  # ✅ KST 타임존 정의
 BASE_URL = "http://127.0.0.1:8000"  # FastAPI 서버 주소
 GOOGLE_MAPS_API_KEY = "AIzaSyD0d6_wU5vPID4djhY3qZKp0e0XSJITg_w"  # Google Maps API 키 (여기에 본인의 API 키 입력)
 
@@ -144,7 +146,10 @@ class EmployeeMapTab(QWidget):
             first_lat, first_lng = 37.5665, 126.9780  # 서울 시청을 기본값으로 설정
 
         map_obj = folium.Map(location=[first_lat, first_lng], zoom_start=12)
-
+        for item in visits_data:
+            # ✅ 서버에서 이미 KST로 변환되었다면 그대로 사용
+            item["visit_datetime"] = item["visit_datetime"]  # 변환 과정 제거
+                        
         for item in visits_data:
             address = item["address"]
             lat, lng = self.geocode_address(address)

@@ -1,6 +1,7 @@
 # app/routers/employees.py
-from fastapi import APIRouter, Depends, HTTPException,  Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from typing import List
 from app.db.database import get_db
 from app.models.employees import Employee
 from app.schemas.employees import (
@@ -12,40 +13,26 @@ from app.schemas.employees import (
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.models.employee_clients import EmployeeClient
 from app.schemas.clients import ClientOut
-from sqlalchemy.orm import Session, joinedload
-from typing import List
+from sqlalchemy.orm import joinedload
 from app.models.employee_vehicle import EmployeeVehicle
+
 router = APIRouter()
 
 @router.get("/{emp_id}/clients", response_model=List[ClientOut])
 def get_employee_clients(emp_id: int, db: Session = Depends(get_db)):
-    """
-    특정 사원이 담당하는 거래처 목록 조회
-    """
+    """ 특정 사원이 담당하는 거래처 목록 조회 """
     emp = db.query(Employee)\
         .options(joinedload(Employee.employee_clients).joinedload(EmployeeClient.client))\
         .get(emp_id)
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
-
-    # emp.employee_clients는 List[EmployeeClient]
-    # 각 EmployeeClient 객체에 .client가 있음
-    # → Client 객체들이므로, ClientOut 스키마로 변환
     return [ec.client for ec in emp.employee_clients]
 
 @router.post("/", response_model=EmployeeOut)
 def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db)):
-    # 중복 체크
-    # existing = db.query(Employee).filter(Employee.employee_number == payload.employee_number).first()
-    # if existing:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_400_BAD_REQUEST,
-    #         detail="Employee number already in use."
-    #     )
-    # 비번 해시
+    """ 직원 등록 (KST로 저장) """
     hashed_pw = get_password_hash(payload.password)
     new_emp = Employee(
-        # employee_number=payload.employee_number,
         password_hash=hashed_pw,
         name=payload.name,
         phone=payload.phone,
@@ -56,30 +43,18 @@ def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db)):
     db.add(new_emp)
     db.commit()
     db.refresh(new_emp)
-    return new_emp
+    return new_emp  # ✅ 변환 없이 그대로 반환
 
 @router.post("/login", response_model=EmployeeLoginResponse)
 def login_employee(payload: EmployeeLogin, db: Session = Depends(get_db)):
-    """
-    - 'employee_number' 없이, 'id'와 'password'로만 로그인
-    - 토큰 생성 시 'sub'에 emp.id (또는 str(emp.id))를 넣음
-    - 로그인 성공 시 EmployeeLoginResponse를 반환
-    """
-    # 1) id로 직원 조회
+    """ 직원 로그인 (JWT 발급) """
     emp = db.query(Employee).filter(Employee.id == payload.id).first()
     if not emp:
         raise HTTPException(status_code=401, detail="Invalid employee id.")
-
-    # 2) 비번 검증
     if not verify_password(payload.password, emp.password_hash):
         raise HTTPException(status_code=401, detail="Invalid password.")
-
-    # 3) JWT 토큰 생성
-    #    'sub'에 직원 식별자를 넣을 수 있음 (여기서는 emp.id 사용)
     token_data = {"sub": str(emp.id)}
     token = create_access_token(data=token_data)
-
-    # 4) 응답 스키마로 변환
     return EmployeeLoginResponse(
         id=emp.id,
         name=emp.name,
@@ -90,45 +65,35 @@ def login_employee(payload: EmployeeLogin, db: Session = Depends(get_db)):
 
 @router.get("/", response_model=List[EmployeeOut])
 def list_employees(name: str = Query(None, title="Employee Name"), db: Session = Depends(get_db)):
-    """
-    직원 목록 조회 (이름 검색 기능 포함)
-    """
+    """ 직원 목록 조회 (이름 검색 가능) """
     query = db.query(Employee)
     if name:
-        query = query.filter(Employee.name.ilike(f"%{name}%"))  # 부분 검색 지원
-    employees = query.all()
-    
-    return employees
+        query = query.filter(Employee.name.ilike(f"%{name}%"))
+    return query.all()  # ✅ 변환 없이 그대로 반환
 
 @router.get("/{emp_id}", response_model=EmployeeOut)
 def get_employee(emp_id: int, db: Session = Depends(get_db)):
+    """ 특정 직원 조회 (KST 변환 없음) """
     emp = db.query(Employee).get(emp_id)
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
-    return emp
+    return emp  # ✅ 변환 없이 그대로 반환
 
 @router.delete("/{emp_id}")
 def delete_employee(emp_id: int, db: Session = Depends(get_db)):
     """ 직원 삭제 (연결된 차량 정보도 함께 삭제) """
-
-    # 1️⃣ 직원이 있는지 확인
     emp = db.query(Employee).filter(Employee.id == emp_id).first()
     if not emp:
         raise HTTPException(status_code=404, detail="직원을 찾을 수 없습니다.")
-
     try:
-        # 2️⃣ 연결된 차량 정보 삭제
         db.query(EmployeeVehicle).filter(EmployeeVehicle.employee_id == emp_id).delete()
-
-        # 3️⃣ 직원 삭제
         db.delete(emp)
         db.commit()
-
         return {"detail": "직원 및 관련 차량 정보 삭제 완료"}
-    
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"직원 삭제 실패: {str(e)}")
+
 
 @router.put("/{emp_id}", response_model=EmployeeOut)
 def update_employee(emp_id: int, payload: EmployeeCreate, db: Session = Depends(get_db)):
