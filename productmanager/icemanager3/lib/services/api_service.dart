@@ -11,13 +11,18 @@ class ApiService {
     return await http.post(url, headers: headers, body: body);
   }
 
-  static Future<http.Response> fetchEmployeeClients(String token, int employeeId) async {
-    // 예: GET /employees/{employee_id}/clients
+  static Future<List<dynamic>> fetchEmployeeClients(String token, int employeeId) async {
     final url = Uri.parse("$baseUrl/employees/$employeeId/clients");
-    return await http.get(url, headers: {
-      "Content-Type": "application/json",
+    final response = await http.get(url, headers: {
+      "Content-Type": "application/json; charset=utf-8",
       "Authorization": "Bearer $token",
     });
+
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>; // ✅ UTF-8 디코딩 및 반환 타입 변경
+    } else {
+      throw Exception("Failed to load clients: ${response.statusCode}");
+    }
   }
 
   // 2) 매출 생성(단건)
@@ -33,26 +38,51 @@ class ApiService {
 
 
   static Future<http.Response> fetchClients(String token) async {
-    final url = Uri.parse("$baseUrl/clients/clients");
-    return await http.get(url, headers: {
-      "Content-Type": "application/json",
+    final url = Uri.parse("$baseUrl/clients");
+    final response = await http.get(url, headers: {
+      "Content-Type": "application/json; charset=utf-8",
       "Authorization": "Bearer $token",
     });
+
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes)); // ✅ UTF-8 디코딩 적용
+    } else {
+      throw Exception("Failed to load clients: ${response.statusCode}");
+    }
   }
   static Future<http.Response> fetchClientById(String token, int clientId) async {
-    final url = Uri.parse("$baseUrl/clients/$clientId"); // ✅ client_id를 경로에 전달
-    return await http.get(url, headers: {
+    final url = Uri.parse("$baseUrl/clients/$clientId");
+    final response = await http.get(url, headers: {
       "Authorization": "Bearer $token",
-      "Content-Type": "application/json",
+      "Content-Type": "application/json; charset=utf-8",
     });
+
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes)); // ✅ UTF-8 디코딩 적용
+    } else {
+      throw Exception("Failed to fetch client: ${response.statusCode}");
+    }
   }
 
-  static Future<http.Response> fetchProductByBarcode(String token, String barcode) async {
-    // 가정: 서버에 GET /products/barcode/{barcode} 엔드포인트가 있다고 가정
+  static Future<Map<String, dynamic>?> fetchProductByBarcode(String token, String barcode) async {
     final url = Uri.parse("$baseUrl/products/barcode/$barcode");
-    return await http.get(url, headers: {
+    final response = await http.get(url, headers: {
       "Authorization": "Bearer $token",
+      "Content-Type": "application/json; charset=utf-8",
     });
+
+    if (response.statusCode == 200) {
+      try {
+        final decodedBody = utf8.decode(response.bodyBytes, allowMalformed: true); // ✅ UTF-8 오류 방지
+        return jsonDecode(decodedBody);
+      } catch (e) {
+        print("❌ JSON 디코딩 오류: $e");
+        return null;
+      }
+    } else {
+      print("❌ 상품 조회 실패: ${response.statusCode}");
+      return null;
+    }
   }
 
   static Future<http.Response> fetchClientPrice(String token, int clientId, int productId) async {
@@ -63,12 +93,27 @@ class ApiService {
     });
   }
 
-  static Future<http.Response> fetchAllProducts(String token) async {
+  static Future<List<dynamic>> fetchAllProducts(String token) async {
     final url = Uri.parse("$baseUrl/products/all");
-    return await http.get(url, headers: {
+    final response = await http.get(url, headers: {
       "Authorization": "Bearer $token",
+      "Content-Type": "application/json; charset=utf-8",
     });
+
+    if (response.statusCode == 200) {
+      try {
+        final decodedBody = utf8.decode(response.bodyBytes, allowMalformed: true); // ✅ UTF-8 오류 방지
+        return jsonDecode(decodedBody) as List<dynamic>;
+      } catch (e) {
+        print("❌ JSON 디코딩 오류: $e");
+        return [];
+      }
+    } else {
+      print("❌ 상품 목록 조회 실패: ${response.statusCode}");
+      return [];
+    }
   }
+
   static Future<http.Response> updateClientOutstanding(String token, int clientId, Map<String, dynamic> data) async {
     final url = Uri.parse("$baseUrl/clients/$clientId/outstanding");
 
@@ -76,7 +121,7 @@ class ApiService {
       url,
       headers: {
         "Authorization": "Bearer $token",
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
       },
       body: jsonEncode(data),
     );

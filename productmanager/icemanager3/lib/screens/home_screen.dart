@@ -71,16 +71,7 @@ class HomeScreen extends StatelessWidget {
                   children: clients.map((client) {
                     return ListTile(
                       title: Text(client['client_name']),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("미수금: ${client['outstanding_amount']}원"),
-                          Text("주소: ${client['address']}"),
-                          Text("전화번호: ${client['phone']}"),
-                          Text("사업자 번호: ${client['business_number']}"),
-                          Text("이메일: ${client['email']}"),
-                        ],
-                      ),
+
                       onTap: () {
                         Navigator.of(ctx).pop(); // 팝업 닫기
                         Navigator.push(
@@ -114,14 +105,13 @@ class HomeScreen extends StatelessWidget {
   Future<Map<String, dynamic>> _fetchEmployeeClients(String token,
       int employeeId) async {
     try {
-      final resp = await ApiService.fetchEmployeeClients(token, employeeId);
-      if (resp.statusCode == 200) {
-        return {"clients": jsonDecode(resp.body), "error": null};
-      } else {
-        return {"clients": [], "error": "거래처 로드 실패: ${resp.statusCode}"};
-      }
+      final clients = await ApiService.fetchEmployeeClients(
+          token, employeeId); // ✅ List<dynamic> 직접 반환
+
+      return {"clients": clients, "error": null};
     } catch (e) {
       return {"clients": [], "error": "오류 발생: $e"};
     }
   }
+
 }

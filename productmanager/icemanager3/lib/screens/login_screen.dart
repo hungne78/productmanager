@@ -50,7 +50,6 @@ class _LoginScreenState extends State<LoginScreen> {
         if (token == null) {
           setState(() => _errorMessage = "응답에 token이 없습니다.");
         } else {
-
           // User 객체 생성
           final user = User(
             id: data["id"],    // <-- data["id"]
@@ -58,21 +57,21 @@ class _LoginScreenState extends State<LoginScreen> {
             role: data["role"],
             token: data["token"],
           );
+
           // Provider를 통해 user 저장
           context.read<AuthProvider>().setUser(user);
-          // 홈화면으로 이동
+
           // **상품 데이터 불러오기**
-          final productResponse = await ApiService.fetchAllProducts(token);
-          if (productResponse.statusCode == 200) {
-            final productData = jsonDecode(productResponse.body);
-            context.read<ProductProvider>().setProducts(productData);
-          }
+          final productData = await ApiService.fetchAllProducts(token); // ✅ productResponse → productData 직접 사용
+          context.read<ProductProvider>().setProducts(productData);
+
           // 로그인 성공 → 홈화면 이동
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => HomeScreen(token: token)),
           );
         }
+
       } else {
         setState(() {
           _errorMessage = "로그인 실패: ${response.statusCode}\n${response.body}";

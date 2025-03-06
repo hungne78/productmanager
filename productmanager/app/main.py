@@ -79,14 +79,19 @@ def create_app() -> FastAPI:
         # 응답이 JSON이 아닌 경우(스트리밍 응답) 처리
         if isinstance(response, JSONResponse):
             try:
-                content = response.body.decode("utf-8")
+                content = response.body.decode("utf-8", errors="replace")  
+
+                # ✅ JSON 변환 오류 방지
                 content = json.loads(content)
-                # KST 변환
-                if isinstance(content, dict):  # dict 형식의 응답 처리
+
+                # ✅ KST 변환 적용
+                if isinstance(content, dict):  
                     content = convert_utc_to_kst_recursive(content)
-                elif isinstance(content, list):  # list 형식의 응답 처리
+                elif isinstance(content, list):  
                     content = [convert_utc_to_kst_recursive(item) for item in content]
-                response = JSONResponse(content=content)
+
+                # ✅ UTF-8 헤더 강제 설정
+                return JSONResponse(content=content, headers={"Content-Type": "application/json; charset=utf-8"})
             except Exception as e:
                 print(f"❌ KST 변환 오류: {e}")
         

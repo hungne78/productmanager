@@ -27,7 +27,7 @@ class _SalesScreenState extends State<SalesScreen> {
   late FocusNode paymentFocusNode;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>(); // ✅ GlobalKey 추가
   double totalScannedItemsPrice = 0.0;
-  
+  final formatter = NumberFormat("#,###"); // ✅ 천단위 콤마 포맷 설정
   List<Map<String, dynamic>> _returnedItems = []; // ✅ 반품 상품 리스트
 
   bool _isReturnMode = false; // ✅ 기본값: 판매 모드 (반품 모드가 아님)
@@ -119,12 +119,20 @@ class _SalesScreenState extends State<SalesScreen> {
 
       final product = productProvider.products.firstWhere(
             (p) => p['barcode'] == barcode,
-        orElse: () => {},
+        orElse: () => null, // ✅ 기존 {} 대신 `null`을 반환하도록 수정
       );
 
-      if (product.isEmpty) {
+      if (product == null) {
         Fluttertoast.showToast(msg: "조회된 상품이 없습니다.", gravity: ToastGravity.BOTTOM);
         return;
+      }
+      // ✅ UTF-8 디코딩 예외 처리
+      String productName;
+      try {
+        productName = utf8.decode(product['product_name'].toString().codeUnits);
+      } catch (e) {
+        print("❌ 상품명 UTF-8 디코딩 오류: $e");
+        productName = product['product_name'].toString(); // 오류 발생 시 원본 그대로 사용
       }
 
       // ✅ 상품의 원래 가격 (기본 가격)
@@ -151,7 +159,7 @@ class _SalesScreenState extends State<SalesScreen> {
           setState(() {
             _returnedItems.add({
               'product_id': product['id'],
-              'name': product['product_name'],
+              'name': productName,
               'box_quantity': 1, // ✅ 박스수 1 고정
               'box_count': 1, // ✅ 개수 기본 1
               'default_price': defaultPrice, // ✅ 상품의 원래 가격 (기본 가격)
@@ -195,13 +203,6 @@ class _SalesScreenState extends State<SalesScreen> {
       setState(() => _isLoading = false);
     }
   }
-
-
-
-
-
-
-
 
 
   // (2) 인쇄(매출 등록) 버튼
@@ -253,6 +254,7 @@ class _SalesScreenState extends State<SalesScreen> {
           widget.client['outstanding_amount'] = newOutstandingAmount; // ✅ 이제 변경 가능
           client = Map<String, dynamic>.from(client); // 새로운 Map 객체 생성
           _scannedItems.clear();
+
         });
         // ✅ GlobalKey를 변경하여 강제 리빌드
         setState(() {
@@ -282,12 +284,12 @@ class _SalesScreenState extends State<SalesScreen> {
     return Container(
       padding: const EdgeInsets.all(8.0),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50,
+        color: Colors.white10,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.blue),
+        border: Border.all(color: Colors.indigo),
       ),
       child: Table(
-        border: TableBorder.all(color: Colors.blueAccent),
+        border: TableBorder.all(color: Colors.blueGrey),
         columnWidths: const {
           0: FractionColumnWidth(0.25),
           1: FractionColumnWidth(0.25),
@@ -295,7 +297,7 @@ class _SalesScreenState extends State<SalesScreen> {
           3: FractionColumnWidth(0.25),
         },
         children: [
-          _buildTableRow("거래처명", widget.client['client_name'], "미수금", "${widget.client['outstanding_amount']} 원"),
+          _buildTableRow("거래처명", widget.client['client_name'], "미수금", "${formatter.format(widget.client['outstanding_amount'])} 원"),
           _buildTableRow("주소", widget.client['address'] ?? "정보 없음", "전화번호", widget.client['phone'] ?? "정보 없음"),
           _buildTableRow("사업자 번호", widget.client['business_number'] ?? "정보 없음", "이메일", widget.client['email'] ?? "정보 없음"),
           _buildTableRow("일반가", widget.client['regular_price']?.toString() ?? "정보 없음", "고정가", widget.client['fixed_price']?.toString() ?? "정보 없음"),
@@ -482,34 +484,7 @@ class _SalesScreenState extends State<SalesScreen> {
     }
   }
 
-  Widget _buildReturnedItemsTable() {
-    return Column(
-      children: List.generate(_returnedItems.length, (index) {
-        var item = _returnedItems[index];
-
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.red.shade50, // ✅ 반품 상품 배경색 (연한 빨간색)
-            border: Border(
-              bottom: BorderSide(color: Colors.red.shade300, width: 0.5), // ✅ 반품 테이블 구분선
-            ),
-          ),
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildDataCell(item['name'].toString()), // 상품명
-              _buildDataCell(item['quantity'].toString()), // 수량
-              _buildDataCell(item['unit_price'].toStringAsFixed(2)), // 단가
-              _buildDataCell(item['total_price'].toString(), isBold: true, isRed: true), // ✅ 반품 금액 (빨간색)
-            ],
-          ),
-        );
-      }),
-    );
-  }
-
-
+  
   //입금 팝업창
   void _showPaymentDialog() {
     double outstandingAmount = widget.client['outstanding_amount']?.toDouble() ?? 0;
@@ -563,6 +538,7 @@ class _SalesScreenState extends State<SalesScreen> {
       },
     ).then((_) {
       paymentFocusNode.requestFocus(); // ✅ 포커스 유지
+      _returnedItems.clear();
     });
   }
 
@@ -633,8 +609,8 @@ class _SalesScreenState extends State<SalesScreen> {
         children: [
           // ✅ 고정된 헤더 (배경색 추가)
           Container(
-            height: 45,
-            color: Colors.blue.shade200,
+            height: 35,
+            color: Colors.black45,
             child: _buildHeaderRow(),
           ),
 
@@ -688,10 +664,6 @@ class _SalesScreenState extends State<SalesScreen> {
       }),
     );
   }
-
-
-
-
 
 
 
@@ -756,7 +728,7 @@ class _SalesScreenState extends State<SalesScreen> {
 
 
         // ✅ 총 가격 = (박스수량 * 개수 * 단가)
-        double totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price']).toDouble() * 0.01;
+        int totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price']* 0.01).round();
 
         return GestureDetector(
           onTap: () => _selectItem(index), // 클릭 시 해당 상품 선택
@@ -774,10 +746,10 @@ class _SalesScreenState extends State<SalesScreen> {
                 _buildDataCell(item['name'].toString()), // 상품명
                 _buildDataCell(item['box_quantity'].toString()), // 박스 수량
                 _buildDataCell(item['box_count'].toString()), // 수량
-                _buildDataCell(item['default_price'].toStringAsFixed(2)), // ✅ 상품 원래 가격
+                _buildDataCell(formatter.format(item['default_price'].round())), // ✅ 상품 원래 가격
                 _buildDataCell(item['client_price'].toStringAsFixed(2)), // ✅ 거래처 단가
                 _buildDataCell(isFixedPrice ? '고정가' : '일반가'), // ✅ 가격 유형
-                _buildDataCell(totalPrice.toStringAsFixed(2), isBold: true), // ✅ 합계
+                _buildDataCell(formatter.format(totalPrice), isBold: true), // ✅ 합계
               ],
             ),
           ),
@@ -925,7 +897,7 @@ class _SalesScreenState extends State<SalesScreen> {
 
     // ✅ 최종 총 매출 금액 계산 (판매 - 반품)
     int finalTotal = totalSalesAmount + totalReturnAmount;
-
+    totalScannedItemsPrice = finalTotal.toDouble();
     return Container(
       color: Colors.grey.shade300, // ✅ 배경색 추가 (고정 행 강조)
       padding: EdgeInsets.symmetric(vertical: 10),
