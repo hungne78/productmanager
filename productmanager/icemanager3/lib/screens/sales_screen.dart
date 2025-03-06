@@ -119,7 +119,7 @@ class _SalesScreenState extends State<SalesScreen> {
 
       final product = productProvider.products.firstWhere(
             (p) => p['barcode'] == barcode,
-        orElse: () => null, // ✅ 기존 {} 대신 `null`을 반환하도록 수정
+        orElse: () => null,
       );
 
       if (product == null) {
@@ -205,74 +205,74 @@ class _SalesScreenState extends State<SalesScreen> {
   }
 
 
-  // (2) 인쇄(매출 등록) 버튼
-  Future<void> _postSales() async {
-    if (_scannedItems.isEmpty) {
-      Fluttertoast.showToast(msg: "스캔된 상품이 없습니다.");
-      return;
-    }
+  // // (2) 인쇄(매출 등록) 버튼
+  // Future<void> _postSales() async {
+  //   if (_scannedItems.isEmpty) {
+  //     Fluttertoast.showToast(msg: "스캔된 상품이 없습니다.");
+  //     return;
+  //   }
+  //
+  //   setState(() {
+  //     _isLoading = true;
+  //     _error = null;
+  //   });
+  //
+  //   try {
+  //     final auth = context.read<AuthProvider>();
+  //     final int clientId = client['id'];
+  //     double totalSalesAmount = 0.0;
+  //
+  //     // 🔹 매출 등록 요청 (비동기 최적화 적용)
+  //     final salesFutures = _scannedItems.map((item) {
+  //       final payload = {
+  //         "employee_id": auth.user?.id,
+  //         "client_id": clientId,
+  //         "product_id": item['product_id'],
+  //         "quantity": item['box_quantity'] * item['box_count'],
+  //         "sale_datetime": DateTime.now().toIso8601String(),
+  //       };
+  //
+  //       totalSalesAmount += item['client_price'] * item['box_count'] * item['box_quantity'];
+  //       return ApiService.createSales(widget.token, payload);
+  //     });
+  //
+  //     await Future.wait(salesFutures);
+  //
+  //     // 🔹 미수금 업데이트 요청
+  //     final newOutstandingAmount = widget.client['outstanding_amount'] + totalSalesAmount;
+  //     final outstandingResp = await ApiService.updateClientOutstanding(
+  //         widget.token, clientId, {"outstanding_amount": newOutstandingAmount}
+  //     );
+  //     // ✅ 100ms 후 UI 갱신
+  //     Future.delayed(Duration(milliseconds: 100), () {
+  //       setState(() {
+  //         widget.client['outstanding_amount'] = newOutstandingAmount;
+  //       });
+  //     });
+  //     if (outstandingResp.statusCode == 200) {
+  //       setState(() {
+  //         widget.client['outstanding_amount'] = newOutstandingAmount; // ✅ 이제 변경 가능
+  //         client = Map<String, dynamic>.from(client); // 새로운 Map 객체 생성
+  //         _scannedItems.clear();
+  //
+  //       });
+  //       // ✅ GlobalKey를 변경하여 강제 리빌드
+  //       setState(() {
+  //         _scaffoldKey.currentState?.setState(() {});
+  //       });
+  //       Fluttertoast.showToast(msg: "매출 등록 및 미수금 업데이트 완료!");
+  //     } else {
+  //       throw Exception("미수금 업데이트 실패: ${outstandingResp.statusCode} / ${outstandingResp.body}");
+  //     }
+  //   } catch (e) {
+  //     Fluttertoast.showToast(msg: "매출 등록 오류: $e");
+  //   } finally {
+  //     setState(() => _isLoading = false);
+  //   }
+  // }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
 
-    try {
-      final auth = context.read<AuthProvider>();
-      final int clientId = client['id'];
-      double totalSalesAmount = 0.0;
-
-      // 🔹 매출 등록 요청 (비동기 최적화 적용)
-      final salesFutures = _scannedItems.map((item) {
-        final payload = {
-          "employee_id": auth.user?.id,
-          "client_id": clientId,
-          "product_id": item['product_id'],
-          "quantity": item['box_quantity'] * item['box_count'],
-          "sale_datetime": DateTime.now().toIso8601String(),
-        };
-
-        totalSalesAmount += item['client_price'] * item['box_count'] * item['box_quantity'];
-        return ApiService.createSales(widget.token, payload);
-      });
-
-      await Future.wait(salesFutures);
-
-      // 🔹 미수금 업데이트 요청
-      final newOutstandingAmount = widget.client['outstanding_amount'] + totalSalesAmount;
-      final outstandingResp = await ApiService.updateClientOutstanding(
-          widget.token, clientId, {"outstanding_amount": newOutstandingAmount}
-      );
-      // ✅ 100ms 후 UI 갱신
-      Future.delayed(Duration(milliseconds: 100), () {
-        setState(() {
-          widget.client['outstanding_amount'] = newOutstandingAmount;
-        });
-      });
-      if (outstandingResp.statusCode == 200) {
-        setState(() {
-          widget.client['outstanding_amount'] = newOutstandingAmount; // ✅ 이제 변경 가능
-          client = Map<String, dynamic>.from(client); // 새로운 Map 객체 생성
-          _scannedItems.clear();
-
-        });
-        // ✅ GlobalKey를 변경하여 강제 리빌드
-        setState(() {
-          _scaffoldKey.currentState?.setState(() {});
-        });
-        Fluttertoast.showToast(msg: "매출 등록 및 미수금 업데이트 완료!");
-      } else {
-        throw Exception("미수금 업데이트 실패: ${outstandingResp.statusCode} / ${outstandingResp.body}");
-      }
-    } catch (e) {
-      Fluttertoast.showToast(msg: "매출 등록 오류: $e");
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-
-
+//거래처정보테이블
   double get totalAmount {
     double sum = 0;
     for (var item in _scannedItems) {
@@ -548,7 +548,9 @@ class _SalesScreenState extends State<SalesScreen> {
 
   //미수금 차감 및 서버 전송
   void _processPayment(double paymentAmount) async {
-
+    final int clientId = widget.client['id'];
+    final String nowStr = DateTime.now().toIso8601String();
+    final auth = context.read<AuthProvider>();
     if (paymentAmount < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("입금 금액은 0 이상이어야 합니다.")),
@@ -574,7 +576,23 @@ class _SalesScreenState extends State<SalesScreen> {
         widget.client['id'],
         {"outstanding_amount": updatedOutstandingAmount},
       );
+      for (var item in _scannedItems) {
+        final int totalUnits = item['box_quantity'] * item['box_count'];
 
+
+        final payload = {
+          "employee_id": auth.user?.id, // ✅ 직원 ID 포함
+          "client_id": clientId,
+          "product_id": item['product_id'],
+          "quantity": totalUnits,
+          "sale_datetime": nowStr,
+        };
+
+        final resp = await ApiService.createSales(widget.token, payload);
+        if (resp.statusCode != 200 && resp.statusCode != 201) {
+          throw Exception("매출 등록 실패: ${resp.statusCode} / ${resp.body}");
+        }
+      }
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("입금이 성공적으로 처리되었습니다.")),
@@ -593,9 +611,6 @@ class _SalesScreenState extends State<SalesScreen> {
       );
     }
   }
-
-
-
 
   Widget _buildScannedItemsTable() {
     return Container(

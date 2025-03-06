@@ -295,8 +295,8 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
         
         # 재고 차감
-        if product.stock < sale_data.quantity:
-            raise HTTPException(status_code=400, detail="재고 부족")
+        # if product.stock < sale_data.quantity:
+        #     raise HTTPException(status_code=400, detail="재고 부족")
 
         product.stock -= sale_data.quantity
         total_amount = sale_data.quantity * product.default_price
@@ -313,18 +313,15 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
             .first()
         )
 
-        if not existing_visit:
-            # ✅ 방문 기록이 없으면 새 방문 기록 생성
-            new_visit = ClientVisit(
-                employee_id=sale_data.employee_id,
-                client_id=sale_data.client_id,
-                visit_datetime=get_kst_now(),
-            )
-            db.add(new_visit)
-            db.flush()  # 즉시 `id` 반영
-            visit_id = new_visit.id
-        else:
-            visit_id = existing_visit.id  # 기존 방문 ID 사용
+        
+        new_visit = ClientVisit(
+            employee_id=sale_data.employee_id,
+            client_id=sale_data.client_id,
+            visit_datetime=get_kst_now(),
+        )
+        db.add(new_visit)
+        db.flush()  # 즉시 `id` 반영
+        
 
         # ✅ 매출 기록 저장 (변환 없이 저장)
         new_sale = SalesRecord(

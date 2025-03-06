@@ -5,7 +5,7 @@ import '../auth_provider.dart';
 import '../services/api_service.dart';
 import '../product_provider.dart';
 import '../screens/sales_screen.dart';
-
+import 'product_screen.dart';
 class HomeScreen extends StatelessWidget {
   final String token;
 
@@ -15,13 +15,41 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final user = auth.user;
+    final productProvider = context.watch<ProductProvider>();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("메인화면"),
-      ),
-      body: Center(
-        child: ElevatedButton.icon(
+      appBar: AppBar(title: const Text("메인화면"),),
+      body: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ElevatedButton.icon(
+          icon: const Icon(Icons.refresh),
+          label: const Text("상품 목록 업데이트"),
+          onPressed: () async {
+            final List<dynamic> products = await ApiService.fetchAllProducts(token);
+
+            if (products.isNotEmpty) { // ✅ 데이터가 비어있지 않은지 확인
+              try {
+                productProvider.setProducts(List<Map<String, dynamic>>.from(products)); // ✅ 올바른 형 변환
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("상품 목록이 업데이트되었습니다.")),
+                );
+              } catch (e) {
+                print("❌ 상품 데이터 처리 오류: $e");
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("상품 데이터를 처리하는 중 오류가 발생했습니다.")),
+                );
+              }
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("업데이트 실패: 상품 목록이 비어 있습니다.")),
+              );
+            }
+
+          },
+        ),
+        ElevatedButton.icon(
           icon: const Icon(Icons.shopping_cart),
           label: const Text("판매 시작"),
           onPressed: () {
@@ -34,6 +62,19 @@ class HomeScreen extends StatelessWidget {
             _showClientSelectionDialog(context, user.token, user.id);
           },
         ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.list),
+            label: const Text("상품 조회"),
+            onPressed: () {
+            Navigator.push(
+            context,
+            MaterialPageRoute(
+            builder: (_) => ProductScreen(token: token),
+            ),
+            );
+          },
+      ),
+      ],
       ),
     );
   }

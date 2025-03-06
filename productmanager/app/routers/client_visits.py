@@ -91,6 +91,8 @@ def get_kst_today():
     """현재 날짜를 KST(Asia/Seoul) 기준으로 변환"""
     return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9))).date()
 
+
+
 @router.get("/today_visits_details")
 def get_today_visits_details(
     employee_id: int = Query(...),
@@ -104,7 +106,7 @@ def get_today_visits_details(
     query = (
         db.query(
             ClientVisit.id.label("visit_id"),
-            ClientVisit.visit_datetime,  # KST 변환 없이 그대로 가져옴
+            ClientVisit.visit_datetime,
             Client.id.label("client_id"),
             Client.client_name,
             Client.outstanding_amount,
@@ -124,22 +126,25 @@ def get_today_visits_details(
         .all()
     )
 
-    # ✅ Python에서 KST 기준으로 필터링
     results = []
     for row in query:
-        visit_datetime_kst = row.visit_datetime.astimezone(timezone(timedelta(hours=9)))  # UTC → KST 변환
-        if visit_datetime_kst.date() == today_kst:  # ✅ 날짜만 비교
+        visit_datetime_kst = row.visit_datetime.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=9))) if row.visit_datetime else None  # ✅ UTC → KST 변환
+
+        if visit_datetime_kst and visit_datetime_kst.date() == today_kst:  # ✅ KST 기준 비교
             results.append({
                 "visit_id": row.visit_id,
-                "visit_datetime": visit_datetime_kst.strftime("%Y-%m-%d %H:%M:%S"),  # ✅ KST 기준 변환
+                "visit_datetime": visit_datetime_kst.strftime("%Y-%m-%d %H:%M:%S") if visit_datetime_kst else "방문 기록 없음",  
                 "client_id": row.client_id,
                 "client_name": row.client_name,
                 "outstanding_amount": float(row.outstanding_amount or 0),
                 "today_sales": float(row.today_sales or 0),
             })
 
-    print(f"📝 조회된 방문 데이터 (KST 기준 필터링 후): {results}")  # ✅ 디버깅용 로그 추가
+    print(f"📝 조회된 방문 기록: {len(results)}개")
+
     return results
+
+
 
 @router.get("/monthly_visits_client/{client_id}/{year}")
 def get_monthly_visits_by_client(client_id: int, year: int, db: Session = Depends(get_db)):

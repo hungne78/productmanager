@@ -30,7 +30,7 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
     db.refresh(new_client)
     return new_client  # ✅ 변환 없이 그대로 반환
 
-@router.get("/clients", response_model=list[ClientOut])
+@router.get("/", response_model=list[ClientOut])
 def list_clients(db: Session = Depends(get_db)):
     """ 모든 거래처 목록 조회 (KST 그대로 반환) """
     clients = db.query(Client).all()
