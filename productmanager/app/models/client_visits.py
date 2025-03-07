@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, DateTime, ForeignKey, Date
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import pytz
@@ -13,16 +13,16 @@ def get_kst_now():
 class ClientVisit(Base):
     __tablename__ = "client_visits"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
 
     # ✅ KST로 저장
     visit_datetime = Column(DateTime, nullable=False, default=get_kst_now)
 
-    # ✅ 생성/수정 시간도 KST로 저장
-    created_at = Column(DateTime, default=get_kst_now)
-    updated_at = Column(DateTime, default=get_kst_now, onupdate=get_kst_now)
+    visit_date = Column(Date, nullable=False, default=get_kst_now().date())  # ✅ 방문 날짜만 저장
+    visit_count = Column(Integer, nullable=False, default=1)  # ✅ 방문 횟수 (초기값 1)
+
 
     # 관계 설정
     employee = relationship("Employee", back_populates="client_visits") 

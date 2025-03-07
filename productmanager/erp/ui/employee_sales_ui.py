@@ -100,7 +100,7 @@ class EmployeeSalesTab(QWidget):
             print(f"🚨 직원 목록 로드 오류: {e}")
 
     def fetch_sales_data(self):
-        """ 선택한 직원의 매출 데이터 조회 """
+        """ 선택한 직원의 매출 및 방문 횟수 데이터 조회 """
         global global_token
         if not global_token:
             print("⚠️ 로그인 토큰이 없습니다.")
@@ -111,8 +111,8 @@ class EmployeeSalesTab(QWidget):
             print("⚠️ 직원이 선택되지 않았습니다.")
             return
 
-        selected_year = int(self.year_combo.currentText())  # ✅ 선택된 연도 가져오기
-        selected_month = self.month_combo.currentData()  # ✅ 선택된 월 가져오기
+        selected_year = int(self.year_combo.currentText())  
+        selected_month = self.month_combo.currentData()  
 
         url = f"{BASE_URL}/sales/employee_sales/{employee_id}/{selected_year}/{selected_month}"
         headers = {"Authorization": f"Bearer {global_token}"}
@@ -126,11 +126,12 @@ class EmployeeSalesTab(QWidget):
             print(f"🚨 매출 데이터 조회 오류: {e}")
 
     def update_sales_table(self, data):
-        """ 매출 데이터 테이블 업데이트 """
+        """ 매출 데이터 테이블 업데이트 (방문 횟수 포함) """
         self.sales_table.setRowCount(len(data))
         for row, item in enumerate(data):
             self.sales_table.setItem(row, 0, QTableWidgetItem(item["client_name"]))
             self.sales_table.setItem(row, 1, QTableWidgetItem(str(item["prev_month_sales"])))
             self.sales_table.setItem(row, 2, QTableWidgetItem(str(item["last_year_sales"])))
             self.sales_table.setItem(row, 3, QTableWidgetItem(str(item["current_month_sales"])))
-            self.sales_table.setItem(row, 4, QTableWidgetItem(str(item["visit_frequency"])))
+            self.sales_table.setItem(row, 4, QTableWidgetItem(str(item.get("visit_count", 1))))  # ✅ 방문 횟수 추가
+

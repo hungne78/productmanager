@@ -298,30 +298,39 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         # if product.stock < sale_data.quantity:
         #     raise HTTPException(status_code=400, detail="재고 부족")
 
-        product.stock -= sale_data.quantity
+        # product.stock -= sale_data.quantity
         total_amount = sale_data.quantity * product.default_price
 
         # ✅ `sale_datetime`을 변환 없이 그대로 저장
         sale_datetime_kst = sale_data.sale_datetime
 
-        # ✅ 방문 기록 확인 (해당 직원이 오늘 이 거래처 방문했는지 조회)
+        today_kst = get_kst_now().date()
         existing_visit = (
             db.query(ClientVisit)
             .filter(ClientVisit.employee_id == sale_data.employee_id)
             .filter(ClientVisit.client_id == sale_data.client_id)
-            .filter(cast(ClientVisit.visit_datetime, Date) == cast(get_kst_now(), Date))
+            .filter(ClientVisit.visit_date == today_kst)  # ✅ 같은 날짜 비교
             .first()
         )
 
-        
-        new_visit = ClientVisit(
-            employee_id=sale_data.employee_id,
-            client_id=sale_data.client_id,
-            visit_datetime=get_kst_now(),
-        )
-        db.add(new_visit)
-        db.flush()  # 즉시 `id` 반영
-        
+        if existing_visit:
+            # ✅ 같은 날 방문한 기록이 있으면 visit_datetime만 업데이트
+            existing_visit.visit_datetime = get_kst_now()
+            db.commit()
+            print(f"🔄 기존 방문 기록 업데이트: 직원 {sale_data.employee_id}, 거래처 {sale_data.client_id}, 날짜 {today_kst}, 새로운 시간 {existing_visit.visit_datetime}")
+        else:
+            # ✅ 기존 방문 기록이 없으면 새로운 방문 기록 생성
+            new_visit = ClientVisit(
+                employee_id=sale_data.employee_id,
+                client_id=sale_data.client_id,
+                visit_datetime=get_kst_now(),
+                visit_date=today_kst,  # ✅ 날짜만 저장 (중복 방지)
+                visit_count=1  # ✅ 새로운 방문은 1부터 시작
+            )
+            db.add(new_visit)
+            db.flush()  # 즉시 `id` 반영
+            print(f"✅ 새로운 방문 기록 추가: 직원 {sale_data.employee_id}, 거래처 {sale_data.client_id}, 날짜 {today_kst}")
+
 
         # ✅ 매출 기록 저장 (변환 없이 저장)
         new_sale = SalesRecord(
@@ -329,8 +338,11 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
             client_id=sale_data.client_id,
             product_id=sale_data.product_id,
             quantity=sale_data.quantity,
-            sale_datetime=sale_datetime_kst  # ✅ 변환 없이 저장
+            sale_datetime=sale_datetime_kst,  # ✅ 변환 없이 저장
+            return_amount=sale_data.return_amount  # ✅ 기본값 0.0, 반품 발생 시 업데이트 가능
         )
+        print("📡 반품 데이터 전송: $payload");  
+        print(f"✅ 매출 저장 완료: ID={new_sale.id}, 반품 금액={new_sale.return_amount}")
         db.add(new_sale)
         db.flush()  # 즉시 반영
 

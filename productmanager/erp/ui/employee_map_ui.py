@@ -138,33 +138,31 @@ class EmployeeMapTab(QWidget):
           ...
         ]
         """
-        # 첫 방문의 위치를 지도 중심으로 사용
+        """ 방문 데이터를 folium 지도에 표시 """
         first_address = visits_data[0]["address"]
         first_lat, first_lng = self.geocode_address(first_address)
 
         if first_lat is None or first_lng is None:
-            first_lat, first_lng = 37.5665, 126.9780  # 서울 시청을 기본값으로 설정
+            first_lat, first_lng = 37.5665, 126.9780  # 서울 기본값
 
         map_obj = folium.Map(location=[first_lat, first_lng], zoom_start=12)
-        for item in visits_data:
-            # ✅ 서버에서 이미 KST로 변환되었다면 그대로 사용
-            item["visit_datetime"] = item["visit_datetime"]  # 변환 과정 제거
-                        
+
         for item in visits_data:
             address = item["address"]
             lat, lng = self.geocode_address(address)
 
             if lat is None or lng is None:
-                continue  # 주소 변환 실패 시 해당 마커 추가 생략
+                continue  
 
             c_name = item["client_name"]
             v_time = item["visit_datetime"]
             sales = item["today_sales"]
+            visit_count = item.get("visit_count", 1)  # ✅ 방문 횟수 추가
 
-            # 팝업(풍선창) HTML
             popup_html = f"""
             <b>거래처명:</b> {c_name}<br>
             <b>방문시간:</b> {v_time}<br>
+            <b>방문횟수:</b> {visit_count}<br>
             <b>당일매출:</b> {int(sales)}원
             """
 
@@ -175,7 +173,7 @@ class EmployeeMapTab(QWidget):
             ).add_to(map_obj)
 
         self.display_map(map_obj)
-
+        
     def display_map(self, map_obj: folium.Map):
         """
         Folium Map 객체를 HTML로 변환하여 QWebEngineView에 로드.

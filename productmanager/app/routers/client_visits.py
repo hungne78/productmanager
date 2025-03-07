@@ -100,13 +100,14 @@ def get_today_visits_details(
 ):
     """ 오늘(KST) 방문한 거래처 목록 조회 """
 
-    today_kst = get_kst_today()  # ✅ KST 기준 오늘 날짜 가져오기
-    print(f"🔍 KST 기준 오늘 날짜: {today_kst}")  # ✅ 로그 추가
+    today_kst = get_kst_today()
+    print(f"🔍 KST 기준 오늘 날짜: {today_kst}")
 
     query = (
         db.query(
             ClientVisit.id.label("visit_id"),
             ClientVisit.visit_datetime,
+            ClientVisit.visit_count,  # ✅ 방문 횟수 추가
             Client.id.label("client_id"),
             Client.client_name,
             Client.outstanding_amount,
@@ -123,26 +124,28 @@ def get_today_visits_details(
         )
         .outerjoin(Product, Product.id == SalesRecord.product_id)
         .filter(ClientVisit.employee_id == employee_id)
+        .filter(ClientVisit.visit_date == today_kst)  # ✅ 오늘 방문 데이터만 조회
         .all()
     )
 
     results = []
     for row in query:
-        visit_datetime_kst = row.visit_datetime.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=9))) if row.visit_datetime else None  # ✅ UTC → KST 변환
+        visit_datetime_kst = row.visit_datetime.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=9))) if row.visit_datetime else None
 
-        if visit_datetime_kst and visit_datetime_kst.date() == today_kst:  # ✅ KST 기준 비교
-            results.append({
-                "visit_id": row.visit_id,
-                "visit_datetime": visit_datetime_kst.strftime("%Y-%m-%d %H:%M:%S") if visit_datetime_kst else "방문 기록 없음",  
-                "client_id": row.client_id,
-                "client_name": row.client_name,
-                "outstanding_amount": float(row.outstanding_amount or 0),
-                "today_sales": float(row.today_sales or 0),
-            })
+        results.append({
+            "visit_id": row.visit_id,
+            "visit_datetime": visit_datetime_kst.strftime("%Y-%m-%d %H:%M:%S") if visit_datetime_kst else "방문 기록 없음",
+            "visit_count": row.visit_count,  # ✅ 방문 횟수 반환 추가
+            "client_id": row.client_id,
+            "client_name": row.client_name,
+            "outstanding_amount": float(row.outstanding_amount or 0),
+            "today_sales": float(row.today_sales or 0),
+        })
 
     print(f"📝 조회된 방문 기록: {len(results)}개")
 
     return results
+
 
 
 
@@ -168,3 +171,42 @@ def get_monthly_visits_by_client(client_id: int, year: int, db: Session = Depend
 
     return monthly_visits
 
+
+@router.post("/record_visit")
+def record_visit(
+    employee_id: int,
+    client_id: int,
+    db: Session = Depends(get_db)
+):
+    """ 직원이 거래처를 방문하면 방문 기록을 추가 또는 업데이트 """
+
+    today_kst = get_kst_today().date()  # ✅ KST 기준 오늘 날짜
+
+    # ✅ 같은 직원, 같은 거래처, 같은 날짜 방문 여부 확인
+    existing_visit = (
+        db.query(ClientVisit)
+        .filter(ClientVisit.employee_id == employee_id)
+        .filter(ClientVisit.client_id == client_id)
+        .filter(ClientVisit.visit_date == today_kst)  # ✅ 같은 날짜 비교
+        .first()
+    )
+
+    if existing_visit:
+        # ✅ 같은 날 방문한 기록이 있으면 visit_datetime만 업데이트 (visit_count는 유지)
+        existing_visit.visit_datetime = get_kst_now()
+        db.commit()
+        print(f"🔄 기존 방문 기록 업데이트: 직원 {employee_id}, 거래처 {client_id}, 날짜 {today_kst}, 새로운 시간 {existing_visit.visit_datetime}")
+    else:
+        # ✅ 기존 방문 기록이 없으면 새로운 방문 기록 생성
+        new_visit = ClientVisit(
+            employee_id=employee_id,
+            client_id=client_id,
+            visit_datetime=get_kst_now(),
+            visit_date=today_kst,  # ✅ 날짜만 저장 (중복 방지)
+            visit_count=1  # ✅ 새로운 방문은 1부터 시작
+        )
+        db.add(new_visit)
+        db.commit()
+        print(f"✅ 새로운 방문 기록 추가: 직원 {employee_id}, 거래처 {client_id}, 날짜 {today_kst}")
+
+    return {"message": "방문 기록 완료"}

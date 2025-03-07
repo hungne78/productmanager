@@ -21,6 +21,8 @@ class SalesRecordCreate(BaseModel):
     product_id: int
     quantity: int
     sale_datetime: datetime
+    return_amount: float = 0.0  # ✅ 기본값 0.0
+
     
 
 class TotalSalesOut(BaseModel):
@@ -43,9 +45,11 @@ class SalesRecordOut(BaseModel):
     product_id: int
     quantity: int
     sale_datetime: datetime
+    return_amount: float  # ✅ 반품 금액 추가
 
     class Config:
         from_attributes = True  # ✅ ORM 모델을 Pydantic 스키마로 변환
+
 class OutstandingUpdate(BaseModel):
     outstanding_amount: float  # ✅ FastAPI가 기대하는 데이터 타입
 

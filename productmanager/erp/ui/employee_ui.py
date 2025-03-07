@@ -19,6 +19,20 @@ from baselefttabwidget import BaseLeftTableWidget
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL
 
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, 
+    QPushButton, QHBoxLayout, QDateEdit, QComboBox, QMessageBox
+)
+from PyQt5.QtGui import QRegExpValidator
+from PyQt5.QtCore import QDate, QRegExp
+
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, 
+    QPushButton, QHBoxLayout, QDateEdit, QComboBox, QMessageBox
+)
+from PyQt5.QtGui import QRegExpValidator
+from PyQt5.QtCore import QDate, QRegExp
+
 class EmployeeDialog(QDialog):
     def __init__(self, title, employee=None, parent=None):
         super().__init__(parent)
@@ -29,18 +43,28 @@ class EmployeeDialog(QDialog):
         form_layout = QFormLayout()
         
         self.name_edit = QLineEdit()
+
+        # ✅ 전화번호 입력란: 숫자만 입력 허용 (10~11자리)
         self.phone_edit = QLineEdit()
-        self.role_edit = QLineEdit()
+        phone_validator = QRegExpValidator(QRegExp(r"^01[0-9]\d{7,8}$"))  # 01012345678 형식 허용
+        self.phone_edit.setValidator(phone_validator)
+
+        # ✅ 직책 선택을 위한 드롭다운(QComboBox)
+        self.role_edit = QComboBox()
+        self.role_edit.addItems(["영업사원", "관리자"])  # ✅ 사용자 선택은 한국어, 서버 전송은 sales/admin
+
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.Password)
+
         self.birthday_edit = QDateEdit()
         self.birthday_edit.setCalendarPopup(True)
         self.birthday_edit.setDisplayFormat("yyyy-MM-dd")
+
         self.address_edit = QLineEdit()
         
         form_layout.addRow("이름:", self.name_edit)
         form_layout.addRow("전화번호:", self.phone_edit)
-        form_layout.addRow("직책:", self.role_edit)
+        form_layout.addRow("직책:", self.role_edit)  # ✅ 드롭다운 메뉴 적용
         form_layout.addRow("생일:", self.birthday_edit)
         form_layout.addRow("주소:", self.address_edit)
         form_layout.addRow("비밀번호:", self.password_edit)
@@ -55,19 +79,49 @@ class EmployeeDialog(QDialog):
         layout.addLayout(btn_layout)
         
         self.setLayout(layout)
-        
-        self.ok_button.clicked.connect(self.accept)
+
+        # ✅ 버튼 이벤트 연결
+        self.ok_button.clicked.connect(self.validate_and_accept)
         self.cancel_button.clicked.connect(self.reject)
         
-        # 수정 시 기존 정보를 미리 채워줌 (비밀번호는 빈 상태로 둠)
+        # ✅ 수정 시 기존 정보 미리 채우기 (비밀번호 제외)
         if employee:
             self.name_edit.setText(employee.get("name", ""))
-            self.phone_edit.setText(employee.get("phone", ""))
-            self.role_edit.setText(employee.get("role", ""))
+            self.phone_edit.setText(self.clean_phone_number(employee.get("phone", "")))
+            self.role_edit.setCurrentText(self.role_to_display(employee.get("role", "sales")))  # ✅ 기존 역할 변환
             if employee.get("birthday"):
                 date_obj = QDate.fromString(employee.get("birthday"), "yyyy-MM-dd")
                 self.birthday_edit.setDate(date_obj)
             self.address_edit.setText(employee.get("address", ""))
+
+    def validate_and_accept(self):
+        """ ✅ 입력값 검증 후 다이얼로그 닫기 """
+        phone_text = self.clean_phone_number(self.phone_edit.text())
+
+        if not phone_text:
+            QMessageBox.warning(self, "입력 오류", "전화번호를 입력하세요.")
+            return
+
+        if not phone_text.isdigit() or len(phone_text) not in (10, 11):
+            QMessageBox.warning(self, "입력 오류", "전화번호 형식이 올바르지 않습니다.\n예: 01012345678 (숫자만 입력)")
+            return
+
+        self.phone_edit.setText(phone_text)  # ✅ '-' 제거된 형식으로 저장
+        self.accept()
+
+    def clean_phone_number(self, phone):
+        """ ✅ 전화번호에서 '-' 제거 후 반환 """
+        return phone.replace("-", "")
+
+    def role_to_display(self, role):
+        """ ✅ 서버에서 가져온 role을 UI용 한국어로 변환 """
+        return "관리자" if role == "admin" else "영업사원"
+
+    def role_to_server(self):
+        """ ✅ UI에서 선택한 role을 서버 전송용 영문으로 변환 """
+        return "admin" if self.role_edit.currentText() == "관리자" else "sales"
+
+
 
 class EmployeeSelectionDialog(QDialog):
     def __init__(self, employees, parent=None):
@@ -251,42 +305,25 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
     def display_employee(self, employee):
         """
         검색된 직원 정보(또는 None)를 받아,
-        테이블의 각 행(0~6)에 값을 채워넣음.
+        테이블의 각 행(0~8)에 값을 채워넣음.
         """
-        # 혹시 위젯이 이미 파괴된 상태인지 체크 (wrapped c++ object 삭제 방지)
         if not hasattr(self, "table_info") or self.table_info is None:
             print("Error: table_info is None or deleted")
             return
 
         if not employee:
-            # 검색 결과가 없으면 모든 칸 초기화
             for r in range(self.row_count):
                 self.set_value(r, "")
             return
 
-        # 직원 정보 세팅
         emp_id = str(employee.get("id", ""))
         self.set_value(0, emp_id)
         self.set_value(1, employee.get("name", ""))
         self.set_value(2, employee.get("phone", ""))
-        self.set_value(3, employee.get("role", ""))
-        birthday = employee.get("birthday")
-        if birthday:
-            # 만약 이미 문자열이면 그대로 사용, 아니면 날짜 객체를 문자열로 변환
-            if isinstance(birthday, (str,)):
-                birthday_str = birthday
-            else:
-                birthday_str = birthday.strftime("%Y-%m-%d")
-        else:
-            birthday_str = ""
-        self.set_value(4, birthday_str)
+        self.set_value(3, self.role_to_display(employee.get("role", "")))  # ✅ 직책 변환
+        self.set_value(4, employee.get("birthday", ""))
+        self.set_value(5, employee.get("address", ""))
 
-        # 주소
-        address = employee.get("address") or ""
-        self.set_value(5, address)
-        
-        # 차량 정보 (예: monthly_fuel_cost, current_mileage, last_engine_oil_change)
-        # api_fetch_employee_vehicle_info(...) 로 불러와 추가 표시
         veh = api_fetch_employee_vehicle_info(employee["id"])
         if veh:
             self.set_value(6, str(veh.get("monthly_fuel_cost", "")))
@@ -296,6 +333,20 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
             self.set_value(6, "")
             self.set_value(7, "")
             self.set_value(8, "")
+
+    def format_phone_number(self, phone):
+        """ ✅ 전화번호를 '010-1234-5678' 형식으로 변환 """
+        phone = self.clean_phone_number(phone)  # ✅ 하이픈 제거 후 숫자만 남김
+        if len(phone) == 10:
+            return f"{phone[:3]}-{phone[3:6]}-{phone[6:]}"
+        elif len(phone) == 11:
+            return f"{phone[:3]}-{phone[3:7]}-{phone[7:]}"
+        return phone  # 변환 실패 시 원본 반환
+
+
+    def clean_phone_number(self, phone):
+        """ ✅ 전화번호에서 '-' 제거 후 숫자만 반환 """
+        return "".join(filter(str.isdigit, phone))  # 숫자만 남기기
 
     def create_employee(self):
         """
@@ -312,8 +363,8 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
             data = {
                 "password": dialog.password_edit.text() or "1234",
                 "name": dialog.name_edit.text(),
-                "phone": dialog.phone_edit.text(),
-                "role": dialog.role_edit.text(),
+                "phone": self.clean_phone_number(dialog.phone_edit.text()),
+                "role": dialog.role_to_server(),
                 "birthday": dialog.birthday_edit.date().toString("yyyy-MM-dd"),
                 "address": dialog.address_edit.text()
             }
@@ -344,7 +395,7 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         current_employee = {
             "name": self.get_value(1),
             "phone": self.get_value(2),
-            "role": self.get_value(3),
+            "role": self.role_to_display(self.get_value(3)),  # ✅ 직책 변환 (UI에서 "관리자"/"영업사원"으로 표시)
             "birthday": self.get_value(4),
             "address": self.get_value(5)
         }
@@ -353,8 +404,8 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
             data = {
                 "password": dialog.password_edit.text() or "1234",
                 "name": dialog.name_edit.text(),
-                "phone": dialog.phone_edit.text(),
-                "role": dialog.role_edit.text(),
+                "phone": self.clean_phone_number(dialog.phone_edit.text()), 
+                "role": dialog.role_to_server(),  # ✅ 서버 전송 시 변환 ("관리자" → "admin", "영업사원" → "sales")
                 "birthday": dialog.birthday_edit.date().toString("yyyy-MM-dd"),
                 "address": dialog.address_edit.text()
             }
@@ -365,6 +416,14 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
                 status = resp.status_code if resp else "None"
                 text = resp.text if resp else "No response"
                 QMessageBox.critical(self, "실패", f"직원 수정 실패: {status}\n{text}")
+
+    def role_to_display(self, role):
+        """ ✅ 서버에서 가져온 role을 UI용 한국어로 변환 """
+        return "관리자" if role == "admin" else "영업사원"
+
+    def role_to_server(self):
+        """ ✅ UI에서 선택한 role을 서버 전송용 영문으로 변환 """
+        return "admin" if self.role_edit.currentText() == "관리자" else "sales"
 
     def delete_employee(self):
         global global_token
@@ -591,7 +650,6 @@ class EmployeeRightPanel(QWidget):
         
         url_today_visits = f"{BASE_URL}/client_visits/today_visits_details?employee_id={employee_id}"
 
-       
         try:
             resp = requests.get(url_today_visits, headers=headers)
             resp.raise_for_status()
@@ -617,12 +675,13 @@ class EmployeeRightPanel(QWidget):
                 today_sales = str(f"{info.get('today_sales', 0):,} 원")  # ✅ 천 단위 콤마 추가
                 outstanding = str(f"{info.get('outstanding_amount', 0):,} 원")
                 visit_time = str(info.get("visit_datetime", ""))
+                visit_count = str(info.get("visit_count", 1))  # ✅ 방문 횟수 추가
 
                 self.tbl_box4_main.setItem(row_index, 0, QTableWidgetItem(client_name))
                 self.tbl_box4_main.setItem(row_index, 1, QTableWidgetItem(today_sales))
                 self.tbl_box4_main.setItem(row_index, 2, QTableWidgetItem(outstanding))
                 self.tbl_box4_main.setItem(row_index, 3, QTableWidgetItem(visit_time))
-                self.tbl_box4_main.setItem(row_index, 4, QTableWidgetItem(""))
+                self.tbl_box4_main.setItem(row_index, 4, QTableWidgetItem(visit_count))  # ✅ 방문 횟수 추가
             else:
                 # ✅ 데이터가 없는 행은 빈 값으로 유지
                 self.tbl_box4_main.setItem(row_index, 0, QTableWidgetItem(""))
@@ -637,8 +696,8 @@ class EmployeeRightPanel(QWidget):
         self.tbl_box4_main.setItem(last_row_index, 1, QTableWidgetItem(f"{total_today_sales:,} 원"))
         self.tbl_box4_main.setItem(last_row_index, 2, QTableWidgetItem(f"{total_outstanding:,} 원"))
         self.tbl_box4_main.setItem(last_row_index, 3, QTableWidgetItem(""))  # 방문시간 칸 비움
-        self.tbl_box4_main.setItem(last_row_index, 4, QTableWidgetItem(""))  # 기타 칸 비움
-        self.tbl_box4_footer.setItem(0, 4, QTableWidgetItem(""))  # 기타 칸 비움
+        self.tbl_box4_main.setItem(last_row_index, 4, QTableWidgetItem(""))  # 방문 횟수 칸 비움
+
         
 
 
