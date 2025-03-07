@@ -5,6 +5,7 @@ import '../auth_provider.dart';
 import '../services/api_service.dart';
 import '../product_provider.dart';
 import '../screens/sales_screen.dart';
+import '../screens/order_screen.dart';
 import 'product_screen.dart';
 class HomeScreen extends StatelessWidget {
   final String token;
@@ -73,9 +74,22 @@ class HomeScreen extends StatelessWidget {
             ),
             );
           },
-      ),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.shopping_bag),
+            label: const Text("주문 시작"),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => OrderScreen(token: token),
+                ),
+              );
+            },
+          ),
       ],
       ),
+
     );
   }
 

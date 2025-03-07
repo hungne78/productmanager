@@ -9,7 +9,7 @@ import 'package:provider/provider.dart';  // ✅ Provider 패키지 추가
 import '../product_provider.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:intl/intl.dart'; // ✅ 숫자 포맷을 위한 패키지 추가
-
+import 'dart:developer' as developer;
 class SalesScreen extends StatefulWidget {
   final String token;
   final Map<String, dynamic> client; // 거래처 정보
@@ -527,18 +527,20 @@ class _SalesScreenState extends State<SalesScreen> {
       }
       // ✅ 반품 상품 서버 전송
       for (var item in _returnedItems) {
-        final int totalUnits = item['box_quantity'] * item['box_count'];
-
-
+        final int totalUnits = item['box_quantity'] ;
+        final double defaultPrice = (item['default_price'] ?? 0).toDouble();
+        final double clientPrice = (item['client_price'] ?? 0).toDouble();
+        final double returnAmount = (totalUnits * defaultPrice * clientPrice * 0.01).toDouble();
+        developer.log ("전송 : $totalUnits , $item['default_price'] , $item['client_price'] ");
         final payload = {
           "employee_id": auth.user?.id,
           "client_id": clientId,
           "product_id": item['product_id'],
           "quantity": -totalUnits, // ✅ 반품은 음수로 처리
           "sale_datetime": nowStr,
-          "return_amount": totalReturnedItemsPrice, // ✅ 반품 금액 추가
+          "return_amount": returnAmount, // ✅ 반품 금액 추가
         };
-        print("📡 반품 데이터 전송: $payload");  // ✅ API 요청 전에 확인
+        developer.log("📡 반품 데이터 전송: $payload");  // ✅ API 요청 전에 확인
         final resp = await ApiService.createSales(widget.token, payload);
         if (resp.statusCode != 200 && resp.statusCode != 201) {
           throw Exception("반품 등록 실패: ${resp.statusCode} / ${resp.body}");

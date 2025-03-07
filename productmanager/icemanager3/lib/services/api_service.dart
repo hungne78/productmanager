@@ -2,8 +2,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 class ApiService {
-  // static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
-  static const String baseUrl = "http://192.168.0.183:8000";  //맥북
+  static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
+  // static const String baseUrl = "http://192.168.0.183:8000";  //맥북
   static Future<http.Response> login(int id, String password) async {
     final url = Uri.parse("$baseUrl/login");
     final body = jsonEncode({"id": id, "password": password});
@@ -32,6 +32,7 @@ class ApiService {
       "Content-Type": "application/json",
       "Authorization": "Bearer $token",
     };
+    print("📡 [Flutter → 서버] 전송 데이터: $data");
     return await http.post(url, headers: headers, body: jsonEncode(data));
   }
 
