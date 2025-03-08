@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../product_provider.dart';
 import 'package:intl/intl.dart';
+import '../services/api_service.dart';
+import '../auth_provider.dart';
 
 class OrderScreen extends StatefulWidget {
   final String token;
@@ -15,24 +17,38 @@ class _OrderScreenState extends State<OrderScreen> {
   Map<int, TextEditingController> quantityControllers = {};
   final formatter = NumberFormat("#,###");
   Map<int, FocusNode> focusNodes = {};
+
   @override
   void initState() {
     super.initState();
   }
 
   /// 🔹 주문 데이터 서버 전송 (현재는 print()만 수행)
-  void _sendOrderToServer() {
+  /// 🔹 주문 데이터 서버 전송 (API 연동 추가)
+  Future<void> _sendOrderToServer() async {
+    if (quantityControllers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("주문할 상품을 선택하세요.")),
+      );
+      return;
+    }
+
     List<Map<String, dynamic>> orderItems = [];
 
     quantityControllers.forEach((productId, controller) {
-      final quantity = int.tryParse(controller.text) ?? 0;
+      int quantity = int.tryParse(controller.text) ?? 0;
       if (quantity > 0) {
+        var product = _getProductById(productId);
+        int boxQuantity = product['box_quantity'] ?? 1; // ✅ 박스당 개수
+        int finalQuantity = quantity; // ✅ 박스 수량을 저장
+
         orderItems.add({
           'product_id': productId,
-          'quantity': quantity,
+          'quantity': finalQuantity, // ✅ 총 개수가 아니라 박스 단위로 저장
         });
       }
     });
+
 
     if (orderItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -40,9 +56,34 @@ class _OrderScreenState extends State<OrderScreen> {
       );
       return;
     }
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final int employeeId = authProvider.user?.id ?? 0; // ✅ 로그인한 직원의 ID 가져오기
+    // ✅ FastAPI 서버에 보낼 주문 데이터 구성
+    final orderData = {
+      "employee_id": employeeId,
+      "order_date": DateTime.now().toIso8601String().substring(0, 10),
+      "total_amount": getTotalProductPrice(),  // ✅ 총 금액 추가
+      "total_incentive": getTotalIncentive(),  // ✅ 총 인센티브 추가
+      "total_boxes": getTotalQuantity(),       // ✅ 총 박스 수량 추가
+      "order_items": orderItems,
+    };
 
-    print("📦 주문 데이터 전송: $orderItems");
+
+    try {
+      final response = await ApiService.createOrder(widget.token, orderData);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("주문이 완료되었습니다! 주문 ID: ${response['id']}")),
+      );
+      setState(() {
+        quantityControllers.clear();
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("오류 발생: $e")),
+      );
+    }
   }
+
 
   double getTotalProductPrice() {
     double total = 0;

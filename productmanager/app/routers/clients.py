@@ -17,6 +17,7 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
     """ 새로운 거래처 등록 (KST로 저장) """
     new_client = Client(
         client_name=payload.client_name,
+        representative_name=payload.representative_name,
         address=payload.address,
         phone=payload.phone,
         outstanding_amount=payload.outstanding_amount,
@@ -54,6 +55,7 @@ def update_client(client_id: int, payload: ClientCreate, db: Session = Depends(g
         raise HTTPException(status_code=404, detail="Client not found")
 
     db_client.client_name = payload.client_name
+    db_client.representative_name = payload.representative_name
     db_client.address = payload.address
     db_client.phone = payload.phone
     db_client.outstanding_amount = payload.outstanding_amount

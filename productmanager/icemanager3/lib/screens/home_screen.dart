@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import '../product_provider.dart';
 import '../screens/sales_screen.dart';
 import '../screens/order_screen.dart';
+import '../screens/clients_screen.dart';
 import 'product_screen.dart';
 class HomeScreen extends StatelessWidget {
   final String token;
@@ -87,7 +88,32 @@ class HomeScreen extends StatelessWidget {
               );
             },
           ),
-      ],
+          ElevatedButton.icon(
+            icon: const Icon(Icons.business),
+            label: const Text("거래처 관리"),
+            onPressed: () {
+              final auth = context.read<AuthProvider>(); // 현재 로그인한 직원 정보 가져오기
+
+              if (auth.user == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("로그인이 필요합니다.")),
+                );
+                return;
+              }
+
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ClientsScreen(
+                    token: auth.user!.token, // 현재 로그인한 직원의 토큰 전달
+                    employeeId: auth.user!.id, // 현재 로그인한 직원의 ID 전달
+                  ),
+                ),
+              );
+            },
+          ),
+
+        ],
       ),
 
     );

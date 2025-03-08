@@ -2,13 +2,27 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 class ApiService {
-  static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
-  // static const String baseUrl = "http://192.168.0.183:8000";  //맥북
+  // static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
+  static const String baseUrl = "http://192.168.0.183:8000";  //맥북
   static Future<http.Response> login(int id, String password) async {
     final url = Uri.parse("$baseUrl/login");
     final body = jsonEncode({"id": id, "password": password});
     final headers = {"Content-Type": "application/json"};
     return await http.post(url, headers: headers, body: body);
+  }
+
+  static Future<Map<String, dynamic>> fetchClientDetailsById(String token, int clientId) async {
+    final url = Uri.parse("$baseUrl/clients/$clientId");
+    final response = await http.get(url, headers: {
+      "Authorization": "Bearer $token",
+      "Content-Type": "application/json; charset=utf-8",
+    });
+
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>; // ✅ JSON 변환 후 반환
+    } else {
+      throw Exception("Failed to fetch client details: ${response.statusCode}");
+    }
   }
 
   static Future<List<dynamic>> fetchEmployeeClients(String token, int employeeId) async {
@@ -126,6 +140,53 @@ class ApiService {
       },
       body: jsonEncode(data),
     );
+  }
+  // ✅ 주문 생성 API (POST /orders/)
+  static Future<Map<String, dynamic>> createOrder(String token, Map<String, dynamic> data) async {
+    final url = Uri.parse("$baseUrl/orders");
+    final headers = {
+      "Authorization": "Bearer $token",
+      "Content-Type": "application/json",
+    };
+
+    try {
+      final response = await http.post(url, headers: headers, body: jsonEncode(data));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return jsonDecode(response.body); // ✅ 서버 응답 반환 (주문 ID 포함 가능)
+      } else {
+        throw Exception("주문 실패: ${response.body}");
+      }
+    } catch (e) {
+      throw Exception("네트워크 오류: $e");
+    }
+  }
+
+  static Future<http.Response> fetchOrders(String token, int employeeId, String date) async {
+    final url = Uri.parse("$baseUrl/orders/employee/$employeeId/date/$date");
+    return await http.get(url, headers: {
+      "Authorization": "Bearer $token",
+      "Content-Type": "application/json",
+    });
+  }
+
+
+  // ✅ 특정 직원의 매출 목록 가져오기
+  static Future<http.Response> fetchSales(String token, int employeeId) async {
+    final url = Uri.parse("$baseUrl/sales?employee_id=$employeeId");
+    return await http.get(url, headers: {
+      "Authorization": "Bearer $token",
+      "Content-Type": "application/json",
+    });
+  }
+
+  // ✅ 특정 직원의 차량 재고 가져오기
+  static Future<http.Response> fetchVehicleStock(String token, int employeeId) async {
+    final url = Uri.parse("$baseUrl/vehicle_stock?employee_id=$employeeId");
+    return await http.get(url, headers: {
+      "Authorization": "Bearer $token",
+      "Content-Type": "application/json",
+    });
   }
 
 // etc...

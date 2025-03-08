@@ -1,13 +1,11 @@
-# app/schemas/clients.py
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel
 from typing import Optional
-from decimal import Decimal
 from datetime import datetime
 
-
 class ClientCreate(BaseModel):
-    """ 거래처 등록 요청 스키마 (KST 값 그대로 사용) """
+    """ 거래처 등록 요청 스키마 """
     client_name: str
+    representative_name: Optional[str] = None  # ✅ 대표자 이름 추가
     address: Optional[str] = None
     phone: Optional[str] = None
     outstanding_amount: float = 0
@@ -17,9 +15,10 @@ class ClientCreate(BaseModel):
     email: Optional[str] = None
 
 class ClientOut(BaseModel):
-    """ 거래처 조회 응답 스키마 (KST 값 그대로 사용) """
+    """ 거래처 조회 응답 스키마 """
     id: int
     client_name: str
+    representative_name: Optional[str]  # ✅ 대표자 이름 추가
     address: Optional[str]
     phone: Optional[str]
     outstanding_amount: float
@@ -27,8 +26,8 @@ class ClientOut(BaseModel):
     fixed_price: Optional[float] = None
     business_number: Optional[str] = None
     email: Optional[str] = None
-    created_at: datetime  # ✅ 변환 없이 KST 값 그대로 사용
-    updated_at: datetime  # ✅ 변환 없이 KST 값 그대로 사용
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
-        from_attributes = True  # ✅ ORM 모델을 Pydantic 스키마로 변환
+        from_attributes = True

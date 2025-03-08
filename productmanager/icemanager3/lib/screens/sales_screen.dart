@@ -230,12 +230,13 @@ class _SalesScreenState extends State<SalesScreen> {
           3: FractionColumnWidth(0.25),
         },
         children: [
-          _buildTableRow("거래처명", widget.client['client_name'], "미수금", "${formatter.format(widget.client['outstanding_amount'])} 원"),
+          _buildTableRow("거래처명", widget.client['client_name'], "대표자", widget.client['representative_name'] ?? "정보 없음"),  // ✅ 대표자 추가
           _buildTableRow("주소", widget.client['address'] ?? "정보 없음", "전화번호", widget.client['phone'] ?? "정보 없음"),
           _buildTableRow("사업자 번호", widget.client['business_number'] ?? "정보 없음", "이메일", widget.client['email'] ?? "정보 없음"),
           _buildTableRow("일반가", widget.client['regular_price']?.toString() ?? "정보 없음", "고정가", widget.client['fixed_price']?.toString() ?? "정보 없음"),
         ],
       ),
+
     );
   }
 

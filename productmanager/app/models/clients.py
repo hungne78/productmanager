@@ -15,6 +15,7 @@ class Client(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     client_name = Column(String(100), nullable=False)
+    representative_name = Column(String(100), nullable=True)
     address = Column(String(255))
     phone = Column(String(50))
     outstanding_amount = Column(DECIMAL(10,2), default=0)

@@ -3,6 +3,7 @@ import 'screens/login_screen.dart';  // 우리가 만든 파일 import
 import 'package:provider/provider.dart';
 import 'auth_provider.dart'; // 방금 만든 ChangeNotifier
 import 'product_provider.dart';
+import 'vehicle_stock_provider.dart';
 void main() {
   runApp(
     MultiProvider(
@@ -15,6 +16,7 @@ void main() {
           create: (_) => ProductProvider(),
         ),
         // ↑ 필요하다면 다른 Provider도 등록
+        ChangeNotifierProvider(create: (_) => VehicleStockProvider()),
       ],
       child: const MyApp(),
     ),

@@ -469,14 +469,38 @@ def api_fetch_client_coordinates(client_id):
 
 #주문 관련api
 # 🔹 주문 목록 조회
-def api_fetch_orders():
-    """ 전체 주문 목록 조회 """
+def api_fetch_orders(employee_id, date):
+    """
+    특정 날짜와 직원 ID를 기준으로 주문 데이터를 가져옴
+    """
+    url = f"{BASE_URL}/orders?employee_id={employee_id}&date={date}"
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+
     try:
-        response = requests.get(f"{BASE_URL}/orders/", headers=HEADERS)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
-        print(f"❌ 주문 목록 조회 실패: {e}")
+        resp = requests.get(url, headers=headers)
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            return []
+    except Exception as e:
+        print(f"❌ 주문 데이터 가져오기 실패: {e}")
+        return []
+
+def api_fetch_orders(employee_id, date):
+    """
+    특정 날짜와 직원 ID를 기준으로 주문 및 주문 상품 데이터를 가져옴
+    """
+    url = f"{BASE_URL}/orders/orders_with_items?employee_id={employee_id}&date={date}"  # ✅ 주문 + 주문 상품 조회 API
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+
+    try:
+        resp = requests.get(url, headers=headers)
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            return []
+    except Exception as e:
+        print(f"❌ 주문 데이터 가져오기 실패: {e}")
         return []
 
 # 🔹 특정 주문 조회

@@ -37,10 +37,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """ 서버 시작 및 종료 시 실행되는 코드 """
-    print("\n📡 [FastAPI] 등록된 엔드포인트 목록:")
-    for route in app.router.routes:
-        if isinstance(route, APIRoute):
-            print(f"➡️ {route.path} ({route.methods})")
+    # print("\n📡 [FastAPI] 등록된 엔드포인트 목록:")
+    # for route in app.router.routes:
+    #     if isinstance(route, APIRoute):
+    #         print(f"➡️ {route.path} ({route.methods})")
     # Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 

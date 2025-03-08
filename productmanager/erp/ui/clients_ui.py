@@ -52,6 +52,7 @@ class ClientDialog(QDialog):
         form_layout = QFormLayout()
         
         self.name_edit = QLineEdit()
+        self.representative_edit = QLineEdit() 
         self.address_edit = QLineEdit()
         self.phone_edit = QLineEdit()
         self.outstanding_edit = QLineEdit("0")
@@ -61,6 +62,7 @@ class ClientDialog(QDialog):
         self.email_edit = QLineEdit()
         
         form_layout.addRow("거래처명:", self.name_edit)
+        form_layout.addRow("대표자명:", self.representative_edit)
         form_layout.addRow("주소:", self.address_edit)
         form_layout.addRow("전화번호:", self.phone_edit)
         form_layout.addRow("미수금:", self.outstanding_edit)
@@ -138,7 +140,8 @@ class ClientLeftPanel(BaseLeftTableWidget):
         # 이제 8행: 거래처ID, 거래처명, 주소, 전화번호, 미수금, 일반가단가, 고정가단가, 사업자번호, 메일주소
         labels = [
             "거래처ID",    # 0
-            "거래처명",    # 1
+            "거래처명",
+            "대표자명",    # 1
             "주소",        # 2
             "전화번호",    # 3
             "미수금",      # 4
@@ -348,13 +351,14 @@ class ClientLeftPanel(BaseLeftTableWidget):
         # client가 dict 형태라고 가정 (키: id, client_name, address, phone, outstanding_amount, unit_price, business_number, email)
         self.set_value(0, str(client.get("id", "")))
         self.set_value(1, client.get("client_name", ""))
-        self.set_value(2, client.get("address", ""))
-        self.set_value(3, client.get("phone", ""))
-        self.set_value(4, str(client.get("outstanding_amount", "")))
-        self.set_value(5, str(client.get("regular_price", "")))
-        self.set_value(6, str(client.get("fixed_price", "")))
-        self.set_value(7, client.get("business_number", ""))
-        self.set_value(8, client.get("email", ""))
+        self.set_value(2, client.get("representative_name", ""))
+        self.set_value(3, client.get("address", ""))
+        self.set_value(4, client.get("phone", ""))
+        self.set_value(5, str(client.get("outstanding_amount", "")))
+        self.set_value(6, str(client.get("regular_price", "")))
+        self.set_value(7, str(client.get("fixed_price", "")))
+        self.set_value(8, client.get("business_number", ""))
+        self.set_value(9, client.get("email", ""))
         # ✅ 거래처 ID가 있을 경우 담당 직원 목록을 불러옴
         client_id = client.get("id")
         if client_id:
@@ -373,6 +377,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
         if dialog.exec_() == QDialog.Accepted:
             data = {
                 "client_name": dialog.name_edit.text(),
+                "representative_name": dialog.representative_edit.text(),
                 "address": dialog.address_edit.text(),
                 "phone": dialog.phone_edit.text(),
                 "outstanding_amount": float(dialog.outstanding_edit.text() or 0),
