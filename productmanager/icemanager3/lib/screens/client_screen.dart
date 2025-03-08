@@ -4,7 +4,7 @@ import 'dart:convert';
 
 class ClientScreen extends StatefulWidget {
   final String token;
-  const ClientScreen({Key? key, required this.token}) : super(key: key);
+  const ClientScreen({super.key, required this.token});
 
   @override
   State<ClientScreen> createState() => _ClientScreenState();

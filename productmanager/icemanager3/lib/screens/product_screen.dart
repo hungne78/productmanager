@@ -6,7 +6,7 @@ import '../product_provider.dart';
 
 class ProductScreen extends StatefulWidget {
   final String token;
-  const ProductScreen({Key? key, required this.token}) : super(key: key);
+  const ProductScreen({super.key, required this.token});
 
   @override
   State<ProductScreen> createState() => _ProductScreenState();

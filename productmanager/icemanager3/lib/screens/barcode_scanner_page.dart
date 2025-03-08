@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 class BarcodeScannerPage extends StatefulWidget {
-  const BarcodeScannerPage({Key? key}) : super(key: key);
+  const BarcodeScannerPage({super.key});
 
   @override
   State<BarcodeScannerPage> createState() => _BarcodeScannerPageState();

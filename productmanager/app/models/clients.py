@@ -32,7 +32,7 @@ class Client(Base):
 
     # 관계 설정
     employee_clients = relationship("EmployeeClient", back_populates="client")
-    orders = relationship("Order", back_populates="client")
+    # orders = relationship("Order", back_populates="client")
     client_visits = relationship("ClientVisit", back_populates="client")
     client_product_prices = relationship("ClientProductPrice", back_populates="client")
     lents = relationship("Lent", back_populates="client")
