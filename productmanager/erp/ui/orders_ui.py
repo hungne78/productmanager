@@ -25,6 +25,8 @@ class OrderLeftWidget(QWidget):
         self.order_date_picker = QDateEdit()
         self.order_date_picker.setCalendarPopup(True)
         self.order_date_picker.setDate(QDate.currentDate())
+        self.selected_order_date = self.order_date_picker.date().toString("yyyy-MM-dd")  # ✅ 초기값 설정
+        self.order_date_picker.dateChanged.connect(self.on_date_changed)  # ✅ 이벤트 연결
 
         layout.addWidget(self.order_date_label)
         layout.addWidget(self.order_date_picker)
@@ -56,6 +58,17 @@ class OrderLeftWidget(QWidget):
         layout.addWidget(self.order_button)
 
         self.setLayout(layout)
+
+    def on_date_changed(self):
+        """
+        날짜 선택 시 `self.selected_order_date`를 업데이트하고 오른쪽 패널에도 전달
+        """
+        self.selected_order_date = self.order_date_picker.date().toString("yyyy-MM-dd")
+        print(f"✅ 선택된 주문 날짜: {self.selected_order_date}")
+
+        # ✅ 오른쪽 패널이 존재하면 날짜 업데이트
+        if self.order_right_widget:
+            self.order_right_widget.set_selected_order_date(self.selected_order_date)
 
     def lock_order(self):
         """
@@ -174,12 +187,39 @@ class OrderLeftWidget(QWidget):
                 orders = resp.json()
                 print(f"📌 직원 {employee_id}의 주문 조회 성공: {orders}")  # ✅ 주문 데이터 확인 로그
                 self.display_orders(orders)
+                self.update_employee_buttons(employee_id)  # ✅ 버튼 스타일 변경
             else:
                 print(f"❌ 주문 조회 실패: {resp.status_code}, 응답: {resp.text}")
                 QMessageBox.warning(self, "주문 조회 실패", "주문 데이터를 불러오지 못했습니다.")
+                if self.order_right_widget:
+                    self.order_right_widget.reset_orders_to_zero()  
+
         except Exception as e:
             print(f"❌ 오류 발생: {e}")
             QMessageBox.warning(self, "오류 발생", f"주문 조회 중 오류 발생: {e}")
+
+    def update_employee_buttons(self, selected_employee_id):
+        """
+        선택한 직원 버튼 스타일 변경 (선택된 버튼 강조)
+        """
+        for btn in self.employee_buttons:
+            if btn.property("employee_id") == selected_employee_id:
+                btn.setStyleSheet("background-color: lightblue; font-weight: bold;")
+            else:
+                btn.setStyleSheet("")  # ✅ 다른 버튼들은 원래 스타일로 되돌림
+
+    def reset_orders_to_zero(self):
+        """
+        주문이 없는 경우 모든 상품의 주문 수량을 0으로 초기화
+        """
+        for i in range(self.grid_layout.count()):
+            widget = self.grid_layout.itemAt(i).widget()
+            if isinstance(widget, QTableWidget):
+                for row in range(widget.rowCount()):
+                    quantity_item = widget.item(row, 1)  # ✅ 수량 열(두 번째 열)
+                    if quantity_item:
+                        quantity_item.setText("0")
+        print("🔄 주문이 없는 경우 모든 수량을 0으로 초기화 완료")
 
     def fetch_orders_for_all_employees(self):
         """
@@ -270,6 +310,7 @@ class OrderRightWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = QVBoxLayout()
+        self.selected_order_date = QDate.currentDate().toString("yyyy-MM-dd")  # ✅ 기본값: 오늘 날짜
         self.current_products = []  # ✅ 상품 목록 저장
         self.selected_order_id = None  # ✅ 선택한 주문 ID 저장
 
@@ -298,15 +339,53 @@ class OrderRightWidget(QWidget):
         self.setLayout(self.layout)
         self.load_products()  # ✅ 서버에서 상품 목록 로드
     
+    def reset_orders_to_zero(self):
+        """
+        주문이 없는 경우 모든 상품의 주문 수량을 0으로 초기화
+        """
+        for i in range(self.grid_layout.count()):
+            widget = self.grid_layout.itemAt(i).widget()
+            if isinstance(widget, QTableWidget):
+                for row in range(widget.rowCount()):
+                    quantity_item = widget.item(row, 1)  # ✅ 수량 열(두 번째 열)
+                    if quantity_item:
+                        quantity_item.setText("0")
+        print("🔄 주문이 없는 경우 모든 수량을 0으로 초기화 완료")
+        
+    def set_selected_order_date(self, order_date):
+        """
+        왼쪽 패널에서 선택한 날짜를 오른쪽 패널에 저장
+        """
+        self.selected_order_date = order_date
+        print(f"✅ [OrderRightWidget] 선택된 주문 날짜 업데이트: {self.selected_order_date}")
+
+
     def fix_order(self):
         """
-        기존 테이블에서 선택한 직원의 특정 날짜 주문에서 '주문 수량(갯수)'만 수정하여 서버로 전송
+        기존 테이블에서 선택한 날짜 주문에서 '주문 수량(갯수)'만 수정하여 서버로 전송
         """
-        if not self.selected_order_id or not hasattr(self, 'selected_product_name') or not hasattr(self, 'selected_employee_id') or not hasattr(self, 'selected_order_date'):
+        if not self.selected_order_date:
+            self.selected_order_date = QDate.currentDate().toString("yyyy-MM-dd")  # ✅ 날짜가 None이면 오늘 날짜로 설정
+            print(f"✅ [자동 설정] 선택된 주문 날짜: {self.selected_order_date}")
+        print(f"📝 [DEBUG] 주문 수정 요청 진행")
+        print(f"📝 선택된 상품 ID: {getattr(self, 'selected_order_id', None)}")
+        print(f"📝 선택된 상품명: {getattr(self, 'selected_product_name', None)}")
+        print(f"📝 선택된 주문 날짜: {getattr(self, 'selected_order_date', None)}")
+
+        # ✅ 필수값이 없는 경우 오류 메시지 출력
+        if not all([
+            getattr(self, 'selected_order_id', None),
+            getattr(self, 'selected_product_name', None),
+            getattr(self, 'selected_order_date', None)
+        ]):
+            print("⚠️ [DEBUG] 필수값 누락 → 주문 수정 불가")
+            QMessageBox.warning(self, "오류", "수정할 주문을 선택하세요.")
+            return
+        if not self.selected_order_id or not hasattr(self, 'selected_product_name') or not hasattr(self, 'selected_order_date'):
             QMessageBox.warning(self, "오류", "수정할 주문을 선택하세요.")
             return
 
-        print(f"📝 주문 수량 수정 진행: ID={self.selected_order_id}, 상품명={self.selected_product_name}, 직원 ID={self.selected_employee_id}, 날짜={self.selected_order_date}")
+        print(f"📝 주문 수량 수정 진행: 상품 ID={self.selected_order_id}, 상품명={self.selected_product_name}, 날짜={self.selected_order_date}")
 
         selected_order_row = None
         selected_table = None  # ✅ 현재 선택된 테이블 저장
@@ -317,10 +396,14 @@ class OrderRightWidget(QWidget):
             if isinstance(widget, QTableWidget):
                 for row in range(widget.rowCount()):
                     product_name_item = widget.item(row, 0)  # ✅ 첫 번째 열(상품명)
-                    if product_name_item and product_name_item.text().strip() == self.selected_product_name:
-                        selected_order_row = row
-                        selected_table = widget  # ✅ 현재 사용 중인 테이블 저장
-                        break
+                    if product_name_item:
+                        product_name_text = product_name_item.text().strip().lower()  # ✅ 공백 제거 및 소문자로 변환
+                        selected_product_name_text = self.selected_product_name.strip().lower()
+
+                        if product_name_text == selected_product_name_text:
+                            selected_order_row = row
+                            selected_table = widget  # ✅ 현재 사용 중인 테이블 저장
+                            break
 
         if selected_order_row is None or selected_table is None:
             QMessageBox.warning(self, "오류", "선택된 주문을 찾을 수 없습니다.")
@@ -337,13 +420,10 @@ class OrderRightWidget(QWidget):
         if not ok:
             return  # ✅ 사용자가 입력을 취소하면 종료
 
-        # ✅ 서버에 수정 요청 보내기
-        url = f"{BASE_URL}/orders/update_quantity/"
+        # ✅ FastAPI의 `product_id` + `order_date`를 사용하여 요청 보내기
+        url = f"{BASE_URL}/orders/update_quantity/{self.selected_order_id}/?order_date={self.selected_order_date}"
         headers = {"Authorization": f"Bearer {global_token}", "Content-Type": "application/json"}
         data = {
-            "employee_id": self.selected_employee_id,
-            "order_date": self.selected_order_date,
-            "product_id": self.selected_order_id,  # ✅ 해당 상품 ID
             "quantity": new_quantity  # ✅ 주문 수량(갯수)만 변경
         }
 
@@ -368,32 +448,31 @@ class OrderRightWidget(QWidget):
         if not sender_table:
             return
 
-        # ✅ "품명" 열(첫 번째 열)을 클릭했을 때만 주문 선택 가능
-        if column != 0:
-            print("⚠️ 품명(첫 번째 열)이 아닌 다른 열을 클릭함. 선택 무시.")
-            return
+        product_name_item = sender_table.item(row, 0)  # ✅ 첫 번째 열(품명)
+        quantity_item = sender_table.item(row, 1)  # ✅ 두 번째 열(갯수)
 
-        product_name_item = sender_table.item(row, 0)  # ✅ 첫 번째 열(품명) 가져오기
-        if product_name_item:
-            self.selected_product_name = product_name_item.text().strip()  # ✅ 상품명 저장
-            print(f"📝 선택된 상품: {self.selected_product_name}")
+        # ✅ 품명 또는 수량을 클릭했을 때 수정 기능 실행
+        if column == 0 or column == 1:
+            if product_name_item:
+                self.selected_product_name = product_name_item.text().strip()
+                print(f"📝 선택된 상품: {self.selected_product_name}")
 
-            # ✅ 기존 주문 데이터에서 해당 상품에 대한 주문 ID 찾기
-            self.selected_order_id = None
-            for order in self.current_products:
-                if order["product_name"] == self.selected_product_name:
-                    try:
-                        self.selected_order_id = int(order["id"])  # ✅ 주문 ID 변환
-                        print(f"✅ 주문 선택됨: ID={self.selected_order_id}")
-                        self.update_button.setEnabled(True)  # ✅ 수정 버튼 활성화
-                    except ValueError:
-                        print(f"❌ 주문 ID 변환 실패: {order['id']}")
-                        self.selected_order_id = None
-                    break
+                # ✅ 기존 주문 데이터에서 해당 상품 ID 찾기
+                self.selected_order_id = None
+                for order in self.current_products:
+                    if order["product_name"] == self.selected_product_name:
+                        try:
+                            self.selected_order_id = int(order["id"])  # ✅ 주문 ID 변환
+                            print(f"✅ 주문 선택됨: ID={self.selected_order_id}")
+                            self.update_button.setEnabled(True)  # ✅ 수정 버튼 활성화
+                        except ValueError:
+                            print(f"❌ 주문 ID 변환 실패: {order['id']}")
+                            self.selected_order_id = None
+                        break
 
-            if self.selected_order_id is None:
-                print("❌ 선택한 상품에 대한 주문 ID를 찾을 수 없습니다.")
-                QMessageBox.warning(self, "오류", "선택한 상품에 대한 주문이 없습니다.")
+                if self.selected_order_id is None:
+                    print("❌ 선택한 상품에 대한 주문 ID를 찾을 수 없습니다.")
+                    QMessageBox.warning(self, "오류", "선택한 상품에 대한 주문이 없습니다.")
 
 
 

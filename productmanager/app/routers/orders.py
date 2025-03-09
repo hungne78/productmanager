@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models import Order, OrderItem
@@ -20,7 +20,7 @@ class OrderLock(Base):
     is_locked = Column(Boolean, default=True)  # ✅ 주문 차단 여부 (기본값: True)
 
 # ✅ 2️⃣ 주문 종료 (관리자용)
-@router.post("/orders/lock/{order_date}")
+@router.post("/lock/{order_date}")
 def lock_order_date(order_date: date, db: Session = Depends(get_db)):
     """
     특정 날짜의 주문을 차단 (관리자용)
@@ -38,7 +38,7 @@ def lock_order_date(order_date: date, db: Session = Depends(get_db)):
 
 
 # ✅ 3️⃣ 주문 해제 (관리자용)
-@router.post("/orders/unlock/{order_date}")
+@router.post("/unlock/{order_date}")
 def unlock_order_date(order_date: date, db: Session = Depends(get_db)):
     """
     특정 날짜의 주문 차단을 해제 (관리자용)
@@ -212,40 +212,39 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
     db.commit()
     return new_order
 
-@router.put("/orders/update_quantity/")
+@router.put("/update_quantity/{product_id}/")
 def update_order_quantity(
-    employee_id: int, order_date: str, product_id: int, data: dict, db: Session = Depends(get_db)
+    product_id: int,
+    order_date: str = Query(...),  # ✅ 선택한 날짜를 query parameter로 받음
+    data: dict = Body(...),  # ✅ 수량은 request body에서 받음
+    db: Session = Depends(get_db)
 ):
     """
-    특정 날짜, 특정 직원이 주문한 특정 상품의 주문 수량을 수정
+    특정 날짜에 주문된 특정 상품의 주문 수량을 수정
     """
     new_quantity = data.get("quantity")
     if new_quantity is None or not isinstance(new_quantity, int) or new_quantity < 0:
         raise HTTPException(status_code=400, detail="유효한 수량(quantity)이 필요합니다.")
 
-    # ✅ 특정 날짜, 특정 직원이 주문한 Order 찾기
-    order = (
-        db.query(Order)
-        .filter(Order.employee_id == employee_id, Order.order_date == order_date)
-        .first()
-    )
-
-    if not order:
-        raise HTTPException(status_code=404, detail="해당 직원의 주문이 없습니다.")
-
-    # ✅ OrderItem에서 해당 상품 찾기
+    # ✅ 특정 날짜의 주문 중 해당 상품을 포함한 주문 찾기
     order_item = (
         db.query(OrderItem)
-        .filter(OrderItem.order_id == order.id, OrderItem.product_id == product_id)
+        .join(Order, OrderItem.order_id == Order.id)
+        .filter(Order.order_date == order_date, OrderItem.product_id == product_id)
         .first()
     )
 
     if not order_item:
-        raise HTTPException(status_code=404, detail="주문 내역에서 해당 상품을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="해당 날짜에 주문된 해당 상품을 찾을 수 없습니다.")
 
     # ✅ 주문 수량 업데이트
     order_item.quantity = new_quantity
     db.commit()
     db.refresh(order_item)
 
-    return {"message": "주문 수량이 성공적으로 업데이트되었습니다.", "order_id": order.id, "product_id": product_id, "new_quantity": new_quantity}
+    return {
+        "message": "주문 수량이 성공적으로 업데이트되었습니다.",
+        "order_id": order_item.order_id,
+        "product_id": product_id,
+        "new_quantity": new_quantity
+    }

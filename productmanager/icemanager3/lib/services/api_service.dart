@@ -2,8 +2,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 class ApiService {
-  static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
-  // static const String baseUrl = "http://192.168.0.183:8000";  //맥북
+  // static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
+  static const String baseUrl = "http://192.168.0.183:8000";  //맥북
   static Future<http.Response> login(int id, String password) async {
     final url = Uri.parse("$baseUrl/login");
     final body = jsonEncode({"id": id, "password": password});
