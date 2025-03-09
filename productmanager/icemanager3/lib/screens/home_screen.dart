@@ -80,12 +80,7 @@ class HomeScreen extends StatelessWidget {
             icon: const Icon(Icons.shopping_bag),
             label: const Text("주문 시작"),
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => OrderScreen(token: token),
-                ),
-              );
+              _showDateSelectionDialog(context, token);
             },
           ),
           ElevatedButton.icon(
@@ -182,7 +177,61 @@ class HomeScreen extends StatelessWidget {
       },
     );
   }
+  void _showDateSelectionDialog(BuildContext context, String token) {
+    DateTime selectedDate = DateTime.now();
 
+    showDialog(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          title: const Text("주문 날짜 선택"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("주문할 날짜를 선택하세요."),
+              SizedBox(height: 10),
+              StatefulBuilder(
+                builder: (context, setState) {
+                  return Column(
+                    children: [
+                      CalendarDatePicker(
+                        initialDate: selectedDate,
+                        firstDate: DateTime.now().subtract(Duration(days: 365)),
+                        lastDate: DateTime.now().add(Duration(days: 365)),
+                        onDateChanged: (DateTime date) {
+                          setState(() {
+                            selectedDate = date;
+                          });
+                        },
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("취소"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx); // 팝업 닫기
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => OrderScreen(token: token, selectedDate: selectedDate),
+                  ),
+                );
+              },
+              child: const Text("확인"),
+            ),
+          ],
+        );
+      },
+    );
+  }
   Future<Map<String, dynamic>> _fetchEmployeeClients(String token,
       int employeeId) async {
     try {

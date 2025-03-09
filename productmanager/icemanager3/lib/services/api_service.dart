@@ -141,19 +141,27 @@ class ApiService {
       body: jsonEncode(data),
     );
   }
-  // ✅ 주문 생성 API (POST /orders/)
-  static Future<Map<String, dynamic>> createOrder(String token, Map<String, dynamic> data) async {
-    final url = Uri.parse("$baseUrl/orders");
+  static Future<Map<String, dynamic>> createOrder(String token, int employeeId, String orderDate, List<Map<String, dynamic>> orderItems) async {
+    final url = Uri.parse("$baseUrl/orders/upsert");
     final headers = {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json",
+    };
+
+    final Map<String, dynamic> data = {
+      "employee_id": employeeId,
+      "order_date": orderDate,  // ✅ 여기에서 DateTime 대신 String 사용
+      "total_amount": 0,
+      "total_incentive": 0,
+      "total_boxes": 0,
+      "order_items": orderItems,
     };
 
     try {
       final response = await http.post(url, headers: headers, body: jsonEncode(data));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        return jsonDecode(response.body); // ✅ 서버 응답 반환 (주문 ID 포함 가능)
+        return jsonDecode(response.body);
       } else {
         throw Exception("주문 실패: ${response.body}");
       }
@@ -162,12 +170,49 @@ class ApiService {
     }
   }
 
+  static double _calculateTotalAmount(List<Map<String, dynamic>> orderItems) {
+    double total = 0;
+    for (var item in orderItems) {
+      total += (item["quantity"] * (item["unit_price"] ?? 0));  // ✅ 단가 × 수량
+    }
+    return total;
+  }
+
+  static double _calculateTotalIncentive(List<Map<String, dynamic>> orderItems) {
+    double total = 0;
+    for (var item in orderItems) {
+      total += (item["quantity"] * (item["incentive"] ?? 0));  // ✅ 인센티브 × 수량
+    }
+    return total;
+  }
+
+  static int _calculateTotalBoxes(List<Map<String, dynamic>> orderItems) {
+    int total = 0;
+    for (var item in orderItems) {
+      total += (item["quantity"] as num).toInt();  // ✅ 'num'을 'int'로 변환
+    }
+    return total;
+  }
+
+
   static Future<http.Response> fetchOrders(String token, int employeeId, String date) async {
     final url = Uri.parse("$baseUrl/orders/employee/$employeeId/date/$date");
     return await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json",
     });
+  }
+  static Future<Map<String, dynamic>> isOrderLocked(String token, DateTime date) async {
+    final url = Uri.parse("$baseUrl/orders/is_locked/${date.toIso8601String().substring(0, 10)}");
+    final response = await http.get(url, headers: {
+      "Authorization": "Bearer $token",
+    });
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception("주문 차단 상태 확인 실패");
+    }
   }
 
 
@@ -187,6 +232,16 @@ class ApiService {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json",
     });
+  }
+  static Future<Map<String, dynamic>> createOrUpdateOrder(String token, Map<String, dynamic> data) async {
+    final url = Uri.parse("$baseUrl/orders/upsert");
+    final headers = {
+      "Authorization": "Bearer $token",
+      "Content-Type": "application/json",
+    };
+
+    final response = await http.post(url, headers: headers, body: jsonEncode(data));
+    return jsonDecode(response.body);
   }
 
 // etc...

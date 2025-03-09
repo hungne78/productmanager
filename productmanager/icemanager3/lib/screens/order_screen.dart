@@ -7,7 +7,8 @@ import '../auth_provider.dart';
 
 class OrderScreen extends StatefulWidget {
   final String token;
-  const OrderScreen({Key? key, required this.token}) : super(key: key);
+  final DateTime selectedDate; // ✅ 추가: 선택된 주문 날짜
+  const OrderScreen({Key? key, required this.token, required this.selectedDate}) : super(key: key);
 
   @override
   _OrderScreenState createState() => _OrderScreenState();
@@ -17,10 +18,53 @@ class _OrderScreenState extends State<OrderScreen> {
   Map<int, TextEditingController> quantityControllers = {};
   final formatter = NumberFormat("#,###");
   Map<int, FocusNode> focusNodes = {};
+  bool isLocked = false; // ✅ 주문 차단 여부
 
   @override
   void initState() {
     super.initState();
+    _checkOrderLock(); // ✅ 주문 차단 여부 확인
+  }
+  // ✅ FastAPI에서 해당 날짜의 주문이 차단되었는지 확인
+  Future<void> _checkOrderLock() async {
+    try {
+      final response = await ApiService.isOrderLocked(widget.token, widget.selectedDate);
+      setState(() {
+        isLocked = response['is_locked'];
+      });
+    } catch (e) {
+      print("🚨 주문 차단 확인 실패: $e");
+    }
+  }
+
+  // ✅ 주문 전송 버튼 클릭 시 동작
+  Future<void> _sendOrder() async {
+    if (isLocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("오늘의 주문이 종료되었습니다.")),
+      );
+      return;
+    }
+    final int employeeId = Provider.of<AuthProvider>(context, listen: false).user?.id ?? 0;
+    final String formattedDate = widget.selectedDate.toIso8601String().substring(0, 10);
+    // ✅ 정상적으로 주문 전송 로직 실행
+    await ApiService.createOrder(widget.token, employeeId, formattedDate, []);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("주문 화면")),
+      body: Column(
+        children: [
+          Text("주문 날짜: ${widget.selectedDate.toLocal()}"),
+          ElevatedButton(
+            onPressed: isLocked ? null : _sendOrder, // ✅ 차단되었으면 버튼 비활성화
+            child: Text(isLocked ? "주문 종료됨" : "주문 전송"),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 🔹 주문 데이터 서버 전송 (현재는 print()만 수행)
@@ -33,22 +77,23 @@ class _OrderScreenState extends State<OrderScreen> {
       return;
     }
 
+    bool confirmed = await _showOrderConfirmationDialog();
+    if (!confirmed) return;
+
     List<Map<String, dynamic>> orderItems = [];
 
     quantityControllers.forEach((productId, controller) {
       int quantity = int.tryParse(controller.text) ?? 0;
       if (quantity > 0) {
         var product = _getProductById(productId);
-        int boxQuantity = product['box_quantity'] ?? 1; // ✅ 박스당 개수
-        int finalQuantity = quantity; // ✅ 박스 수량을 저장
+        int finalQuantity = quantity;
 
         orderItems.add({
           'product_id': productId,
-          'quantity': finalQuantity, // ✅ 총 개수가 아니라 박스 단위로 저장
+          'quantity': finalQuantity,
         });
       }
     });
-
 
     if (orderItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -56,21 +101,21 @@ class _OrderScreenState extends State<OrderScreen> {
       );
       return;
     }
+
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final int employeeId = authProvider.user?.id ?? 0; // ✅ 로그인한 직원의 ID 가져오기
-    // ✅ FastAPI 서버에 보낼 주문 데이터 구성
+    final int employeeId = authProvider.user?.id ?? 0;
+
     final orderData = {
       "employee_id": employeeId,
-      "order_date": DateTime.now().toIso8601String().substring(0, 10),
-      "total_amount": getTotalProductPrice(),  // ✅ 총 금액 추가
-      "total_incentive": getTotalIncentive(),  // ✅ 총 인센티브 추가
-      "total_boxes": getTotalQuantity(),       // ✅ 총 박스 수량 추가
+      "order_date": widget.selectedDate.toIso8601String().substring(0, 10), // ✅ 선택된 날짜로 설정
+      "total_amount": getTotalProductPrice(),
+      "total_incentive": getTotalIncentive(),
+      "total_boxes": getTotalQuantity(),
       "order_items": orderItems,
     };
 
-
     try {
-      final response = await ApiService.createOrder(widget.token, orderData);
+      final response = await ApiService.createOrUpdateOrder(widget.token, orderData); // ✅ 주문을 덮어쓰기 방식으로 변경
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("주문이 완료되었습니다! 주문 ID: ${response['id']}")),
       );
@@ -83,6 +128,28 @@ class _OrderScreenState extends State<OrderScreen> {
       );
     }
   }
+  Future<bool> _showOrderConfirmationDialog() async {
+    return await showDialog(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          title: const Text("주문 확인"),
+          content: const Text("이대로 주문을 진행하시겠습니까?"),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("취소"),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text("확인"),
+            ),
+          ],
+        );
+      },
+    ) ?? false;
+  }
+
 
 
   double getTotalProductPrice() {
@@ -134,25 +201,7 @@ class _OrderScreenState extends State<OrderScreen> {
     return productProvider.products.firstWhere((p) => p['id'] == productId, orElse: () => {});
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("주문 페이지")),
-      body: Column(
-        children: [
-          Expanded(
-            child: _buildProductTable(),
-          ),
-          _buildSummaryRow(), // ✅ 총합 계산을 위한 고정된 행 추가
-          ElevatedButton.icon(
-            onPressed: _sendOrderToServer,
-            icon: const Icon(Icons.send),
-            label: const Text("주문 전송"),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   /// 🔹 상품 테이블 UI
   Widget _buildProductTable() {

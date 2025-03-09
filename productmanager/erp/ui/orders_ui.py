@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,QInputDialog, \
     QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QComboBox, QVBoxLayout, QGridLayout, QScrollArea, QDateEdit
 import os
 import sys
@@ -29,6 +29,14 @@ class OrderLeftWidget(QWidget):
         layout.addWidget(self.order_date_label)
         layout.addWidget(self.order_date_picker)
 
+        self.lock_button = QPushButton("🚫 주문 종료")
+        self.lock_button.clicked.connect(self.lock_order)
+        layout.addWidget(self.lock_button)
+
+        self.unlock_button = QPushButton("✅ 주문 해제")
+        self.unlock_button.clicked.connect(self.unlock_order)
+        layout.addWidget(self.unlock_button)
+                         
         # ✅ 2. 직원 목록 (세로 버튼)
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -49,6 +57,39 @@ class OrderLeftWidget(QWidget):
 
         self.setLayout(layout)
 
+    def lock_order(self):
+        """
+        선택한 날짜의 주문을 차단
+        """
+        selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
+        url = f"{BASE_URL}/orders/lock/{selected_date}"
+        headers = {"Authorization": f"Bearer {global_token}"}
+
+        try:
+            response = requests.post(url, headers=headers)
+            if response.status_code == 200:
+                QMessageBox.information(self, "성공", f"{selected_date} 주문이 종료되었습니다.")
+            else:
+                QMessageBox.critical(self, "실패", f"주문 종료 실패: {response.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류 발생", f"서버 요청 오류: {e}")
+
+    def unlock_order(self):
+        """
+        선택한 날짜의 주문 차단을 해제
+        """
+        selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
+        url = f"{BASE_URL}/orders/unlock/{selected_date}"
+        headers = {"Authorization": f"Bearer {global_token}"}
+
+        try:
+            response = requests.post(url, headers=headers)
+            if response.status_code == 200:
+                QMessageBox.information(self, "성공", f"{selected_date} 주문 차단이 해제되었습니다.")
+            else:
+                QMessageBox.critical(self, "실패", f"주문 차단 해제 실패: {response.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류 발생", f"서버 요청 오류: {e}")
 
     def fetch_orders_by_date(self):
         """
@@ -230,6 +271,13 @@ class OrderRightWidget(QWidget):
         super().__init__(parent)
         self.layout = QVBoxLayout()
         self.current_products = []  # ✅ 상품 목록 저장
+        self.selected_order_id = None  # ✅ 선택한 주문 ID 저장
+
+        # ✅ 주문 수정 버튼 추가
+        self.update_button = QPushButton("✏️ 주문 수정")
+        self.update_button.clicked.connect(self.fix_order)
+        self.update_button.setEnabled(False)
+        self.layout.addWidget(self.update_button)
 
         # ✅ 타이틀 + 새로고침 버튼 추가
         self.header_layout = QVBoxLayout()
@@ -249,6 +297,105 @@ class OrderRightWidget(QWidget):
 
         self.setLayout(self.layout)
         self.load_products()  # ✅ 서버에서 상품 목록 로드
+    
+    def fix_order(self):
+        """
+        기존 테이블에서 선택한 직원의 특정 날짜 주문에서 '주문 수량(갯수)'만 수정하여 서버로 전송
+        """
+        if not self.selected_order_id or not hasattr(self, 'selected_product_name') or not hasattr(self, 'selected_employee_id') or not hasattr(self, 'selected_order_date'):
+            QMessageBox.warning(self, "오류", "수정할 주문을 선택하세요.")
+            return
+
+        print(f"📝 주문 수량 수정 진행: ID={self.selected_order_id}, 상품명={self.selected_product_name}, 직원 ID={self.selected_employee_id}, 날짜={self.selected_order_date}")
+
+        selected_order_row = None
+        selected_table = None  # ✅ 현재 선택된 테이블 저장
+
+        # ✅ 현재 grid_layout 내의 테이블을 순회하여 선택된 주문을 찾기
+        for i in range(self.grid_layout.count()):
+            widget = self.grid_layout.itemAt(i).widget()
+            if isinstance(widget, QTableWidget):
+                for row in range(widget.rowCount()):
+                    product_name_item = widget.item(row, 0)  # ✅ 첫 번째 열(상품명)
+                    if product_name_item and product_name_item.text().strip() == self.selected_product_name:
+                        selected_order_row = row
+                        selected_table = widget  # ✅ 현재 사용 중인 테이블 저장
+                        break
+
+        if selected_order_row is None or selected_table is None:
+            QMessageBox.warning(self, "오류", "선택된 주문을 찾을 수 없습니다.")
+            return
+
+        # ✅ 기존 값 가져오기 (주문 수량)
+        quantity_item = selected_table.item(selected_order_row, 1)  # ✅ "갯수" 열(두 번째 열)
+
+        existing_quantity = int(quantity_item.text()) if quantity_item else 0
+
+        # ✅ 팝업 창을 띄워 수정할 주문 수량 입력 받기
+        new_quantity, ok = QInputDialog.getInt(self, "주문 수량 수정", "새 주문 수량 입력:", existing_quantity)
+
+        if not ok:
+            return  # ✅ 사용자가 입력을 취소하면 종료
+
+        # ✅ 서버에 수정 요청 보내기
+        url = f"{BASE_URL}/orders/update_quantity/"
+        headers = {"Authorization": f"Bearer {global_token}", "Content-Type": "application/json"}
+        data = {
+            "employee_id": self.selected_employee_id,
+            "order_date": self.selected_order_date,
+            "product_id": self.selected_order_id,  # ✅ 해당 상품 ID
+            "quantity": new_quantity  # ✅ 주문 수량(갯수)만 변경
+        }
+
+        try:
+            response = requests.put(url, json=data, headers=headers)
+            if response.status_code == 200:
+                QMessageBox.information(self, "성공", "주문 수량이 수정되었습니다.")
+                quantity_item.setText(str(new_quantity))  # ✅ 테이블에서 주문 수량 업데이트
+            else:
+                QMessageBox.critical(self, "실패", f"주문 수량 수정 실패: {response.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류 발생", f"서버 요청 오류: {e}")
+
+
+
+            
+    def select_order_for_edit(self, row, column):
+        """
+        기존 테이블에서 선택한 상품의 주문 수량을 수정할 수 있도록 설정
+        """
+        sender_table = self.sender()  # ✅ 클릭된 `QTableWidget` 가져오기
+        if not sender_table:
+            return
+
+        # ✅ "품명" 열(첫 번째 열)을 클릭했을 때만 주문 선택 가능
+        if column != 0:
+            print("⚠️ 품명(첫 번째 열)이 아닌 다른 열을 클릭함. 선택 무시.")
+            return
+
+        product_name_item = sender_table.item(row, 0)  # ✅ 첫 번째 열(품명) 가져오기
+        if product_name_item:
+            self.selected_product_name = product_name_item.text().strip()  # ✅ 상품명 저장
+            print(f"📝 선택된 상품: {self.selected_product_name}")
+
+            # ✅ 기존 주문 데이터에서 해당 상품에 대한 주문 ID 찾기
+            self.selected_order_id = None
+            for order in self.current_products:
+                if order["product_name"] == self.selected_product_name:
+                    try:
+                        self.selected_order_id = int(order["id"])  # ✅ 주문 ID 변환
+                        print(f"✅ 주문 선택됨: ID={self.selected_order_id}")
+                        self.update_button.setEnabled(True)  # ✅ 수정 버튼 활성화
+                    except ValueError:
+                        print(f"❌ 주문 ID 변환 실패: {order['id']}")
+                        self.selected_order_id = None
+                    break
+
+            if self.selected_order_id is None:
+                print("❌ 선택한 상품에 대한 주문 ID를 찾을 수 없습니다.")
+                QMessageBox.warning(self, "오류", "선택한 상품에 대한 주문이 없습니다.")
+
+
 
     def populate_table(self):
         """
@@ -288,6 +435,8 @@ class OrderRightWidget(QWidget):
                 table.verticalHeader().setVisible(False)
                 table.setRowCount(0)
 
+                table.cellClicked.connect(self.select_order_for_edit)
+                
             if current_category != category:
                 table.insertRow(table.rowCount())
                 category_item = QTableWidgetItem(category)
