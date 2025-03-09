@@ -76,30 +76,53 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
     return order
 
-# ✅ 3️⃣ 주문 생성
-@router.post("", response_model=OrderSchema)
-def create_order(order_data: OrderCreateSchema, db: Session = Depends(get_db)):
-    order = Order(
+@router.post("/", response_model=OrderSchema)
+def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(get_db)):
+    """
+    직원 ID와 주문 날짜가 같은 주문이 있으면 업데이트, 없으면 새 주문 생성
+    """
+    # ✅ 기존 주문 조회 (같은 직원 & 같은 날짜)
+    existing_order = (
+        db.query(Order)
+        .filter(Order.employee_id == order_data.employee_id)
+        .filter(Order.order_date == order_data.order_date)
+        .first()
+    )
+
+    if existing_order:
+        # ✅ 기존 주문이 있다면 업데이트
+        existing_order.total_amount = order_data.total_amount
+        existing_order.total_incentive = order_data.total_incentive
+        existing_order.total_boxes = order_data.total_boxes
+
+        # ✅ 기존 주문 항목 삭제 후 새로 추가
+        db.query(OrderItem).filter(OrderItem.order_id == existing_order.id).delete()
+        for item in order_data.order_items:
+            db.add(OrderItem(order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity))
+
+        db.commit()
+        db.refresh(existing_order)
+        return existing_order
+
+    # ✅ 기존 주문이 없으면 새 주문 생성
+    new_order = Order(
         employee_id=order_data.employee_id,
         order_date=order_data.order_date,
         total_amount=order_data.total_amount,
         total_incentive=order_data.total_incentive,
         total_boxes=order_data.total_boxes
     )
-    db.add(order)
+    db.add(new_order)
     db.commit()
-    db.refresh(order)
+    db.refresh(new_order)
 
+    # ✅ 새 주문 항목 추가
     for item in order_data.order_items:
-        order_item = OrderItem(
-            order_id=order.id,
-            product_id=item.product_id,
-            quantity=item.quantity
-        )
-        db.add(order_item)
+        db.add(OrderItem(order_id=new_order.id, product_id=item.product_id, quantity=item.quantity))
 
     db.commit()
-    return order
+    return new_order
+
 
 # ✅ 4️⃣ 특정 직원의 특정 날짜 주문 목록 조회
 @router.get("/orders/employee/{employee_id}/date/{order_date}", response_model=List[OrderSchema])

@@ -2,8 +2,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 class ApiService {
-  // static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
-  static const String baseUrl = "http://192.168.0.183:8000";  //맥북
+  static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
+  // static const String baseUrl = "http://192.168.0.183:8000";  //맥북
   static Future<http.Response> login(int id, String password) async {
     final url = Uri.parse("$baseUrl/login");
     final body = jsonEncode({"id": id, "password": password});
@@ -141,34 +141,22 @@ class ApiService {
       body: jsonEncode(data),
     );
   }
-  static Future<Map<String, dynamic>> createOrder(String token, int employeeId, String orderDate, List<Map<String, dynamic>> orderItems) async {
-    final url = Uri.parse("$baseUrl/orders/upsert");
-    final headers = {
-      "Authorization": "Bearer $token",
-      "Content-Type": "application/json",
-    };
+  static Future<http.Response> createOrder(String token, Map<String, dynamic> orderData) async {
+    final url = Uri.parse("$baseUrl/orders/");
+    final response = await http.post(
+      url,
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+      body: jsonEncode(orderData), // ✅ orderData 전체를 전송
+    );
 
-    final Map<String, dynamic> data = {
-      "employee_id": employeeId,
-      "order_date": orderDate,  // ✅ 여기에서 DateTime 대신 String 사용
-      "total_amount": 0,
-      "total_incentive": 0,
-      "total_boxes": 0,
-      "order_items": orderItems,
-    };
-
-    try {
-      final response = await http.post(url, headers: headers, body: jsonEncode(data));
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return jsonDecode(response.body);
-      } else {
-        throw Exception("주문 실패: ${response.body}");
-      }
-    } catch (e) {
-      throw Exception("네트워크 오류: $e");
-    }
+    return response;
   }
+
+
+
 
   static double _calculateTotalAmount(List<Map<String, dynamic>> orderItems) {
     double total = 0;
