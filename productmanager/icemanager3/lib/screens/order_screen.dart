@@ -4,7 +4,7 @@ import '../product_provider.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../auth_provider.dart';
-
+import 'order_history_screen.dart';
 class OrderScreen extends StatefulWidget {
   final String token;
   final DateTime selectedDate; // ✅ 추가: 선택된 주문 날짜
@@ -163,9 +163,35 @@ class _OrderScreenState extends State<OrderScreen> {
             icon: const Icon(Icons.send),
             label: const Text("주문 전송"),
           ),
+          ElevatedButton.icon(
+            onPressed: _showDatePicker, // ✅ 날짜 선택 팝업 띄우기
+            icon: const Icon(Icons.history),
+            label: const Text("주문 조회"),
+          ),
         ],
       ),
     );
+  }
+  /// 🔹 날짜 선택 후 `OrderHistoryScreen`으로 이동
+  Future<void> _showDatePicker() async {
+    DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2023),
+      lastDate: DateTime.now(),
+    );
+
+    if (pickedDate != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => OrderHistoryScreen(
+            token: widget.token,
+            selectedDate: pickedDate,
+          ),
+        ),
+      );
+    }
   }
 
   /// 🔹 상품 테이블 UI

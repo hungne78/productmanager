@@ -184,12 +184,23 @@ class ApiService {
 
 
   static Future<http.Response> fetchOrders(String token, int employeeId, String date) async {
-    final url = Uri.parse("$baseUrl/orders/employee/$employeeId/date/$date");
-    return await http.get(url, headers: {
+    final String apiUrl = "$baseUrl/orders/employee/$employeeId/date/$date/items";
+    print("📡 [API 요청] $apiUrl"); // ✅ 요청 경로 로그 추가
+
+    final response = await http.get(Uri.parse(apiUrl), headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json",
     });
+
+    print("📡 [API 응답 코드] ${response.statusCode}");
+    print("📡 [API 응답 데이터] ${response.body}"); // ✅ API 응답 데이터 로그 추가
+
+    return response;
   }
+
+
+
+
   static Future<Map<String, dynamic>> isOrderLocked(String token, DateTime date) async {
     final url = Uri.parse("$baseUrl/orders/is_locked/${date.toIso8601String().substring(0, 10)}");
     final response = await http.get(url, headers: {

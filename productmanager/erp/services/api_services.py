@@ -346,7 +346,7 @@ def api_fetch_products(token, search_name=None):
 
 
 def api_create_product(token, data):
-    """ 상품 추가 API 요청 함수 """
+    """ 상품 추가 API 요청 함수 (직원 차량 재고 자동 추가 포함) """
     url = f"{BASE_URL}/products/"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -364,6 +364,22 @@ def api_create_product(token, data):
         print(f"📡 응답 본문: {response.text}")  # ✅ 응답 본문 출력
 
         response.raise_for_status()
+
+        # ✅ 상품 ID 가져오기
+        product_data = response.json()
+        product_id = product_data.get("id")
+
+        if product_id:
+            # ✅ 직원별 차량 재고에 새로운 상품 추가
+            inventory_url = f"{BASE_URL}/inventory/add_new_product/{product_id}"
+            inventory_response = requests.post(inventory_url, headers=headers)
+
+            print(f"📡 차량 재고 업데이트 응답 코드: {inventory_response.status_code}")
+            print(f"📡 차량 재고 업데이트 응답 본문: {inventory_response.text}")
+
+            if inventory_response.status_code == 200:
+                print("✅ 직원별 차량 재고에 상품이 정상적으로 추가됨.")
+
         return response
 
     except requests.exceptions.HTTPError as e:
@@ -376,6 +392,7 @@ def api_create_product(token, data):
         print(f"❌ 상품 추가 실패: {e}")
 
     return None
+
 
 
 

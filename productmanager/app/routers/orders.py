@@ -8,7 +8,7 @@ from datetime import date
 from sqlalchemy import Boolean, Column, Integer, Date
 from app.models import Product
 from app.db.base import Base
-
+from fastapi.responses import JSONResponse
 router = APIRouter()
 
 # ✅ 1️⃣ 주문 종료 테이블 추가
@@ -135,19 +135,71 @@ def get_orders_by_employee_date(employee_id: int, order_date: str, db: Session =
         raise HTTPException(status_code=404, detail="해당 직원의 주문이 없습니다.")
     return orders
 
-# ✅ 5️⃣ 특정 직원의 특정 날짜 주문한 품목과 수량 조회
-@router.get("/orders/employee/{employee_id}/date/{order_date}/items", response_model=List[dict])
+
+
+@router.get("/employee/{employee_id}/date/{order_date}/items", response_model=List[dict])
 def get_order_items_by_employee_date(employee_id: int, order_date: str, db: Session = Depends(get_db)):
+    order = db.query(Order).filter(Order.employee_id == employee_id, Order.order_date == order_date).first()
+    if not order:
+        print(f"❌ [FastAPI] 주문 내역 없음 (직원 ID: {employee_id}, 날짜: {order_date})")
+        return JSONResponse(content=[], status_code=200, media_type="application/json; charset=utf-8")
+
     order_items = (
-        db.query(OrderItem.product_id, OrderItem.quantity)
-        .join(Order, Order.id == OrderItem.order_id)
-        .filter(Order.employee_id == employee_id, Order.order_date == order_date)
+        db.query(
+            OrderItem.product_id,
+            OrderItem.quantity,
+            Product.product_name,
+            Product.category,
+            Product.brand_id
+        )
+        .join(Product, Product.id == OrderItem.product_id)
+        .filter(OrderItem.order_id == order.id)
         .all()
     )
-    if not order_items:
-        raise HTTPException(status_code=404, detail="해당 직원의 주문 항목이 없습니다.")
 
-    return [{"product_id": item.product_id, "quantity": item.quantity} for item in order_items]
+    print(f"✅ [FastAPI] {len(order_items)}개 주문 항목 조회됨")
+
+    # ✅ 조회된 데이터 확인
+    for item in order_items:
+        print(f"🔍 상품 ID: {item.product_id}, 상품명: {item.product_name}, 카테고리: {item.category}, 브랜드 ID: {item.brand_id}")
+
+    formatted_result = {
+        "total_amount": order.total_amount,
+        "total_incentive": order.total_incentive,
+        "total_boxes": order.total_boxes,
+        "items": []
+    }
+
+    category_brand_dict = {}
+
+    for item in order_items:
+        category = item.category or "기타"
+        brand_id = item.brand_id or 0  
+
+        if category not in category_brand_dict:
+            category_brand_dict[category] = {}
+
+        if brand_id not in category_brand_dict[category]:
+            category_brand_dict[category][brand_id] = []
+
+        category_brand_dict[category][brand_id].append({
+            "product_id": item.product_id,
+            "quantity": item.quantity,
+            "product_name": item.product_name or "상품 정보 없음",
+        })
+
+    # ✅ `List[dict]`로 변환하여 FastAPI 응답 형식과 맞춤
+    for category, brands in category_brand_dict.items():
+        for brand_id, products in brands.items():
+            formatted_result["items"].append({
+                "category": category,
+                "brand_id": brand_id,
+                "products": products
+            })
+
+    return JSONResponse(content=formatted_result, media_type="application/json; charset=utf-8")
+
+
 
 # ✅ 6️⃣ 특정 직원의 특정 날짜 주문 총합, 인센티브 합계, 총 박스 수량 조회
 @router.get("/orders/employee/{employee_id}/date/{order_date}/summary", response_model=OrderSummarySchema)

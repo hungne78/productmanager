@@ -8,6 +8,7 @@ import '../screens/sales_screen.dart';
 import '../screens/order_screen.dart';
 import '../screens/clients_screen.dart';
 import 'product_screen.dart';
+import 'order_history_screen.dart';
 class HomeScreen extends StatelessWidget {
   final String token;
 
@@ -84,6 +85,14 @@ class HomeScreen extends StatelessWidget {
             },
           ),
           ElevatedButton.icon(
+            icon: const Icon(Icons.history),
+            label: const Text("주문 내역 조회"),
+            onPressed: () {
+              _showOrderDateSelectionDialog(context, token);
+            },
+          ),
+
+          ElevatedButton.icon(
             icon: const Icon(Icons.business),
             label: const Text("거래처 관리"),
             onPressed: () {
@@ -111,6 +120,61 @@ class HomeScreen extends StatelessWidget {
         ],
       ),
 
+    );
+  }
+  void _showOrderDateSelectionDialog(BuildContext context, String token) {
+    DateTime selectedDate = DateTime.now();
+
+    showDialog(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          title: const Text("주문 날짜 선택"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("주문 내역을 조회할 날짜를 선택하세요."),
+              SizedBox(height: 10),
+              StatefulBuilder(
+                builder: (context, setState) {
+                  return Column(
+                    children: [
+                      CalendarDatePicker(
+                        initialDate: selectedDate,
+                        firstDate: DateTime.now().subtract(Duration(days: 365)),
+                        lastDate: DateTime.now().add(Duration(days: 365)),
+                        onDateChanged: (DateTime date) {
+                          setState(() {
+                            selectedDate = date;
+                          });
+                        },
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("취소"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx); // 팝업 닫기
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => OrderHistoryScreen(token: token, selectedDate: selectedDate),
+                  ),
+                );
+              },
+              child: const Text("확인"),
+            ),
+          ],
+        );
+      },
     );
   }
 

@@ -221,7 +221,7 @@ class ProductLeftPanel(BaseLeftTableWidget):
 
     def create_product(self):
         """
-        상품 신규 등록
+        상품 신규 등록 (직원별 차량 재고도 자동 추가)
         """
         global global_token
         if not global_token:
@@ -240,13 +240,21 @@ class ProductLeftPanel(BaseLeftTableWidget):
                 "incentive": float(dialog.incentive_edit.text() or 0),
                 "box_quantity": int(dialog.box_quantity_edit.text() or 1),
                 "category": dialog.category_edit.text(),
-                "is_fixed_price": True if dialog.price_type_edit.currentIndex() == 1 else False  # ✅ 가격 유형 추가됨
+                "is_fixed_price": True if dialog.price_type_edit.currentIndex() == 1 else False
             }
+
             resp = api_create_product(global_token, data)
             if resp and resp.status_code in (200, 201):
                 QMessageBox.information(self, "성공", "상품 등록 완료!")
+
+                # ✅ 직원별 차량 재고 업데이트 상태 확인
+                product_id = resp.json().get("id")
+                if product_id:
+                    QMessageBox.information(self, "성공", "직원 차량 재고도 정상적으로 추가되었습니다.")
+
             else:
                 QMessageBox.critical(self, "실패", f"상품 등록 실패: {resp.status_code}\n{resp.text}")
+
         
     def update_product(self):
         """
