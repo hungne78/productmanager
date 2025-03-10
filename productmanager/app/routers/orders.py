@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.models import Order, OrderItem
+from app.models import Order, OrderItem, OrderArchive, OrderItemArchive  # ✅ 아카이빙 테이블 추가
 from app.schemas.orders import OrderSchema, OrderCreateSchema, OrderSummarySchema
 from typing import List
 from datetime import date
@@ -62,16 +62,32 @@ def is_order_locked(order_date: date, db: Session = Depends(get_db)):
     lock = db.query(OrderLock).filter(OrderLock.lock_date == order_date).first()
     return {"is_locked": lock.is_locked if lock else False}
 
+# ✅ 공통 함수: 특정 테이블에서 주문 데이터 가져오기
+def get_orders_from_table(db: Session, table):
+    orders = db.query(table).all()
+    if not orders:
+        raise HTTPException(status_code=404, detail="데이터가 없습니다.")
+    return orders
+
 # ✅ 1️⃣ 모든 주문 목록 조회
 @router.get("/orders/", response_model=List[OrderSchema])
 def get_orders(db: Session = Depends(get_db)):
     orders = db.query(Order).all()
     return orders
 
-# ✅ 2️⃣ 특정 주문 조회
+# ✅ 2️⃣ 한 달 이상 지난 주문 조회 (orders_archive 테이블)
+@router.get("/orders_archive", response_model=List[OrderSchema])
+def get_archived_orders(db: Session = Depends(get_db)):
+    """ 한 달 이상 지난 주문 목록 조회 """
+    return get_orders_from_table(db, OrderArchive)
+
+# ✅ 3️⃣ 특정 주문 조회 (현재 주문 + 아카이빙 주문 지원)
 @router.get("/orders/{order_id}", response_model=OrderSchema)
-def get_order(order_id: int, db: Session = Depends(get_db)):
-    order = db.query(Order).filter(Order.id == order_id).first()
+@router.get("/orders_archive/{order_id}", response_model=OrderSchema)
+def get_order(order_id: int, db: Session = Depends(get_db), is_archive: bool = Query(False)):
+    """ 특정 주문 조회 (is_archive=True면 아카이빙 테이블에서 조회) """
+    table = OrderArchive if is_archive else Order
+    order = db.query(table).filter(table.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
     return order
@@ -126,14 +142,21 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
 
 # ✅ 4️⃣ 특정 직원의 특정 날짜 주문 목록 조회
 @router.get("/orders/employee/{employee_id}/date/{order_date}", response_model=List[OrderSchema])
-def get_orders_by_employee_date(employee_id: int, order_date: str, db: Session = Depends(get_db)):
-    orders = db.query(Order).filter(
-        Order.employee_id == employee_id,
-        Order.order_date == order_date
+@router.get("/orders_archive/employee/{employee_id}/date/{order_date}", response_model=List[OrderSchema])
+def get_orders_by_employee_date(employee_id: int, order_date: str, db: Session = Depends(get_db), is_archive: bool = Query(False)):
+    """
+    특정 직원의 특정 날짜 주문 목록 조회 (is_archive=True면 아카이빙 테이블에서 조회)
+    """
+    table = OrderArchive if is_archive else Order
+    orders = db.query(table).filter(
+        table.employee_id == employee_id,
+        table.order_date == order_date
     ).all()
+
     if not orders:
         raise HTTPException(status_code=404, detail="해당 직원의 주문이 없습니다.")
     return orders
+
 
 
 
@@ -248,44 +271,64 @@ def get_orders_with_items(employee_id: int, date: str, db: Session = Depends(get
         })
 
     return result
+
 # ✅ 기존 주문 덮어쓰기 (UPSERT)
-@router.post("/upsert", response_model=OrderSchema)
-def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(get_db)):
+@router.post("/orders/", response_model=OrderSchema)
+def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(get_db), is_archive: bool = Query(False)):
     """
-    같은 날짜의 주문이 있으면 덮어쓰기 (UPSERT)
+    직원 ID와 주문 날짜가 같은 주문이 있으면 업데이트, 없으면 새 주문 생성 (is_archive=True면 아카이빙 테이블에 추가)
     """
+    table = OrderArchive if is_archive else Order
+
+    # ✅ 기존 주문 조회
     existing_order = (
-        db.query(Order)
-        .filter(Order.employee_id == order_data.employee_id)
-        .filter(Order.order_date == order_data.order_date)
+        db.query(table)
+        .filter(table.employee_id == order_data.employee_id)
+        .filter(table.order_date == order_data.order_date)
         .first()
     )
 
     if existing_order:
-        # ✅ 기존 주문 삭제 후 다시 생성
-        db.query(OrderItem).filter(OrderItem.order_id == existing_order.id).delete()
-        db.delete(existing_order)
-        db.commit()
+        # ✅ 기존 주문이 있다면 업데이트
+        existing_order.total_amount = order_data.total_amount
+        existing_order.total_incentive = order_data.total_incentive
+        existing_order.total_boxes = order_data.total_boxes
 
-    # ✅ 새 주문 생성
-    new_order = Order(
+        # ✅ 기존 주문 항목 삭제 후 새로 추가
+        db.query(OrderItem if not is_archive else OrderItemArchive).filter(
+            OrderItem.order_id == existing_order.id
+        ).delete()
+
+        for item in order_data.order_items:
+            db.add((OrderItem if not is_archive else OrderItemArchive)(
+                order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity
+            ))
+
+        db.commit()
+        db.refresh(existing_order)
+        return existing_order
+
+    # ✅ 기존 주문이 없으면 새 주문 생성
+    new_order = table(
         employee_id=order_data.employee_id,
         order_date=order_data.order_date,
         total_amount=order_data.total_amount,
         total_incentive=order_data.total_incentive,
-        total_boxes=order_data.total_boxes,
+        total_boxes=order_data.total_boxes
     )
-
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
 
-    # ✅ 주문 항목 추가
+    # ✅ 새 주문 항목 추가
     for item in order_data.order_items:
-        db.add(OrderItem(order_id=new_order.id, product_id=item.product_id, quantity=item.quantity))
+        db.add((OrderItem if not is_archive else OrderItemArchive)(
+            order_id=new_order.id, product_id=item.product_id, quantity=item.quantity
+        ))
 
     db.commit()
     return new_order
+
 
 @router.put("/update_quantity/{product_id}/")
 def update_order_quantity(
