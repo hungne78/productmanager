@@ -18,8 +18,11 @@ from app.routers.brands import router as brands_router
 from app.core.security import get_password_hash
 from app.routers import payments
 from app.models.employees import Employee
+from app.models.employee_inventory import EmployeeInventory
+from app.models.orders_archive import OrderArchive , OrderItemArchive
 from app.routers.employee_map_routers import router as employee_map_router
 from app.routers import client_visits
+from app.models.employee_inventory import EmployeeInventory 
 from app.utils.time_utils import convert_utc_to_kst  # ✅ KST 변환 함수 추가
 import json
 from fastapi import FastAPI, Request

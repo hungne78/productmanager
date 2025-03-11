@@ -41,3 +41,5 @@ class Product(Base):
     client_product_prices = relationship("ClientProductPrice", back_populates="product")
     sales = relationship("Sales", back_populates="product", cascade="all, delete-orphan")
     sales_records = relationship("SalesRecord", back_populates="product", cascade="all, delete-orphan")
+    order_items_archive = relationship("OrderItemArchive", back_populates="product")
+    inventory = relationship("EmployeeInventory", back_populates="product")

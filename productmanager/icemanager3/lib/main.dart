@@ -14,6 +14,9 @@ void main() {
         ),
         ChangeNotifierProvider<ProductProvider>(
           create: (_) => ProductProvider(),
+          child: MaterialApp(
+            home: MyApp(),
+          ),
         ),
         // ↑ 필요하다면 다른 Provider도 등록
         ChangeNotifierProvider(create: (_) => VehicleStockProvider()),

@@ -34,3 +34,4 @@ class Employee(Base):
     clients = relationship("Client", secondary="employee_clients", back_populates="employees", overlaps="employee_clients")
     sales_records = relationship("SalesRecord", back_populates="employee")
     inventory = relationship("EmployeeInventory", back_populates="employee", cascade="all, delete-orphan")
+    orders_archive = relationship("OrderArchive", back_populates="employee")

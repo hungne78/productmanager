@@ -6,7 +6,7 @@ class ProductProvider extends ChangeNotifier {
   List<dynamic> get products => _products;
 
   void setProducts(List<dynamic> newProducts) {
-    _products = newProducts;
+    _products = newProducts.where((p) => p != null).toList();
     notifyListeners();
   }
 
