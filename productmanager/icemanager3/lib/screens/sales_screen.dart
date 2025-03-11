@@ -1,19 +1,22 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 import 'dart:convert';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // BLE 라이브러리
+import 'package:fluttertoast/fluttertoast.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'dart:developer' as developer;
+
 import '../services/api_service.dart';
 import '../auth_provider.dart';
-import 'barcode_scanner_page.dart';
-import '../user.dart';
-import 'package:provider/provider.dart';  // ✅ Provider 패키지 추가
 import '../product_provider.dart';
-import 'package:fluttertoast/fluttertoast.dart';
-import 'package:intl/intl.dart'; // ✅ 숫자 포맷을 위한 패키지 추가
-import 'dart:developer' as developer;
-import 'package:flutter/services.dart';
-import 'dart:async';
+import '../user.dart';
+import 'barcode_scanner_page.dart';
 
-
+/// BLE 스캐너의 Service/Characteristic UUID (실제 기기 정보로 교체)
+const String SCANNER_SERVICE_UUID = "00001101-0000-1000-8000-00805F9B34FB";
+const String SCANNER_CHARACTERISTIC_UUID = "00001101-0000-1000-8000-00805F9B34FB";
 
 class SalesScreen extends StatefulWidget {
   final String token;
@@ -25,49 +28,42 @@ class SalesScreen extends StatefulWidget {
   _SalesScreenState createState() => _SalesScreenState();
 }
 
-
 class _SalesScreenState extends State<SalesScreen> {
-  late Map<String, dynamic> client; // ✅ 변경 가능하도록 설정
+  late Map<String, dynamic> client; // 거래처 정보 복사
   late TextEditingController paymentController;
   late FocusNode paymentFocusNode;
 
-// ✅ 블루투스 스캐너 입력 받을 TextField 컨트롤러 & 포커스노드
+  // BLE 스캐너 입력을 받을 숨겨진 TextField (대체 입력용, 일반적으로 사용되지 않음)
   final TextEditingController _scannerController = TextEditingController();
   final FocusNode _scannerFocusNode = FocusNode();
 
-
   double totalScannedItemsPrice = 0.0;
   double totalReturnedItemsPrice = 0.0;
-  final formatter = NumberFormat("#,###"); // ✅ 천단위 콤마 포맷 설정
-  List<Map<String, dynamic>> _scannedItems = []; // 스캔된 품목 리스트
-  List<Map<String, dynamic>> _returnedItems = []; // ✅ 반품 상품 리스트
+  final formatter = NumberFormat("#,###");
+  List<Map<String, dynamic>> _scannedItems = []; // 판매 상품 목록
+  List<Map<String, dynamic>> _returnedItems = []; // 반품 상품 목록
 
-  bool _isReturnMode = false; // ✅ 기본값: 판매 모드 (반품 모드가 아님)
-
-  dynamic _selectedClient;
-
-  int? selectedIndex; // ✅ 선택된 행의 인덱스 저장
+  bool _isReturnMode = false;
+  int? selectedIndex;
   bool _isLoading = false;
   String? _error;
+  bool _isScanning = false; // BLE 스캔 상태
 
-
+  // BLE 관련 변수
+  BluetoothDevice? _connectedDevice;
+  BluetoothCharacteristic? _barcodeCharacteristic;
+  String _bleStatus = "대기 중";
 
   @override
   void initState() {
     super.initState();
-    client = Map<String, dynamic>.from(widget.client); // `client` 초기화
-    paymentController = TextEditingController(text: ""); // 입금 금액 기본값 빈 문자열로 설정
-    paymentFocusNode = FocusNode(); // 포커스 노드 초기화
+    client = Map<String, dynamic>.from(widget.client);
+    paymentController = TextEditingController(text: "");
+    paymentFocusNode = FocusNode();
 
-    _selectedClient = widget.client; // 거래처 정보 설정
-    // ✅ 상품 목록 확인 및 필요 시 업데이트
-    _selectedClient = widget.client;
-
-    // ✅ ProductProvider에서 상품 목록을 가져오도록 설정
+    // ProductProvider에서 상품 목록 업데이트 (없으면 서버에서 재로드)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final productProvider = context.read<ProductProvider>();
-
-      // ✅ 상품 목록이 비어 있으면 다시 가져오기
       if (productProvider.products.isEmpty) {
         print("⚠️ SalesScreen: 상품 목록이 비어 있음. 서버에서 다시 불러옴.");
         final List<dynamic> products = await ApiService.fetchAllProducts(widget.token);
@@ -81,54 +77,124 @@ class _SalesScreenState extends State<SalesScreen> {
           );
         }
       } else {
-        print("✅ SalesScreen: ProductProvider에서 상품을 정상적으로 가져옴. 총 ${productProvider.products.length}개");
+        print("✅ SalesScreen: 이미 ProductProvider에 상품이 있음. 총 ${productProvider.products.length}개");
       }
     });
-    // ✅ TextField(스캐너용)에 포커스 주기
-    // 블루투스 스캐너가 HID 모드로 동작하면, 여기로 입력됨
+
+    // BLE 스캐너 입력 TextField는 읽기 전용으로 설정하여 시스템 키보드가 뜨지 않도록 함.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_scannerFocusNode);
     });
-
   }
+
   @override
   void dispose() {
     paymentController.dispose();
     paymentFocusNode.dispose();
     _scannerController.dispose();
     _scannerFocusNode.dispose();
+    _disconnectBle();
     super.dispose();
   }
-  /// 📌 TextField onSubmitted(엔터) → 바코드 확정
+
+  /// TextField onSubmitted 콜백: 엔터 입력 시 바코드 확정
   void _onScannerSubmitted(String value) {
     final cleaned = value.trim();
-    print("✅ [onSubmitted] 스캐너 입력값: '$value' → trim: '$cleaned'");
-
+    print("✅ [onSubmitted] 스캐너 입력값: '$value' → '$cleaned'");
     if (cleaned.isNotEmpty) {
       _handleBarcode(cleaned);
     }
-    // 입력 필드 비우고 다시 포커스
     _scannerController.clear();
+    // 포커스 유지
     FocusScope.of(context).requestFocus(_scannerFocusNode);
   }
 
-  /// 📌 TextField onChanged(디버깅용)
+  /// TextField onChanged 콜백 (디버깅)
   void _onScannerChanged(String value) {
     print("🟡 [onChanged] 현재 TextField 값: '$value'");
-    // 필요 시 디바운스를 걸어 일정 시간 후 바코드로 확정할 수도 있음
   }
 
-
-  // ✅ TextField에서 onChanged(디바운스 적용)로 처리할 수도 있음
-  // 여기서는 스캐너가 엔터(\n) 붙여준다고 가정하므로 onSubmitted만 사용
-
-  // 상품을 클릭하여 선택된 인덱스를 저장
-  void _selectItem(int index) {
+  /// BLE 스캔 시작 (정적 메서드 사용)
+  Future<void> startBleScan() async {
     setState(() {
-      selectedIndex = index; // 선택된 상품의 인덱스를 저장
+      _isScanning = true;
+      _bleStatus = "BLE 스캔 중...";
+    });
+    // BLE 스캔 시작 (타임아웃 5초)
+    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
+    FlutterBluePlus.scanResults.listen((results) {
+      for (ScanResult r in results) {
+        print("🔍 [BLE] 발견: ${r.device.name} (${r.device.id}) RSSI: ${r.rssi}");
+        // 스캐너 이름을 실제 기기에 맞게 변경 (예: "MyBarcodeScanner")
+        if (r.device.name == "MyBarcodeScanner") {
+          print("✅ [BLE] 대상 스캐너 찾음: ${r.device.name}");
+          FlutterBluePlus.stopScan();
+          setState(() {
+            _isScanning = false;
+          });
+          _connectToDevice(r.device);
+          break;
+        }
+      }
+    }).onDone(() {
+      print("🔴 [BLE] 스캔 완료");
+      setState(() {
+        _isScanning = false;
+        if (_connectedDevice == null) {
+          _bleStatus = "스캐너를 찾지 못했습니다.";
+        }
+      });
     });
   }
-  // 바코드 카메라 스캔
+
+  /// BLE 기기에 연결
+  Future<void> _connectToDevice(BluetoothDevice device) async {
+    try {
+      setState(() => _bleStatus = "기기에 연결 중...");
+      await device.connect();
+      print('✅ [BLE] 연결됨: ${device.name}');
+      _connectedDevice = device;
+      setState(() => _bleStatus = "${device.name} 연결됨");
+
+      // 서비스/캐릭터리스틱 검색
+      List<BluetoothService> services = await device.discoverServices();
+      for (var service in services) {
+        if (service.uuid.toString().toLowerCase() == SCANNER_SERVICE_UUID) {
+          for (var c in service.characteristics) {
+            if (c.uuid.toString().toLowerCase() == SCANNER_CHARACTERISTIC_UUID) {
+              _barcodeCharacteristic = c;
+              print("✅ [BLE] 바코드 캐릭터리스틱 찾음: ${c.uuid}");
+              // Notify 활성화
+              await c.setNotifyValue(true);
+              c.value.listen((value) {
+                String scannedData = String.fromCharCodes(value);
+                print("🟢 [BLE] 데이터 수신: '$scannedData'");
+                _handleBarcode(scannedData.trim());
+              });
+              break;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print("🔴 [BLE] 연결 실패: $e");
+      setState(() => _bleStatus = "연결 실패: $e");
+    }
+  }
+
+  /// BLE 기기 연결 해제
+  Future<void> _disconnectBle() async {
+    if (_connectedDevice != null) {
+      try {
+        await _connectedDevice!.disconnect();
+        print("🔴 [BLE] 연결 해제: ${_connectedDevice!.name}");
+      } catch (_) {}
+    }
+    _connectedDevice = null;
+    _barcodeCharacteristic = null;
+  }
+
+  // 카메라 스캔 (HID 방식과 별개로 사용)
   Future<String> _scanBarcodeCamera() async {
     try {
       final barcode = await Navigator.push(
@@ -142,76 +208,56 @@ class _SalesScreenState extends State<SalesScreen> {
         setState(() {
           _error = "바코드 스캔이 취소되었습니다.";
         });
-        return ""; // ✅ 빈 문자열 반환 (예외 처리)
+        return "";
       } else {
         await _handleBarcode(barcode);
-        return barcode; // ✅ 스캔된 바코드 값 반환
+        return barcode; // 스캔된 바코드 값을 반환
       }
     } catch (e) {
       setState(() {
         _error = "카메라 스캔 오류: $e";
       });
-      return ""; // ✅ 오류 발생 시 빈 값 반환
+      return "";
     }
   }
 
 
-  // 바코드 처리
+  // 바코드 처리 (상품 매칭)
   Future<void> _handleBarcode(String barcode) async {
     if (barcode.isEmpty) {
-      Fluttertoast.showToast(msg: "스캔된 바코드가 비어 있습니다.", gravity: ToastGravity.BOTTOM);
+      Fluttertoast.showToast(msg: "스캔된 바코드가 비어 있음");
       return;
     }
-
+    print("🟡 [handleBarcode] 바코드: $barcode");
     setState(() => _isLoading = true);
 
     try {
       final productProvider = context.read<ProductProvider>();
-
       if (productProvider.products.isEmpty) {
-        Fluttertoast.showToast(msg: "상품 목록이 비어 있습니다. 먼저 상품을 다운로드하세요.", gravity: ToastGravity.BOTTOM);
+        Fluttertoast.showToast(msg: "상품 목록이 비어 있습니다.");
         return;
       }
-
       final productList = productProvider.products.where((p) => p['barcode'] == barcode).toList();
       if (productList.isEmpty) {
-        Fluttertoast.showToast(msg: "조회된 상품이 없습니다.", gravity: ToastGravity.BOTTOM);
+        Fluttertoast.showToast(msg: "조회된 상품이 없습니다.");
         return;
       }
-
       final product = productList.first;
-
-      if (product == null || product.isEmpty) {
-        Fluttertoast.showToast(msg: "상품 정보가 유효하지 않습니다.", gravity: ToastGravity.BOTTOM);
-        return;
-      }
-
-
-      // ✅ UTF-8 디코딩 예외 처리
       String productName;
       try {
         productName = utf8.decode(product['product_name'].toString().codeUnits);
-      } catch (e) {
-        print("❌ 상품명 UTF-8 디코딩 오류: $e");
-        productName = product['product_name'].toString(); // 오류 발생 시 원본 그대로 사용
+      } catch (_) {
+        productName = product['product_name'].toString();
       }
-
-      // ✅ 상품의 원래 가격 (기본 가격)
       double defaultPrice = (product['default_price'] ?? 0).toDouble();
-
-      // ✅ 상품이 고정가인지 일반가인지 판별
-      bool isProductFixedPrice = product['is_fixed_price'] == true; // 상품 자체의 가격 유형 확인
-
-      // ✅ 거래처 단가 적용
+      bool isProductFixedPrice = product['is_fixed_price'] == true;
       double clientRegularPrice = (widget.client['regular_price'] ?? 0).toDouble();
       double clientFixedPrice = (widget.client['fixed_price'] ?? 0).toDouble();
-      double appliedPrice = isProductFixedPrice ? clientFixedPrice : clientRegularPrice; // ✅ 상품 가격 유형에 따라 거래처 가격 적용
+      double appliedPrice = isProductFixedPrice ? clientFixedPrice : clientRegularPrice;
       String priceType = isProductFixedPrice ? "고정가" : "일반가";
 
       if (_isReturnMode) {
-        // ✅ 반품 모드
         int existingIndex = _returnedItems.indexWhere((item) => item['product_id'] == product['id']);
-
         if (existingIndex >= 0) {
           setState(() {
             _returnedItems[existingIndex]['box_count']++;
@@ -221,19 +267,17 @@ class _SalesScreenState extends State<SalesScreen> {
             _returnedItems.add({
               'product_id': product['id'],
               'name': productName,
-              'box_quantity': product['box_quantity'] ?? 1, // ✅ 박스수 1 고정
-              'box_count': 1, // ✅ 개수 기본 1
-              'default_price': defaultPrice, // ✅ 상품의 원래 가격 (기본 가격)
-              'client_price': appliedPrice, // ✅ 거래처 적용 단가
-              'price_type': priceType, // ✅ 가격 유형 (일반가 / 고정가)
+              'box_quantity': product['box_quantity'] ?? 1,
+              'box_count': 1,
+              'default_price': defaultPrice,
+              'client_price': appliedPrice,
+              'price_type': priceType,
               'category': product['category'] ?? '',
             });
           });
         }
       } else {
-        // ✅ 일반 판매 모드
         int existingIndex = _scannedItems.indexWhere((item) => item['product_id'] == product['id']);
-
         if (existingIndex >= 0) {
           setState(() {
             _scannedItems[existingIndex]['box_count']++;
@@ -245,34 +289,24 @@ class _SalesScreenState extends State<SalesScreen> {
               'name': product['product_name'],
               'box_quantity': product['box_quantity'] ?? 0,
               'box_count': 1,
-              'default_price': defaultPrice, // ✅ 상품의 원래 가격 (기본 가격)
-              'client_price': appliedPrice, // ✅ 거래처 적용 단가
-              'price_type': priceType, // ✅ 가격 유형 (일반가 / 고정가)
+              'default_price': defaultPrice,
+              'client_price': appliedPrice,
+              'price_type': priceType,
               'category': product['category'] ?? '',
             });
           });
         }
       }
-
-      Fluttertoast.showToast(
-        msg: "${_isReturnMode ? '반품' : '상품'} 추가됨: ${product['product_name']}",
-        gravity: ToastGravity.BOTTOM,
-      );
+      Fluttertoast.showToast(msg: "${_isReturnMode ? '반품' : '상품'} 추가됨: $productName");
     } catch (e) {
-      Fluttertoast.showToast(msg: "스캔 처리 오류: $e", gravity: ToastGravity.BOTTOM);
+      print("🔴 [handleBarcode] 오류: $e");
+      Fluttertoast.showToast(msg: "스캔 처리 오류: $e");
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-//거래처정보테이블
-  double get totalAmount {
-    double sum = 0;
-    for (var item in _scannedItems) {
-      sum += (item['box_count'] * item['box_quantity'] * item['client_price']);
-    }
-    return sum;
-  }
+  // UI: 거래처 정보 테이블
   Widget _buildClientInfoTable() {
     return Container(
       padding: const EdgeInsets.all(8.0),
@@ -290,16 +324,20 @@ class _SalesScreenState extends State<SalesScreen> {
           3: FractionColumnWidth(0.25),
         },
         children: [
-          _buildTableRow("거래처명", widget.client['client_name'], "대표자", widget.client['representative_name'] ?? "정보 없음"),  // ✅ 대표자 추가
-          _buildTableRow("주소", widget.client['address'] ?? "정보 없음", "전화번호", widget.client['phone'] ?? "정보 없음"),
-          _buildTableRow("사업자 번호", widget.client['business_number'] ?? "정보 없음", "이메일", widget.client['email'] ?? "정보 없음"),
-          _buildTableRow("일반가", widget.client['regular_price']?.toString() ?? "정보 없음", "고정가", widget.client['fixed_price']?.toString() ?? "정보 없음"),
+          _buildTableRow("거래처명", widget.client['client_name'],
+              "대표자", widget.client['representative_name'] ?? "정보 없음"),
+          _buildTableRow("주소", widget.client['address'] ?? "정보 없음",
+              "전화번호", widget.client['phone'] ?? "정보 없음"),
+          _buildTableRow("사업자 번호", widget.client['business_number'] ?? "정보 없음",
+              "이메일", widget.client['email'] ?? "정보 없음"),
+          _buildTableRow("일반가",
+              widget.client['regular_price']?.toString() ?? "정보 없음",
+              "고정가",
+              widget.client['fixed_price']?.toString() ?? "정보 없음"),
         ],
       ),
-
     );
   }
-
 
   TableRow _buildTableRow(String title1, String value1, String title2, String value2) {
     return TableRow(children: [
@@ -311,25 +349,300 @@ class _SalesScreenState extends State<SalesScreen> {
   }
 
   Widget _buildTableCell(String text, {bool isHeader = false, double fontSize = 12}) {
-    bool isOverflowing = text.length > 15; // 15자 이상이면 생략 처리
+    bool isOverflowing = text.length > 15;
     return GestureDetector(
       onTap: isOverflowing ? () => _showPopup(text) : null,
       child: Padding(
         padding: const EdgeInsets.all(6.0),
         child: Text(
-          isOverflowing ? text.substring(0, 15) + "..." : text, // 15자 초과 시 생략
+          isOverflowing ? text.substring(0, 15) + "..." : text,
           style: TextStyle(
             fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
-            fontSize: fontSize, // ✅ 폰트 크기 조정
+            fontSize: fontSize,
           ),
-          overflow: TextOverflow.ellipsis, // ✅ 너무 길면 '...' 처리
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );
   }
 
+  // UI: 스캔된 상품 테이블 (판매/반품)
+  Widget _buildScannedItemsTable() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade400),
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.white,
+      ),
+      child: Column(
+        children: [
+          Container(
+            height: 35,
+            color: Colors.black45,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildHeaderCell("상품명"),
+                _buildHeaderCell("개수"),
+                _buildHeaderCell("박스수"),
+                _buildHeaderCell("가격"),
+                _buildHeaderCell("단가"),
+                _buildHeaderCell("유형"),
+                _buildHeaderCell("합계"),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _buildSaleDataRows(),
+                  _buildReturnRows(),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
+  Widget _buildHeaderCell(String text) {
+    return Expanded(
+      child: Container(
+        alignment: Alignment.center,
+        child: Text(
+          text,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
 
+  Widget _buildSaleDataRows() {
+    return Column(
+      children: List.generate(_scannedItems.length, (index) {
+        var item = _scannedItems[index];
+        bool isFixedPrice = item['price_type'] == "고정가";
+        int totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01).round();
+
+        return GestureDetector(
+          onTap: () => _selectItem(index),
+          child: Container(
+            color: index == selectedIndex
+                ? Colors.blue.shade100
+                : (index.isEven ? Colors.grey.shade100 : Colors.white),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildDataCell(item['name'].toString()),
+                _buildDataCell(item['box_quantity'].toString()),
+                _buildDataCell(item['box_count'].toString()),
+                _buildDataCell(formatter.format((item['default_price'] ?? 0).round())),
+                _buildDataCell((item['client_price'] ?? 0).toStringAsFixed(2)),
+                _buildDataCell(isFixedPrice ? '고정가' : '일반가'),
+                _buildDataCell(formatter.format(totalPrice), isBold: true),
+              ],
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildReturnRows() {
+    return Column(
+      children: List.generate(_returnedItems.length, (index) {
+        var item = _returnedItems[index];
+        double totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01) * -1;
+
+        return Container(
+          color: Colors.red.shade50,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildDataCell(item['name'].toString(), isRed: true),
+              _buildDataCell(item['box_quantity'].toString(), isRed: true),
+              _buildDataCell(item['box_count'].toString(), isRed: true),
+              _buildDataCell((item['default_price'] ?? 0).toStringAsFixed(2), isRed: true),
+              _buildDataCell((item['client_price'] ?? 0).toStringAsFixed(2), isRed: true),
+              _buildDataCell(item['price_type'].toString(), isRed: true),
+              _buildDataCell(totalPrice.toStringAsFixed(2), isBold: true, isRed: true),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildDataCell(String text, {bool isBold = false, bool isRed = false}) {
+    return Expanded(
+      child: Center(
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: isRed ? Colors.red : Colors.black87,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryRow() {
+    int totalSalesBoxCount = 0;
+    int totalSalesAmount = 0;
+    for (var item in _scannedItems) {
+      int boxQty = (item['box_quantity'] ?? 0);
+      int boxCount = (item['box_count'] ?? 0);
+      double defaultPrice = (item['default_price'] ?? 0).toDouble();
+      double clientPrice = (item['client_price'] ?? 0).toDouble();
+      totalSalesBoxCount += (boxQty * boxCount);
+      totalSalesAmount += (boxQty * boxCount * defaultPrice * clientPrice * 0.01).round();
+    }
+    int totalReturnBoxCount = 0;
+    int totalReturnAmount = 0;
+    for (var item in _returnedItems) {
+      int boxQty = (item['box_quantity'] ?? 0);
+      int boxCount = (item['box_count'] ?? 0);
+      double defaultPrice = (item['default_price'] ?? 0).toDouble();
+      double clientPrice = (item['client_price'] ?? 0).toDouble();
+      totalReturnBoxCount += (boxQty * boxCount);
+      totalReturnAmount += -1 * (boxQty * boxCount * defaultPrice * clientPrice * 0.01).round();
+    }
+    int finalTotal = totalSalesAmount + totalReturnAmount;
+    totalScannedItemsPrice = finalTotal.toDouble();
+    totalReturnedItemsPrice = -totalReturnAmount.toDouble();
+
+    return Container(
+      color: Colors.grey.shade300,
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildSummaryCell("박스수 합계", formatter.format(totalSalesBoxCount + totalReturnBoxCount)),
+          _buildSummaryCell("총 금액", formatter.format(finalTotal) + " 원", isBold: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCell(String label, String value, {bool isBold = false}) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            "$label: $value",
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              color: isBold ? Colors.black : Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 거래처 정보 업데이트 (기존 코드 그대로)
+  void _fetchUpdatedClientInfo() async {
+    try {
+      final response = await ApiService.fetchClientById(widget.token, client['id']);
+      if (response.statusCode == 200) {
+        var updatedClient = jsonDecode(response.body) as Map<String, dynamic>;
+        setState(() {
+          client = updatedClient;
+        });
+      } else {
+        throw Exception("거래처 정보 갱신 실패");
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("거래처 정보 업데이트 실패: $e")),
+      );
+    }
+  }
+
+  // 수량 수정 다이얼로그
+  void _showEditQuantityDialog(int index) {
+    TextEditingController quantityController = TextEditingController(
+      text: _scannedItems[index]['box_count'].toString(),
+    );
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text("수량 수정"),
+          content: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.remove),
+                onPressed: () {
+                  int currentQty = int.tryParse(quantityController.text) ?? 0;
+                  if (currentQty > 0) {
+                    quantityController.text = (currentQty - 1).toString();
+                  }
+                },
+              ),
+              Expanded(
+                child: TextField(
+                  controller: quantityController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: "수량"),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.add),
+                onPressed: () {
+                  int currentQty = int.tryParse(quantityController.text) ?? 0;
+                  quantityController.text = (currentQty + 1).toString();
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("취소"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                int newQty = int.tryParse(quantityController.text) ?? 0;
+                if (newQty > 0) {
+                  setState(() {
+                    _scannedItems[index]['box_count'] = newQty;
+                  });
+                }
+                Navigator.pop(ctx);
+              },
+              child: const Text("수정"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _deleteItem(int index) {
+    setState(() {
+      _scannedItems.removeAt(index);
+    });
+  }
+
+  void _clearAllItems() {
+    setState(() {
+      _scannedItems.clear();
+      _returnedItems.clear();
+    });
+    Fluttertoast.showToast(msg: "판매 및 반품 목록이 초기화되었습니다.", gravity: ToastGravity.BOTTOM);
+  }
   void _showPopup(String fullText) {
     showDialog(
       context: context,
@@ -347,142 +660,60 @@ class _SalesScreenState extends State<SalesScreen> {
       },
     );
   }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("판매 화면 (TextField 스캐너)"),
-      ),
-      body: Column(
-        children: [
-          // 1) 숨겨진 TextField (블루투스 스캐너 입력용)
-          TextField(
-            controller: _scannerController,
-            focusNode: _scannerFocusNode,
-            decoration: const InputDecoration(
-              border: InputBorder.none,
-            ),
-            style: const TextStyle(color: Colors.transparent, fontSize: 0.1),
-            cursorColor: Colors.transparent,
-            onSubmitted: _onScannerSubmitted, // 스캐너가 엔터(\n) 넣어주면 여기로
-          ),
-
-          // 2) 거래처 정보
-          _buildClientInfoTable(),
-
-          // 3) 스캔된 상품 목록
-          Expanded(child: _buildScannedItemsTable()),
-
-          // 4) 합계
-          _buildSummaryRow(),
-
-          // 5) 버튼들
-          Container(
-            padding: EdgeInsets.symmetric(vertical: 2),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 1,
-              alignment: WrapAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    setState(() => _isReturnMode = false);
-                    _scanBarcodeCamera();
-                  },
-                  icon: Icon(Icons.camera_alt, size: 20),
-                  label: Text("스캔", style: TextStyle(fontSize: 14)),
-                ),
-                ElevatedButton.icon(
-                  onPressed: _clearAllItems,
-                  icon: Icon(Icons.clear, size: 18),
-                  label: Text("초기화", style: TextStyle(fontSize: 14)),
-                ),
-                ElevatedButton.icon(
-                  onPressed: selectedIndex == null ? null : () => _showEditQuantityDialog(selectedIndex!),
-                  icon: Icon(Icons.edit, size: 18),
-                  label: Text("수정", style: TextStyle(fontSize: 14)),
-                ),
-                ElevatedButton.icon(
-                  onPressed: selectedIndex == null ? null : () => _deleteItem(selectedIndex!),
-                  icon: Icon(Icons.delete, size: 18),
-                  label: Text("삭제", style: TextStyle(fontSize: 14)),
-                ),
-                ElevatedButton.icon(
-                  onPressed: _showPaymentDialog,
-                  icon: Icon(Icons.save, size: 18),
-                  label: Text("등록", style: TextStyle(fontSize: 14)),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    setState(() => _isReturnMode = true);
-                    _scanBarcodeCamera();
-                  },
-                  icon: Icon(Icons.replay),
-                  label: Text("반품"),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                ),
-              ],
-            ),
-          )
-        ],
-      ),
-    );
+  void _selectItem(int index) {
+    setState(() {
+      selectedIndex = index;
+    });
   }
 
+  // 반품 스캔
   void _scanReturnItems() async {
-    _isReturnMode = true; // ✅ 반품 모드 활성화
-    // ✅ 카메라 스캔 실행 후 바코드 값 가져오기
+    _isReturnMode = true;
     String scannedBarcode = await _scanBarcodeCamera();
-
     if (scannedBarcode.isNotEmpty) {
       var product = _findProductByBarcode(scannedBarcode);
-
       if (product != null) {
         setState(() {
           bool isFixedPrice = widget.client['price_type'] == true;
           double unitPrice = isFixedPrice
               ? (product['fixed_price'] ?? 0) * 0.01
               : (product['regular_price'] ?? 0) * 0.01;
-
           _returnedItems.add({
             'name': product['name'],
             'barcode': scannedBarcode,
-            'quantity': 1, // ✅ 바코드 찍는 숫자 (낱개)
-            'unit_price': unitPrice, // ✅ 단가 (일반가 or 고정가)
-            'total_price': -unitPrice, // ✅ 반품 금액 (빨간색, 마이너스 값)
+            'quantity': 1,
+            'unit_price': unitPrice,
+            'total_price': -unitPrice,
           });
         });
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("상품을 찾을 수 없습니다.")),
+          const SnackBar(content: Text("상품을 찾을 수 없습니다.")),
         );
-        _isReturnMode = false; // ✅ 반품 모드 종료
+        _isReturnMode = false;
       }
     }
   }
 
-
-  //입금 팝업창
+  // 입금 팝업 및 처리
   void _showPaymentDialog() {
     double outstandingAmount = widget.client['outstanding_amount']?.toDouble() ?? 0;
     TextEditingController paymentController = TextEditingController(text: "");
-
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (ctx) {
         return AlertDialog(
-          title: Text("거래처 입금"),
+          title: const Text("거래처 입금"),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text("현재 미수금: ${outstandingAmount.toStringAsFixed(2)} 원"),
-              SizedBox(height: 10),
+              const SizedBox(height: 10),
               TextField(
                 controller: paymentController,
                 focusNode: paymentFocusNode,
                 keyboardType: TextInputType.number,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: "입금 금액 입력 (빈 값은 0 처리)",
                   border: OutlineInputBorder(),
                 ),
@@ -491,40 +722,32 @@ class _SalesScreenState extends State<SalesScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text("취소"),
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text("취소"),
             ),
             ElevatedButton(
               onPressed: () {
-                // ✅ 입력값이 없으면 0으로 처리
-                double paymentAmount = double.tryParse(paymentController.text.trim()) ?? 0;
-
-                if (paymentAmount < 0) {
+                double payAmount = double.tryParse(paymentController.text.trim()) ?? 0;
+                if (payAmount < 0) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("올바른 금액을 입력하세요.")),
+                    const SnackBar(content: Text("올바른 금액을 입력하세요.")),
                   );
                   return;
                 }
-
-                _processPayment(paymentAmount); // ✅ double 값 전달
-                Navigator.of(context).pop(); // ✅ 팝업 닫기
+                _processPayment(payAmount);
+                Navigator.of(ctx).pop();
               },
-              child: Text("입금"),
+              child: const Text("입금"),
             ),
           ],
         );
       },
     ).then((_) {
-      paymentFocusNode.requestFocus(); // ✅ 포커스 유지
+      paymentFocusNode.requestFocus();
       _returnedItems.clear();
     });
   }
 
-
-
-
-
-  //미수금 차감 및 서버 전송
   void _processPayment(double paymentAmount) async {
     final int clientId = widget.client['id'];
     final String nowStr = DateTime.now().toIso8601String();
@@ -532,77 +755,69 @@ class _SalesScreenState extends State<SalesScreen> {
 
     if (paymentAmount < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("입금 금액은 0 이상이어야 합니다.")),
+        const SnackBar(content: Text("입금 금액은 0 이상이어야 합니다.")),
       );
       return;
     }
 
     try {
-      // ✅ 미수금 = 기존 미수금 + 스캔한 상품 가격 - 입금액
       double updatedOutstandingAmount = widget.client['outstanding_amount'] + totalScannedItemsPrice - paymentAmount;
-
-      // ✅ UI 업데이트
       setState(() {
-        widget.client['outstanding_amount'] = updatedOutstandingAmount; // ✅ 위젯 값 변경
-        client['outstanding_amount'] = updatedOutstandingAmount; // ✅ 상태 값 변경
+        widget.client['outstanding_amount'] = updatedOutstandingAmount;
+        client['outstanding_amount'] = updatedOutstandingAmount;
       });
 
-      // ✅ 서버 업데이트
       final response = await ApiService.updateClientOutstanding(
         widget.token,
         widget.client['id'],
         {"outstanding_amount": updatedOutstandingAmount},
       );
+
       for (var item in _scannedItems) {
-        final int totalUnits = item['box_quantity'] * item['box_count'];
-        final double returnAmount = 0.0; // ✅ 기본적으로 반품 금액 0으로 설정
+        int totalUnits = item['box_quantity'] * item['box_count'];
+        double returnAmount = 0.0;
         final payload = {
-          "employee_id": auth.user?.id, // ✅ 직원 ID 포함
+          "employee_id": auth.user?.id,
           "client_id": clientId,
           "product_id": item['product_id'],
           "quantity": totalUnits,
           "sale_datetime": nowStr,
           "return_amount": returnAmount,
         };
-
         final resp = await ApiService.createSales(widget.token, payload);
         if (resp.statusCode != 200 && resp.statusCode != 201) {
           throw Exception("매출 등록 실패: ${resp.statusCode} / ${resp.body}");
         }
       }
-      // ✅ 반품 상품 서버 전송
       for (var item in _returnedItems) {
-        final int totalUnits = item['box_quantity'] * item['box_count'];
-        final double defaultPrice = (item['default_price'] ?? 0).toDouble();
-        final double clientPrice = (item['client_price'] ?? 0).toDouble();
-        final double returnAmount = (totalUnits * defaultPrice * clientPrice * 0.01).toDouble();
-        developer.log ("전송 : $totalUnits , $item['default_price'] , $item['client_price'] ");
+        int totalUnits = item['box_quantity'] * item['box_count'];
+        double defaultPrice = (item['default_price'] ?? 0).toDouble();
+        double clientPrice = (item['client_price'] ?? 0).toDouble();
+        double returnAmount = (totalUnits * defaultPrice * clientPrice * 0.01).toDouble();
+        developer.log("전송 : $totalUnits , $defaultPrice , $clientPrice");
         final payload = {
           "employee_id": auth.user?.id,
           "client_id": clientId,
           "product_id": item['product_id'],
-          "quantity": -totalUnits, // ✅ 반품은 음수로 처리
+          "quantity": -totalUnits,
           "sale_datetime": nowStr,
-          "return_amount": returnAmount, // ✅ 반품 금액 추가
+          "return_amount": returnAmount,
         };
-        developer.log("📡 반품 데이터 전송: $payload");  // ✅ API 요청 전에 확인
+        developer.log("📡 반품 데이터 전송: $payload");
         final resp = await ApiService.createSales(widget.token, payload);
         if (resp.statusCode != 200 && resp.statusCode != 201) {
           throw Exception("반품 등록 실패: ${resp.statusCode} / ${resp.body}");
         }
       }
 
-
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("입금이 성공적으로 처리되었습니다.")),
+          const SnackBar(content: Text("입금이 성공적으로 처리되었습니다.")),
         );
-
         setState(() {
-          _scannedItems = List.from([]); // ✅ 스캔한 상품 목록 초기화
+          _scannedItems.clear();
           _returnedItems.clear();
         });
-
       } else {
         throw Exception("서버 오류: ${response.body}");
       }
@@ -613,416 +828,104 @@ class _SalesScreenState extends State<SalesScreen> {
     }
   }
 
-  Widget _buildScannedItemsTable() {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade400),
-        borderRadius: BorderRadius.circular(8),
-        color: Colors.white,
-      ),
-      child: Column(
-        children: [
-          // ✅ 고정된 헤더 (배경색 추가)
-          Container(
-            height: 35,
-            color: Colors.black45,
-            child: _buildHeaderRow(),
-          ),
-
-          // ✅ 상품 목록 (판매 + 반품)
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.vertical,
-              child: Column(
-                children: [
-                  _buildDataRows(),  // ✅ 판매 상품 리스트
-                  _buildReturnRows(), // ✅ 반품 상품 리스트 (같은 구조)
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-
-  Widget _buildReturnRows() {
-    return Column(
-      children: List.generate(_returnedItems.length, (index) {
-        var item = _returnedItems[index];
-
-        // ✅ 반품 합계 금액 정상 계산 (4열 포함)
-        double totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01) * -1;
-
-
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.red.shade50, // ✅ 반품 상품 배경색 (연한 빨간색)
-            border: Border(bottom: BorderSide(color: Colors.red.shade300, width: 0.5)), // ✅ 반품 테이블 구분선
-          ),
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildDataCell(item['name'].toString(), isRed: true),
-              // 박스수량
-              _buildDataCell(item['box_quantity'].toString(), isRed: true),
-              // 개수
-              _buildDataCell(item['box_count'].toString(), isRed: true),
-              // 원래상품가격
-              _buildDataCell(item['default_price'].toStringAsFixed(2), isRed: true),
-              // 거래처 단가
-              _buildDataCell(item['client_price'].toStringAsFixed(2), isRed: true),
-              // 가격유형
-              _buildDataCell(item['price_type'], isRed: true),
-              // 합계(음수)
-              _buildDataCell(totalPrice.toStringAsFixed(2), isBold: true, isRed: true),
-            ],
-          ),
-        );
-      }),
-    );
-  }
-
-
-
-  Widget _buildHeaderRow() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        _buildHeaderCell("상품명"),
-        _buildHeaderCell("개수"),
-        _buildHeaderCell("박스수"),
-        _buildHeaderCell("가격"),
-        _buildHeaderCell("단가"),
-        _buildHeaderCell("유형"),
-        _buildHeaderCell("합계"),
-      ],
-    );
-  }
-
-
-  List<DataColumn> _buildColumns() {
-    return [
-      DataColumn(label: _buildHeaderCell('상품명')),
-      DataColumn(label: _buildHeaderCell('개수')),
-      DataColumn(label: _buildHeaderCell('박스수')),
-      DataColumn(label: _buildHeaderCell('가격')),
-      DataColumn(label: _buildHeaderCell('단가')),
-      DataColumn(label: _buildHeaderCell('유형')),
-      DataColumn(
-        label: SizedBox(
-          width: 120, // ✅ 합계 열을 더 크게 설정
-          child: _buildHeaderCell('합계'),
-        ),
-      ),
-    ];
-  }
-
-  Widget _buildHeaderCell(String text) {
-    return Expanded(
-      child: Container(
-        alignment: Alignment.center,
-        padding: EdgeInsets.symmetric(vertical: 6),
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: Colors.white, // ✅ 헤더 텍스트 색상
-          ),
-        ),
-      ),
-    );
-  }
-  // 상품 목록 테이블을 렌더링
-  Widget _buildDataRows() {
-    return Column(
-      children: List.generate(_scannedItems.length, (index) {
-        var item = _scannedItems[index];
-
-        // ✅ 상품 자체의 가격 유형 확인 (is_fixed_price 사용)
-        bool isFixedPrice = item['price_type'] == "고정가";
-
-
-        // ✅ 총 가격 = (박스수량 * 개수 * 단가)
-        int totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price']* 0.01).round();
-
-        return GestureDetector(
-          onTap: () => _selectItem(index), // 클릭 시 해당 상품 선택
-          child: Container(
-            decoration: BoxDecoration(
-              color: index == selectedIndex ? Colors.blue.shade100 : (index.isEven ? Colors.grey.shade100 : Colors.white), // 선택된 행 색상 변경
-              border: Border(
-                bottom: BorderSide(color: Colors.grey.shade300, width: 0.5), // 가로줄 스타일
-              ),
-            ),
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildDataCell(item['name'].toString()), // 상품명
-                _buildDataCell(item['box_quantity'].toString()), // 박스 수량
-                _buildDataCell(item['box_count'].toString()), // 수량
-                _buildDataCell(formatter.format(item['default_price'].round())), // ✅ 상품 원래 가격
-                _buildDataCell(item['client_price'].toStringAsFixed(2)), // ✅ 거래처 단가
-                _buildDataCell(isFixedPrice ? '고정가' : '일반가'), // ✅ 가격 유형
-                _buildDataCell(formatter.format(totalPrice), isBold: true), // ✅ 합계
-              ],
-            ),
-          ),
-        );
-      }),
-    );
-  }
-
-
-
-
-
-
-  DataRow _buildEmptyDataRow() {
-    return DataRow(
-      cells: List.generate(
-        7,
-            (index) => DataCell(
-          Center(
-            child: Text(
-              "-",
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDataCell(String text, {bool isBold = false, bool isRed = false}) {
-    return Expanded(
-      child: Center(
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isBold ? FontWeight.bold : FontWeight.normal, // ✅ 합계는 볼드 처리
-            color: isRed ? Colors.red : Colors.black87,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ),
-    );
-  }
-
-
-  Widget _buildSummaryRow() {
-    final formatter = NumberFormat("#,###"); // ✅ 천단위 콤마 적용
-
-    // ✅ 판매 상품의 총 박스수량 계산
-    int totalBoxCount = _scannedItems.fold(0, (sum, item) {
-      int boxQty = (item['box_quantity'] ?? 0).toInt();
-      int boxCnt = (item['box_count'] ?? 0).toInt();
-      return sum + (boxQty * boxCnt);
-    });
-
-    // ✅ 반품 상품의 총 박스수량 계산 (음수로 적용)
-    int totalReturnBoxCount = _returnedItems.fold(0, (sum, item) {
-      int boxQty = (item['box_quantity'] ?? 0).toInt();
-      int boxCnt = (item['box_count'] ?? 0).toInt();
-      return sum - (boxQty * boxCnt);
-    });
-
-    // ✅ 판매 상품의 총 수량 계산
-    int totalItemCount = _scannedItems.fold(0, (sum, item) {
-      int boxCnt = (item['box_count'] ?? 0).toInt();
-      return sum + boxCnt;
-    });
-
-    // ✅ 반품 상품의 총 수량 계산 (음수로 적용)
-    int totalReturnItemCount = _returnedItems.fold(0, (sum, item) {
-      int boxCnt = (item['box_count'] ?? 0).toInt();
-      return sum - boxCnt;
-    });
-
-    // ✅ 판매 상품의 총 판매 금액 계산 (상품 가격 * 거래처 단가 포함)
-    int totalSalesAmount = _scannedItems.fold(0, (sum, item) {
-      int boxQuantity = (item['box_quantity'] ?? 0);
-      int boxCount = (item['box_count'] ?? 0);
-      double defaultPrice = item['default_price'] ?? 0.0;
-      double clientPrice = item['client_price'] ?? 0.0;
-
-      return sum + ((boxQuantity * boxCount * defaultPrice * clientPrice) * 0.01).round();
-    });
-
-    // ✅ 반품 상품의 총 반품 금액 계산 (상품 가격 * 거래처 단가 포함, 음수 적용)
-    int totalReturnAmount = _returnedItems.fold(0, (sum, item) {
-      int boxQuantity = (item['box_quantity'] ?? 0);
-      int boxCount = (item['box_count'] ?? 0);
-      double defaultPrice = item['default_price'] ?? 0.0;
-      double clientPrice = item['client_price'] ?? 0.0;
-
-      return sum - ((boxQuantity * boxCount * defaultPrice * clientPrice) * 0.01).round();
-    });
-    totalReturnedItemsPrice = -totalReturnAmount.toDouble();
-    // ✅ 최종 총 매출 금액 계산 (판매 - 반품)
-    int finalTotal = totalSalesAmount + totalReturnAmount;
-    totalScannedItemsPrice = finalTotal.toDouble();
-    return Container(
-      color: Colors.grey.shade300, // ✅ 배경색 추가 (고정 행 강조)
-      padding: EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildSummaryCell("수량 합계", formatter.format(totalBoxCount + totalReturnBoxCount)), // ✅ 천단위 콤마 적용
-          _buildSummaryCell("박스수 합계", formatter.format(totalItemCount )), // ✅ 천단위 콤마 적용
-          _buildSummaryCell("총 금액", formatter.format(finalTotal) + " 원", isBold: true), // ✅ 천단위 콤마 적용 & 소수점 제거
-        ],
-      ),
-    );
-  }
-
-
-
-  // ✅ 바코드로 상품 찾기 함수 추가
+  // 바코드로 상품 찾기
   Map<String, dynamic>? _findProductByBarcode(String barcode) {
     return _scannedItems.firstWhere(
           (product) => product['barcode'] == barcode,
-      orElse: () => <String, dynamic>{}, // ✅ 빈 맵 반환하여 null 방지
+      orElse: () => <String, dynamic>{},
     );
   }
 
-
-
-
-// ✅ 합계 행 스타일을 적용하는 함수
-  Widget _buildSummaryCell(String label, String value, {bool isBold = false}) {
-    return Expanded(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+  // 최종 화면 (AppBar에 BLE 스캔 버튼 추가)
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("판매 화면 (BLE 방식)"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.bluetooth),
+            onPressed: _isScanning ? null : startBleScan,
+          ),
+        ],
+      ),
+      body: Column(
         children: [
-          Text(
-            "$label: $value",
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-              color: isBold ? Colors.black : Colors.black87,
+          // BLE 상태 표시
+          Container(
+            padding: const EdgeInsets.all(8),
+            child: Text("BLE 상태: $_bleStatus"),
+          ),
+          // 숨겨진 TextField (BLE 스캐너 입력용; readOnly로 키보드 표시 방지)
+          TextField(
+            controller: _scannerController,
+            focusNode: _scannerFocusNode,
+            readOnly: true,
+            enableInteractiveSelection: false,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
             ),
-            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.transparent, fontSize: 0.1),
+            cursorColor: Colors.transparent,
+            onSubmitted: _onScannerSubmitted,
+            onChanged: _onScannerChanged,
+          ),
+          // 거래처 정보
+          _buildClientInfoTable(),
+          // 스캔된 상품 목록
+          Expanded(child: _buildScannedItemsTable()),
+          // 합계
+          _buildSummaryRow(),
+          // 버튼들
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 1,
+              alignment: WrapAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() => _isReturnMode = false);
+                    _scanBarcodeCamera();
+                  },
+                  icon: const Icon(Icons.camera_alt, size: 20),
+                  label: const Text("카메라 스캔", style: TextStyle(fontSize: 14)),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _clearAllItems,
+                  icon: const Icon(Icons.clear, size: 18),
+                  label: const Text("초기화", style: TextStyle(fontSize: 14)),
+                ),
+                ElevatedButton.icon(
+                  onPressed: selectedIndex == null ? null : () => _showEditQuantityDialog(selectedIndex!),
+                  icon: const Icon(Icons.edit, size: 18),
+                  label: const Text("수정", style: TextStyle(fontSize: 14)),
+                ),
+                ElevatedButton.icon(
+                  onPressed: selectedIndex == null ? null : () => _deleteItem(selectedIndex!),
+                  icon: const Icon(Icons.delete, size: 18),
+                  label: const Text("삭제", style: TextStyle(fontSize: 14)),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _showPaymentDialog,
+                  icon: const Icon(Icons.save, size: 18),
+                  label: const Text("등록", style: TextStyle(fontSize: 14)),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() => _isReturnMode = true);
+                    _scanBarcodeCamera();
+                  },
+                  icon: const Icon(Icons.replay),
+                  label: const Text("반품", style: TextStyle(fontSize: 14)),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
-
-  //거래처 정보 갱신
-  void _fetchUpdatedClientInfo() async {
-    try {
-      final response = await ApiService.fetchClientById(widget.token, client['id']);
-      if (response.statusCode == 200) {
-        var updatedClient = jsonDecode(response.body) as Map<String, dynamic>;
-
-        setState(() {
-          client = updatedClient; // ✅ 새로운 Map으로 복사하여 UI 강제 갱신
-        });
-      } else {
-        throw Exception("거래처 정보 갱신 실패");
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("거래처 정보 업데이트 실패: $e")),
-      );
-    }
-  }
-  // 수량 수정 다이얼로그
-  void _showEditQuantityDialog(int index) {
-    TextEditingController quantityController = TextEditingController(
-      text: _scannedItems[index]['box_count'].toString(),
-    );
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text("수량 수정"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // 수량 감소 버튼
-                  IconButton(
-                    icon: Icon(Icons.remove),
-                    onPressed: () {
-                      int currentQty = int.tryParse(quantityController.text) ?? 0;
-                      if (currentQty > 0) {
-                        setState(() {
-                          quantityController.text = (currentQty - 1).toString();
-                        });
-                      }
-                    },
-                  ),
-                  // 수량 입력 필드
-                  Expanded(
-                    child: TextField(
-                      controller: quantityController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(labelText: "수량"),
-                    ),
-                  ),
-                  // 수량 증가 버튼
-                  IconButton(
-                    icon: Icon(Icons.add),
-                    onPressed: () {
-                      int currentQty = int.tryParse(quantityController.text) ?? 0;
-                      setState(() {
-                        quantityController.text = (currentQty + 1).toString();
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text("취소"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                int newQuantity = int.tryParse(quantityController.text) ?? 0;
-                if (newQuantity > 0) {
-                  setState(() {
-                    _scannedItems[index]['box_count'] = newQuantity;
-                  });
-                }
-                Navigator.of(context).pop();
-              },
-              child: Text("수정"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-  // 스캔한 상품 삭제
-  void _deleteItem(int index) {
-    setState(() {
-      _scannedItems.removeAt(index); // 해당 인덱스의 상품 삭제
-    });
-  }
-
-  void _clearAllItems() {
-    setState(() {
-      _scannedItems.clear(); // 모든 상품 목록 초기화
-      _returnedItems.clear(); // ✅ 모든 반품 목록 초기화
-    });
-    Fluttertoast.showToast(msg: "판매 및 반품 목록이 초기화되었습니다.", gravity: ToastGravity.BOTTOM);
-  }
-
-
 }
