@@ -11,7 +11,20 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:intl/intl.dart'; // ✅ 숫자 포맷을 위한 패키지 추가
 import 'dart:developer' as developer;
 import 'package:flutter/services.dart';
+import 'package:flutter_blue/flutter_blue.dart';
 
+void _monitorBluetoothEvents() {
+  FlutterBlue flutterBlue = FlutterBlue.instance;
+
+  flutterBlue.state.listen((BluetoothState state) {
+    print("📡 블루투스 상태 변경됨: $state");
+
+    if (state == BluetoothState.on) {
+      print("🔄 HID 스캐너가 다시 연결됨 → 앱이 종료되지 않도록 유지");
+      SystemChannels.platform.invokeMethod('SystemNavigator.pop'); // ✅ 앱이 백그라운드로 이동
+    }
+  });
+}
 class SalesScreen extends StatefulWidget {
   final String token;
   final Map<String, dynamic> client; // 거래처 정보
@@ -23,7 +36,7 @@ class SalesScreen extends StatefulWidget {
 }
 
 
-class _SalesScreenState extends State<SalesScreen> {
+class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   late Map<String, dynamic> client; // ✅ 변경 가능하도록 설정
   late TextEditingController paymentController;
   late FocusNode paymentFocusNode;
@@ -46,23 +59,16 @@ class _SalesScreenState extends State<SalesScreen> {
   int? selectedIndex; // ✅ 선택된 행의 인덱스 저장
   bool _isLoading = false;
   String? _error;
+  @override
 
-  void _debugPrintProducts() {
-    final productProvider = context.read<ProductProvider>();
 
-    if (productProvider.products.isEmpty) {
-      print("❌ 상품 목록이 비어 있습니다! 서버에서 데이터를 받아오지 못했을 가능성이 큽니다.");
-    } else {
-      print("✅ 상품 목록 로드 완료! 총 ${productProvider.products.length}개의 상품이 있습니다.");
-      for (var product in productProvider.products) {
-        print("🔹 상품명: ${product['product_name']}, 바코드: ${product['barcode']}");
-      }
-    }
-  }
 
   @override
   void initState() {
     super.initState();
+    _monitorBluetoothEvents();
+    WidgetsBinding.instance.addObserver(this);
+    print("✅ SalesScreen 실행됨");
     client = Map<String, dynamic>.from(widget.client); // client 초기화
     paymentController = TextEditingController(text: ""); // 입금 금액 기본값 빈 문자열로 설정
     paymentFocusNode = FocusNode(); // 포커스 노드 초기화
@@ -99,10 +105,35 @@ class _SalesScreenState extends State<SalesScreen> {
   }
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     paymentController.dispose();
     paymentFocusNode.dispose();
     super.dispose();
   }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    print("📡 앱 라이프사이클 변경됨: $state");
+
+    if (state == AppLifecycleState.detached) {
+      print("⚠️ 앱이 강제 종료될 예정 → 무시하고 유지");
+      SystemNavigator.pop(); // ✅ 앱을 백그라운드로 이동
+      return;
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      print("🔄 HID 스캐너가 다시 켜짐 → SalesScreen만 새로고침");
+      _reloadPage();
+    }
+  }
+
+  void _reloadPage() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => SalesScreen(token: widget.token, client: widget.client)),
+    );
+  }
+
+
 
   // 상품을 클릭하여 선택된 인덱스를 저장
   void _selectItem(int index) {
@@ -123,6 +154,7 @@ class _SalesScreenState extends State<SalesScreen> {
   }
   // 바코드 카메라 스캔
   Future<String> _scanBarcodeCamera() async {
+
     try {
       final barcode = await Navigator.push(
         context,
@@ -151,6 +183,15 @@ class _SalesScreenState extends State<SalesScreen> {
 
   // 바코드 처리
   Future<void> _handleBarcode(String barcode) async {
+    final authProvider = context.read<AuthProvider>();
+
+    // ✅ 로그인 상태 확인 (로그인 정보 없으면 로그인 화면으로 이동)
+    if (authProvider.user == null) {
+      print("⚠️ 로그인 세션 만료됨. 로그인 화면으로 이동");
+      Navigator.pushReplacementNamed(context, '/login');
+      return;
+    }
+
     if (barcode.isEmpty) {
       Fluttertoast.showToast(msg: "스캔된 바코드가 비어 있습니다.", gravity: ToastGravity.BOTTOM);
       return;
@@ -283,10 +324,10 @@ class _SalesScreenState extends State<SalesScreen> {
           3: FractionColumnWidth(0.25),
         },
         children: [
-          _buildTableRow("거래처명", widget.client['client_name'], "대표자", widget.client['representative_name'] ?? "정보 없음"),  // ✅ 대표자 추가
+          _buildTableRow("거래처명", widget.client['client_name'], "미수금", widget.client['outstanding_amount'].round()?.toString() ?? "0"),
           _buildTableRow("주소", widget.client['address'] ?? "정보 없음", "전화번호", widget.client['phone'] ?? "정보 없음"),
           _buildTableRow("사업자 번호", widget.client['business_number'] ?? "정보 없음", "이메일", widget.client['email'] ?? "정보 없음"),
-          _buildTableRow("일반가", widget.client['regular_price']?.toString() ?? "정보 없음", "고정가", widget.client['fixed_price']?.toString() ?? "정보 없음"),
+          _buildTableRow("일반가", widget.client['regular_price'].round()?.toString() ?? "정보 없음", "고정가", widget.client['fixed_price'].round()?.toString() ?? "정보 없음"),
         ],
       ),
 
@@ -343,31 +384,40 @@ class _SalesScreenState extends State<SalesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = context.watch<AuthProvider>(); // 인증 상태 가져오기
+
+    if (authProvider.user == null) {
+      // ❌ 유저 정보가 없으면 로그인 화면으로 리디렉트 방지
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacementNamed(context, '/login'); // 로그인 화면으로 이동
+      });
+    }
     return Scaffold(
       appBar: AppBar(
-        title: Text("판매 화면 (RawKeyboardListener 예시)"),
+        title: Text("판매 화면"),
       ),
       body: RawKeyboardListener(
         focusNode: _keyboardFocusNode,
-        autofocus: true, // true면 이 위젯이 자동 포커스
+        autofocus: true,
         onKey: (RawKeyEvent event) {
           if (event is RawKeyDownEvent) {
-            print("🔵 RawKeyEvent: logicalKey=${event.logicalKey}, keyLabel='${event.logicalKey.keyLabel}', character='${event.character}'");
-            // 3-1) 엔터(줄바꿈) 만나면 바코드 처리
+            print("🔵 HID 스캐너 키 입력 감지: ${event.logicalKey} / ${event.character}");
+
+            // ✅ HID 스캐너가 다시 켜질 때 발생하는 특정 키 신호 무시
+            if (event.logicalKey == LogicalKeyboardKey.power || event.logicalKey == LogicalKeyboardKey.select) {
+              print("⚠️ HID 스캐너 신호 감지됨 → 무시");
+              return;
+            }
+
             if (event.logicalKey == LogicalKeyboardKey.enter) {
               if (_barcodeBuffer.isNotEmpty) {
-                print("✅ 바코드 입력 완료: '$_barcodeBuffer'"); // 🔍 바코드 최종 값 확인
+                print("✅ 바코드 입력 완료: '$_barcodeBuffer'");
                 _handleBarcode(_barcodeBuffer.trim());
+                _barcodeBuffer = ''; // 버퍼 초기화
               }
-              _barcodeBuffer = ''; // 버퍼 초기화
+            } else if (event.character != null && event.character!.isNotEmpty) {
+              _barcodeBuffer += event.character!;
             }
-            // 3-2) 일반 문자가 들어오면 버퍼에 쌓기
-            else if (event.logicalKey.keyLabel.length == 1) {
-              // keyLabel이 알파벳, 숫자, 특수문자 등 1글자인 경우
-              _barcodeBuffer += event.logicalKey.keyLabel;
-              print("🟡 현재 바코드 버퍼: '$_barcodeBuffer'");
-            }
-            // 나머지 키(Shift, Backspace 등)는 필요시 처리
           }
         },
         // --------------------------------------------------
@@ -390,53 +440,78 @@ class _SalesScreenState extends State<SalesScreen> {
             Container(
               padding: EdgeInsets.symmetric(vertical: 2),
               child: Wrap(
-                spacing: 6,
-                runSpacing: 1,
-                alignment: WrapAlignment.center,
+                spacing: 8, // 버튼 간 가로 간격
+                runSpacing: 8, // 버튼 간 세로 간격
+                alignment: WrapAlignment.center, // 중앙 정렬
                 children: [
+                  // 첫 번째 줄: 판매, 반품, 카메라 스캔, 초기화
                   ElevatedButton.icon(
                     onPressed: () {
                       setState(() {
-                        _isReturnMode = false;
+                        _isReturnMode = false; // ✅ 판매 모드
                       });
-                      _scanBarcodeCamera();
                     },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _isReturnMode ? Colors.grey : Colors.blue,
+                      minimumSize: Size(90, 40), // 버튼 크기 조정
+                    ),
+                    icon: Icon(Icons.shopping_cart, size: 20, color: Colors.white), // 🛒 판매 아이콘 추가
+                    label: Text("판매"),
+                  ),
+
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _isReturnMode = true; // ✅ 반품 모드
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _isReturnMode ? Colors.red : Colors.grey,
+                      minimumSize: Size(90, 40),
+                    ),
+                    icon: Icon(Icons.replay, size: 20, color: Colors.white), // 🔄 반품 아이콘 추가
+                    label: Text("반품"),
+                  ),
+
+                  ElevatedButton.icon(
+                    onPressed: _scanBarcodeCamera,
                     icon: Icon(Icons.camera_alt, size: 20),
                     label: Text("스캔", style: TextStyle(fontSize: 14)),
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: Size(110, 40),
+                    ),
                   ),
                   ElevatedButton.icon(
                     onPressed: _clearAllItems,
                     icon: Icon(Icons.clear, size: 18),
                     label: Text("초기화", style: TextStyle(fontSize: 14)),
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: Size(100, 40),
+                    ),
                   ),
+
+                  // 두 번째 줄: 수정, 삭제, 등록, 설정
                   ElevatedButton.icon(
                     onPressed: selectedIndex == null ? null : () => _showEditQuantityDialog(selectedIndex!),
                     icon: Icon(Icons.edit, size: 18),
                     label: Text("수정", style: TextStyle(fontSize: 14)),
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: Size(100, 40),
+                    ),
                   ),
-                  ElevatedButton.icon(
-                    onPressed: selectedIndex == null ? null : () => _deleteItem(selectedIndex!),
-                    icon: Icon(Icons.delete, size: 18),
-                    label: Text("삭제", style: TextStyle(fontSize: 14)),
-                  ),
+
                   ElevatedButton.icon(
                     onPressed: () => _showPaymentDialog(),
                     icon: Icon(Icons.save, size: 18),
-                    label: Text("등록", style: TextStyle(fontSize: 14)),
+                    label: Text("인쇄", style: TextStyle(fontSize: 14)),
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: Size(100, 40),
+                    ),
                   ),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _isReturnMode = true;
-                      });
-                      _scanBarcodeCamera();
-                    },
-                    icon: Icon(Icons.replay),
-                    label: Text("반품"),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                  ),
+
                 ],
               ),
+
             )
           ],
         ),
@@ -686,13 +761,13 @@ class _SalesScreenState extends State<SalesScreen> {
               // 개수
               _buildDataCell(item['box_count'].toString(), isRed: true),
               // 원래상품가격
-              _buildDataCell(item['default_price'].toStringAsFixed(2), isRed: true),
+              _buildDataCell(formatter.format(item['default_price'].toInt()), isRed: true),
               // 거래처 단가
-              _buildDataCell(item['client_price'].toStringAsFixed(2), isRed: true),
+              _buildDataCell(formatter.format(item['client_price'].toInt()), isRed: true),
               // 가격유형
               _buildDataCell(item['price_type'], isRed: true),
               // 합계(음수)
-              _buildDataCell(totalPrice.toStringAsFixed(2), isBold: true, isRed: true),
+              _buildDataCell(formatter.format(totalPrice.toInt()), isBold: true, isRed: true),
             ],
           ),
         );
@@ -782,7 +857,7 @@ class _SalesScreenState extends State<SalesScreen> {
                 _buildDataCell(item['box_quantity'].toString()), // 박스 수량
                 _buildDataCell(item['box_count'].toString()), // 수량
                 _buildDataCell(formatter.format(item['default_price'].round())), // ✅ 상품 원래 가격
-                _buildDataCell(item['client_price'].toStringAsFixed(2)), // ✅ 거래처 단가
+                _buildDataCell(formatter.format(item['client_price'].toInt())), // ✅ 거래처 단가
                 _buildDataCell(isFixedPrice ? '고정가' : '일반가'), // ✅ 가격 유형
                 _buildDataCell(formatter.format(totalPrice), isBold: true), // ✅ 합계
               ],
@@ -951,6 +1026,7 @@ class _SalesScreenState extends State<SalesScreen> {
     }
   }
   // 수량 수정 다이얼로그
+  // 수량 수정 다이얼로그
   void _showEditQuantityDialog(int index) {
     TextEditingController quantityController = TextEditingController(
       text: _scannedItems[index]['box_count'].toString(),
@@ -972,19 +1048,17 @@ class _SalesScreenState extends State<SalesScreen> {
                     icon: Icon(Icons.remove),
                     onPressed: () {
                       int currentQty = int.tryParse(quantityController.text) ?? 0;
-                      if (currentQty > 0) {
-                        setState(() {
-                          quantityController.text = (currentQty - 1).toString();
-                        });
-                      }
+                      setState(() {
+                        quantityController.text = (currentQty - 1).toString(); // ✅ 음수도 허용
+                      });
                     },
                   ),
-                  // 수량 입력 필드
+                  // 수량 입력 필드 (음수 허용)
                   Expanded(
                     child: TextField(
                       controller: quantityController,
                       keyboardType: TextInputType.number,
-                      decoration: InputDecoration(labelText: "수량"),
+                      decoration: InputDecoration(labelText: "수량 입력"),
                     ),
                   ),
                   // 수량 증가 버튼
@@ -1009,26 +1083,37 @@ class _SalesScreenState extends State<SalesScreen> {
             ElevatedButton(
               onPressed: () {
                 int newQuantity = int.tryParse(quantityController.text) ?? 0;
-                if (newQuantity > 0) {
+
+                if (newQuantity == 0) {
+                  // ✅ 0일 경우 삭제, 팝업이 닫힌 후 삭제 실행
+                  Navigator.of(context).pop(); // 팝업 닫기
+                  Future.delayed(Duration(milliseconds: 200), () {
+                    _deleteItem(index); // 삭제 실행
+                  });
+                } else {
+                  // ✅ 0이 아닐 경우 업데이트
                   setState(() {
                     _scannedItems[index]['box_count'] = newQuantity;
                   });
+                  Navigator.of(context).pop(); // 팝업 닫기
                 }
-                Navigator.of(context).pop();
               },
-              child: Text("수정"),
+              child: Text("확인"),
             ),
           ],
         );
       },
     );
   }
-  // 스캔한 상품 삭제
+
+
+// 스캔한 상품 삭제
   void _deleteItem(int index) {
     setState(() {
       _scannedItems.removeAt(index); // 해당 인덱스의 상품 삭제
     });
   }
+
 
   void _clearAllItems() {
     setState(() {

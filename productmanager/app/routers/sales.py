@@ -812,3 +812,46 @@ def get_employee_sales_data(employee_id: int, year: int, month: int, db: Session
         })
     
     return results
+
+@router.get("/monthly_sales")
+def fetch_monthly_sales(db: Session = Depends(get_db)):
+    """
+    모든 직원의 이번 달 판매 총합 조회
+    """
+    today = get_kst_today()
+    current_year = today.year
+    current_month = today.month
+
+    print(f"📌 [FastAPI] 매출 데이터 요청 - {current_year}년 {current_month}월")
+
+    # 🔹 직원별 매출 합계 계산
+    results = (
+        db.query(
+            SalesRecord.employee_id,
+            Employee.name.label("employee_name"),
+            func.sum(Product.default_price * SalesRecord.quantity).label("total_sales")
+        )
+        .join(Employee, SalesRecord.employee_id == Employee.id)
+        .join(Product, SalesRecord.product_id == Product.id)
+        .filter(extract('year', SalesRecord.sale_datetime) == current_year)
+        .filter(extract('month', SalesRecord.sale_datetime) == current_month)
+        .group_by(SalesRecord.employee_id, Employee.name)
+        .all()
+    )
+
+    if not results:
+        print("⚠️ [FastAPI] 이번 달 매출 데이터가 없습니다.")
+
+    # 🔹 결과 데이터 변환
+    sales_data = [
+        {
+            "employee_id": row.employee_id,
+            "employee_name": row.employee_name,
+            "total_sales": float(row.total_sales or 0)
+        }
+        for row in results
+    ]
+
+    print(f"📊 [FastAPI] 매출 데이터 반환: {sales_data}")
+
+    return sales_data

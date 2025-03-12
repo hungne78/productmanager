@@ -242,6 +242,35 @@ class ApiService {
     final response = await http.post(url, headers: headers, body: jsonEncode(data));
     return jsonDecode(response.body);
   }
+  // 🔹 모든 직원의 이번 달 매출 조회
+  // 🔹 모든 직원의 이번 달 매출 조회
+  static Future<http.Response> fetchMonthlySales(String token) async {
+    final Uri url = Uri.parse("$baseUrl/sales/monthly_sales");
+
+    print("📡 [Flutter] 매출 데이터 요청 시작: $url");
+
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          "Authorization": "Bearer $token",
+          "Content-Type": "application/json",
+        },
+      );
+
+      print("📡 [Flutter] 응답 코드: ${response.statusCode}");
+      print("📡 [Flutter] 응답 데이터: ${response.body}");
+
+      if (response.statusCode == 200) {
+        return response;
+      } else {
+        throw Exception("❌ 매출 데이터 요청 실패: ${response.body}");
+      }
+    } catch (e) {
+      print("❌ [Flutter] API 요청 오류: $e");
+      throw Exception("❌ API 요청 오류: $e");
+    }
+  }
+}
 
 // etc...
-}

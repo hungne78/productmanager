@@ -1,39 +1,49 @@
 import 'package:flutter/material.dart';
-import 'screens/login_screen.dart';  // 우리가 만든 파일 import
+import 'dart:async';
+import 'screens/login_screen.dart';  // 우리가 만든 로그인 화면 import
 import 'package:provider/provider.dart';
-import 'auth_provider.dart'; // 방금 만든 ChangeNotifier
-import 'product_provider.dart';
-import 'vehicle_stock_provider.dart';
+import 'auth_provider.dart'; // 인증 관련 Provider
+import 'product_provider.dart'; // 상품 관련 Provider
+import 'vehicle_stock_provider.dart'; // 차량 재고 관련 Provider
+import 'screens/home_screen.dart';
 void main() {
-  runApp(
-    MultiProvider(
-      providers: [
-
-        ChangeNotifierProvider<AuthProvider>(
-          create: (_) => AuthProvider(),
-        ),
-        ChangeNotifierProvider<ProductProvider>(
-          create: (_) => ProductProvider(),
-          child: MaterialApp(
-            home: MyApp(),
+  runZonedGuarded(() {
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AuthProvider>(
+            create: (_) => AuthProvider(),
           ),
-        ),
-        // ↑ 필요하다면 다른 Provider도 등록
-        ChangeNotifierProvider(create: (_) => VehicleStockProvider()),
-      ],
-      child: const MyApp(),
-    ),
-  );
+          ChangeNotifierProvider<ProductProvider>(
+            create: (_) => ProductProvider(),
+          ),
+          ChangeNotifierProvider<VehicleStockProvider>(
+            create: (_) => VehicleStockProvider(),
+          ),
+        ],
+        child: const MyApp(), // ✅ `MaterialApp`을 여기서 호출해야 함!
+      ),
+    );
+  }, (error, stackTrace) {
+    debugPrint("❌ Flutter 앱 크래시 발생: $error");
+    debugPrint("📌 StackTrace: $stackTrace");
+  });
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
+    final authProvider = context.watch<AuthProvider>();
+
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'My Flutter App',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: const LoginScreen(),
+      home: authProvider.user == null
+          ? const LoginScreen()
+          : HomeScreen(token: authProvider.user!.token),
     );
   }
 }

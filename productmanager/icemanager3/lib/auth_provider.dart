@@ -19,4 +19,13 @@ class AuthProvider extends ChangeNotifier {
     _user = null;
     notifyListeners();
   }
+
+  // ✅ 앱 실행 시 로그인 유지 확인
+  void checkLoginStatus() {
+    if (_user != null) {
+      print("✅ 로그인 유지됨: ${_user!.name}");
+    } else {
+      print("⚠️ 로그인 세션 없음");
+    }
+  }
 }
