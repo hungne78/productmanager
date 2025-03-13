@@ -11,20 +11,10 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:intl/intl.dart'; // ✅ 숫자 포맷을 위한 패키지 추가
 import 'dart:developer' as developer;
 import 'package:flutter/services.dart';
-import 'package:flutter_blue/flutter_blue.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart'as spp; // SPP 모드
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' as BLE;// BLE 모드
+import 'package:shared_preferences/shared_preferences.dart'; // 설정 저장
 
-void _monitorBluetoothEvents() {
-  FlutterBlue flutterBlue = FlutterBlue.instance;
-
-  flutterBlue.state.listen((BluetoothState state) {
-    print("📡 블루투스 상태 변경됨: $state");
-
-    if (state == BluetoothState.on) {
-      print("🔄 HID 스캐너가 다시 연결됨 → 앱이 종료되지 않도록 유지");
-      SystemChannels.platform.invokeMethod('SystemNavigator.pop'); // ✅ 앱이 백그라운드로 이동
-    }
-  });
-}
 class SalesScreen extends StatefulWidget {
   final String token;
   final Map<String, dynamic> client; // 거래처 정보
@@ -43,8 +33,11 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
 
 
   String _barcodeBuffer = ''; // 바코드 누적 버퍼
-  final FocusNode _keyboardFocusNode = FocusNode();
+  final FocusNode _keyboardFocusNode = FocusNode(); // HID 모드 감지
+  final MobileScannerController _cameraScanner = MobileScannerController(); // 카메라 바코드 스캔
+  spp.BluetoothConnection? _bluetoothConnection; // SPP 모드 블루투스 연결
 
+  String _scannerMode = "HID"; // 기본 HID 모드
 
   double totalScannedItemsPrice = 0.0;
   double totalReturnedItemsPrice = 0.0;
@@ -66,7 +59,10 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    _monitorBluetoothEvents();
+    _loadScannerMode();
+    _initializeSPP(); // SPP 모드 초기화
+    _initializeBLE(); // BLE 모드 초기화
+
     WidgetsBinding.instance.addObserver(this);
     print("✅ SalesScreen 실행됨");
     client = Map<String, dynamic>.from(widget.client); // client 초기화
@@ -105,35 +101,68 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   }
   @override
   void dispose() {
+    _cameraScanner.dispose();
+    _bluetoothConnection?.finish();
     WidgetsBinding.instance.removeObserver(this);
     paymentController.dispose();
     paymentFocusNode.dispose();
     super.dispose();
   }
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    print("📡 앱 라이프사이클 변경됨: $state");
+  /// 📌 저장된 바코드 스캔 모드 불러오기
+  Future<void> _loadScannerMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _scannerMode = prefs.getString('scanner_mode') ?? "HID";
+    });
+  }
 
-    if (state == AppLifecycleState.detached) {
-      print("⚠️ 앱이 강제 종료될 예정 → 무시하고 유지");
-      SystemNavigator.pop(); // ✅ 앱을 백그라운드로 이동
-      return;
-    }
+  /// 📌 SPP 모드 초기화 (Bluetooth Serial)
+  Future<void> _initializeSPP() async {
+    List<spp.BluetoothDevice> devices = await spp.FlutterBluetoothSerial.instance.getBondedDevices();
 
-    if (state == AppLifecycleState.resumed) {
-      print("🔄 HID 스캐너가 다시 켜짐 → SalesScreen만 새로고침");
-      _reloadPage();
+    if (devices.isNotEmpty) {
+      spp.BluetoothDevice selectedDevice = devices.first; // 첫 번째 페어링된 장치 사용 (실제 앱에서는 UI에서 선택하도록 구현)
+
+      spp.BluetoothConnection.toAddress(selectedDevice.address).then((connection) {
+        setState(() => _bluetoothConnection = connection);
+        connection.input?.listen((Uint8List data) {
+          String barcode = String.fromCharCodes(data);
+          _handleBarcode(barcode);
+        });
+      }).catchError((error) {
+        print("⚠️ SPP 연결 실패: $error");
+      });
+    } else {
+      print("❌ 페어링된 블루투스 장치가 없습니다.");
     }
   }
 
-  void _reloadPage() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => SalesScreen(token: widget.token, client: widget.client)),
-    );
+
+  /// 📌 BLE 모드 초기화
+  void _initializeBLE() {
+    BLE.FlutterBluePlus.startScan(timeout: Duration(seconds: 5));
+
+    BLE.FlutterBluePlus.scanResults.listen((results) {
+      for (BLE.ScanResult result in results) {
+        if (result.device.name.contains("BarcodeScanner") && !result.device.isConnected) {
+          result.device.connect();
+          result.device.discoverServices().then((services) {
+            for (BLE.BluetoothService service in services) {
+              for (BLE.BluetoothCharacteristic characteristic in service.characteristics) {
+                if (characteristic.properties.notify) {
+                  characteristic.setNotifyValue(true);
+                  characteristic.value.listen((List<int> value) {
+                    String barcode = utf8.decode(value.where((byte) => byte != 0x00).toList());
+                    _handleBarcode(barcode);
+                  });
+                }
+              }
+            }
+          });
+        }
+      }
+    });
   }
-
-
 
   // 상품을 클릭하여 선택된 인덱스를 저장
   void _selectItem(int index) {
@@ -144,14 +173,26 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   String fixLeadingDuplicates(String barcode) {
     if (barcode.isEmpty) return barcode;
 
-    // 맨 앞 글자를 복제하여 보정
-    if (barcode.length > 1 && barcode[0] != barcode[1]) {
+    // ✅ 단독 8 → 88, 단독 7 → 77 변환
+    if (barcode == "8") return "88";
+    if (barcode == "7") return "77";
+
+    // ✅ 앞부분이 8으로 시작하지만 88이 아니라면 88로 보정
+    if (barcode.startsWith("8") && !barcode.startsWith("88")) {
       print("🔴 [보정 전] 바코드: $barcode");
-      barcode = barcode[0] + barcode; // 첫 번째 글자를 추가
+      barcode = "88" + barcode.substring(1);
       print("🟢 [보정 후] 바코드: $barcode");
     }
+    // ✅ 앞부분이 7으로 시작하지만 77이 아니라면 77로 보정
+    else if (barcode.startsWith("7") && !barcode.startsWith("77")) {
+      print("🔴 [보정 전] 바코드: $barcode");
+      barcode = "77" + barcode.substring(1);
+      print("🟢 [보정 후] 바코드: $barcode");
+    }
+
     return barcode;
   }
+
   // 바코드 카메라 스캔
   Future<String> _scanBarcodeCamera() async {
 
@@ -179,12 +220,27 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       return ""; // ✅ 오류 발생 시 빈 값 반환
     }
   }
-
-
+  /// 📌 HID 모드 (키보드 입력)
+  void _onKey(RawKeyEvent event) {
+    if (event is RawKeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.enter) {
+        if (_barcodeBuffer.isNotEmpty) {
+          _handleBarcode(_barcodeBuffer.trim());
+          _barcodeBuffer = ""; // 버퍼 초기화
+        }
+      } else if (event.character != null && event.character!.isNotEmpty) {
+        _barcodeBuffer += event.character!;
+      }
+    }
+  }
+  Set<String> _scannedBarcodes = {};
   // 바코드 처리
   Future<void> _handleBarcode(String barcode) async {
     final authProvider = context.read<AuthProvider>();
-
+    if (barcode.isNotEmpty && !_scannedBarcodes.contains(barcode)) {
+      _scannedBarcodes.add(barcode);
+      Fluttertoast.showToast(msg: "스캔된 바코드: $barcode");
+    }
     // ✅ 로그인 상태 확인 (로그인 정보 없으면 로그인 화면으로 이동)
     if (authProvider.user == null) {
       print("⚠️ 로그인 세션 만료됨. 로그인 화면으로 이동");
@@ -401,7 +457,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
         autofocus: true,
         onKey: (RawKeyEvent event) {
           if (event is RawKeyDownEvent) {
-            print("🔵 HID 스캐너 키 입력 감지: ${event.logicalKey} / ${event.character}");
+            // print("🔵 HID 스캐너 키 입력 감지: ${event.logicalKey} / ${event.character}");
 
             // ✅ HID 스캐너가 다시 켜질 때 발생하는 특정 키 신호 무시
             if (event.logicalKey == LogicalKeyboardKey.power || event.logicalKey == LogicalKeyboardKey.select) {

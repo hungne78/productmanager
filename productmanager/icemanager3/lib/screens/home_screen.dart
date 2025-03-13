@@ -16,6 +16,8 @@ import 'package:intl/intl.dart';
 import 'dart:typed_data';
 import 'package:charset_converter/charset_converter.dart';
 import 'dart:io';
+import '../screens/settings_screen.dart';
+
 // 최신 발표 시각 찾기 (06시, 18시 중 가장 최근 값)
 class WeatherService {
   static const String _apiKey = "_oHcvFMzSx6B3LxTMzseUg"; // 🔹 기상청 API 키
@@ -503,7 +505,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     _buildHomeButton(icon: Icons.bar_chart, label: "실적 종합 현황", onPressed: () {}),
                     _buildHomeButton(icon: Icons.directions_car, label: "차량 관리", onPressed: () {}),
-                    _buildHomeButton(icon: Icons.settings, label: "환경 설정", onPressed: () {}),
+                    _buildHomeButton(icon: Icons.settings, label: "환경 설정", onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => SettingsScreen()),
+                      );
+                    },),
 
                   ],
                 ),
@@ -530,7 +537,7 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           const Text(
-            "📊 5일 예보",
+            "📊 4일 일기 예보",
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
