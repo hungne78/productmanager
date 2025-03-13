@@ -21,8 +21,8 @@ from app.models.employees import Employee
 from app.models.employee_inventory import EmployeeInventory
 from app.models.orders_archive import OrderArchive , OrderItemArchive
 from app.routers.employee_map_routers import router as employee_map_router
-from app.routers import client_visits
-from app.models.employee_inventory import EmployeeInventory 
+from app.routers import client_visits 
+from app.routers.employee_inventory import router as employee_inventory_router  # ✅ 수정
 from app.utils.time_utils import convert_utc_to_kst  # ✅ KST 변환 함수 추가
 import json
 from fastapi import FastAPI, Request
@@ -161,6 +161,7 @@ def create_app() -> FastAPI:
     app.include_router(lent.router, prefix="/lent", tags=["Lent"])
     app.include_router(sales_router, prefix="/sales", tags=["Sales"])
     app.include_router(payments.router, prefix="/payments", tags=["Payments"])
+    app.include_router(employee_inventory_router, prefix="/inventory", tags=["Inventory"])  # ✅ 수정
     
     return app
 

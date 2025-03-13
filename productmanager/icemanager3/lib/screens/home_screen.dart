@@ -641,20 +641,20 @@ class _HomeScreenState extends State<HomeScreen> {
   static String _getRainIcon(String rain) {
     switch (rain) {
       case "비 없음":
-        return "❌";
+        return "🌞";
       case "비":
-        return "🌧️";
+        return "☔";
       case "소나기":
-        return "🌦️";
+        return "⛈️";
       case "비/눈":
-        return "🌨️";
+        return "☔/️❄️️";
       case "눈":
         return "❄️";
       default:
         return "❓"; // 정보 없음
     }
   }
-  // 🔹 모든 직원의 이번 달 매출 요약 위젯
+  // 🔹 모든 직원의 이번 달 매출 요약 위젯 (최대 4명 표시, 스크롤 가능, 화면 비율 1/3 유지)
   Widget _buildSalesSummary() {
     print("📡 [Flutter] _buildSalesSummary() 실행됨. 현재 데이터 길이: ${_salesData.length}");
 
@@ -663,8 +663,10 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Text("❌ 이번 달 매출 데이터가 없습니다.", style: TextStyle(fontSize: 16)));
     }
 
-    return Padding(
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.33, // ✅ 전체 화면의 1/3 크기로 제한
       padding: const EdgeInsets.all(12.0),
+
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -675,79 +677,88 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
+
+          // ✅ 헤더 고정
           Container(
             padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
             decoration: BoxDecoration(
-              color: Colors.grey.shade200,
+              color: Colors.black45,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               children: [
                 Expanded(
                   flex: 3,
-                  child: Text("이름", style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: Text("이름", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                 ),
                 Expanded(
                   flex: 3,
-                  child: Text("매출", style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right),
+                  child: Text("매출", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white), textAlign: TextAlign.right),
                 ),
                 Expanded(
                   flex: 2,
-                  child: Text("기여도(%)", style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.right),
+                  child: Text("기여도(%)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white), textAlign: TextAlign.right),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 8),
 
-          // ✅ 직원별 매출 데이터 리스트 (한 줄에 정리)
-          Column(
-            children: _salesData.map((data) {
-              double totalSales = (data["total_sales"] as num).toDouble();
-              double contribution =
-              (_totalMonthlySales > 0) ? (totalSales / _totalMonthlySales) * 100 : 0;
+          // ✅ 최대 4명까지 표시하고, 그 이상이면 스크롤 가능
+          Expanded(
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: Column(
+                  children: _salesData.take(4).map((data) { // ✅ 최대 4명까지 표시
+                    double totalSales = (data["total_sales"] as num).toDouble();
+                    double contribution =
+                    (_totalMonthlySales > 0) ? (totalSales / _totalMonthlySales) * 100 : 0;
 
-              print(
-                  "📊 [Flutter] 직원: ${data["employee_name"]}, 매출: $totalSales, 기여도: ${contribution.toStringAsFixed(1)}%");
+                    print("📊 직원: ${data["employee_name"]}, 매출: $totalSales, 기여도: ${contribution.toStringAsFixed(1)}%");
 
-              return Container(
-                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
-                decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+                    return Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+                      decoration: BoxDecoration(
+                        border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              data["employee_name"] ?? "이름 없음",
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              "${NumberFormat("#,###").format(totalSales)} 원",
+                              style: const TextStyle(fontSize: 16),
+                              textAlign: TextAlign.right,
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              "${contribution.toStringAsFixed(1)}%",
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: totalSales >= 0 ? Colors.green : Colors.red,
+                              ),
+                              textAlign: TextAlign.right,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: Text(
-                        data["employee_name"] ?? "이름 없음",
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 3,
-                      child: Text(
-                        "${NumberFormat("#,###").format(totalSales)} 원",
-                        style: const TextStyle(fontSize: 16),
-                        textAlign: TextAlign.right,
-                      ),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: Text(
-                        "${contribution.toStringAsFixed(1)}%",
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: totalSales >= 0 ? Colors.green : Colors.red,
-                        ),
-                        textAlign: TextAlign.right,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
+              ),
+            ),
           ),
         ],
       ),

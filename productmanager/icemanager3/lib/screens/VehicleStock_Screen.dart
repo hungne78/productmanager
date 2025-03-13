@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../vehicle_stock_provider.dart';
-
+import 'package:intl/intl.dart'; // ✅ 숫자 포맷을 위한 패키지 추가
 class VehicleStockScreen extends StatefulWidget {
   final String token;
   final int employeeId;
@@ -16,52 +16,21 @@ class VehicleStockScreen extends StatefulWidget {
 }
 
 class _VehicleStockScreenState extends State<VehicleStockScreen> {
-  final NumberFormat formatter = NumberFormat("#,###");
   bool _isLoading = true;
-  Map<int, int> _stockData = {}; // {상품 ID: 차량 재고}
+  List<Map<String, dynamic>> _stockData = []; // ✅ 데이터 구조 변경 (List<Map<String, dynamic>> 사용)
 
   @override
   void initState() {
     super.initState();
-    _calculateVehicleStock();
+    _loadVehicleStock(); // ✅ 서버에서 최신 차량 재고 가져오기
   }
 
-  // ✅ 서버에서 주문, 매출 데이터를 가져와 차량 재고 계산
-  Future<void> _calculateVehicleStock() async {
+  Future<void> _loadVehicleStock() async {
     try {
-      // ✅ 1. 서버에서 주문한 상품 가져오기
-      String selectedDate = DateTime.now().toIso8601String().substring(0, 10); // ✅ 오늘 날짜 기본값
-      final orderResponse = await ApiService.fetchOrders(widget.token, widget.employeeId, selectedDate);
-
-      final List<dynamic> orders = jsonDecode(utf8.decode(orderResponse.bodyBytes));
-
-      // ✅ 2. 서버에서 매출 상품 가져오기
-      final salesResponse = await ApiService.fetchSales(widget.token, widget.employeeId);
-      final List<dynamic> sales = jsonDecode(utf8.decode(salesResponse.bodyBytes));
-
-      // ✅ 3. 전날 차량 재고 가져오기 (Provider에서 가져옴)
-      final vehicleStockProvider = Provider.of<VehicleStockProvider>(context, listen: false);
-      Map<int, int> stockMap = Map.from(vehicleStockProvider.vehicleStock);
-
-      // ✅ 4. 주문 상품 반영 (추가)
-      for (var item in orders) {
-        int productId = item['product_id'];
-        int orderQuantity = item['order_quantity']; // 주문한 박스 수량
-        stockMap[productId] = (stockMap[productId] ?? 0) + orderQuantity;
-      }
-
-      // ✅ 5. 매출 상품 반영 (차감)
-      for (var item in sales) {
-        int productId = item['product_id'];
-        int salesQuantity = item['box_count']; // ✅ 박스 단위 수량 계산
-        stockMap[productId] = (stockMap[productId] ?? 0) - salesQuantity;
-      }
-
-      // ✅ 6. 최신 차량 재고 상태 업데이트 (Provider에 반영)
-      vehicleStockProvider.initializeStock(stockMap);
+      final stockData = await ApiService.fetchVehicleStock(widget.token, widget.employeeId);
 
       setState(() {
-        _stockData = stockMap;
+        _stockData = stockData;
         _isLoading = false;
       });
     } catch (e) {
@@ -74,51 +43,175 @@ class _VehicleStockScreenState extends State<VehicleStockScreen> {
     }
   }
 
+  // ✅ 차량 재고 합계 계산
+  int get totalStockQuantity {
+    return _stockData.fold<int>(0, (sum, item) => sum + ((item['quantity'] ?? 0) as int));
+  }
+
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("차량 재고 관리")),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        child: Column(
-          children: [
-            DataTable(
-              columns: const [
-                DataColumn(label: Text('상품 ID', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('차량 재고', style: TextStyle(fontWeight: FontWeight.bold))),
-              ],
-              rows: _stockData.entries.map((entry) {
-                final int productId = entry.key;
-                final int stockQuantity = entry.value;
-                final String formattedStock = formatter.format(stockQuantity);
-
-                return DataRow(
-                  cells: [
-                    DataCell(Text("$productId")),
-                    DataCell(
-                      Text(
-                        "$formattedStock 박스",
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: stockQuantity < 0 ? Colors.red : Colors.black, // ✅ 재고 부족 시 빨간색
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 20),
-
-            // ✅ 차량 재고 수동 업데이트 버튼
-            ElevatedButton.icon(
-              onPressed: _calculateVehicleStock,
+      body: Column(
+        children: [
+          // ✅ 차량 재고 갱신 버튼 (표 위에 배치)
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: ElevatedButton.icon(
+              onPressed: _loadVehicleStock,
               icon: const Icon(Icons.refresh),
               label: const Text("차량 재고 갱신"),
             ),
-          ],
+          ),
+
+          // ✅ 차량 재고 테이블
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade400),
+                borderRadius: BorderRadius.circular(8),
+                color: Colors.white,
+              ),
+              child: Column(
+                children: [
+                  // ✅ 고정된 헤더
+                  Container(
+                    height: 35,
+                    color: Colors.black45,
+                    child: _buildHeaderRow(),
+                  ),
+
+                  // ✅ 차량 재고 목록 (스크롤 가능)
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.vertical,
+                      child: Column(
+                        children: _stockData.map((entry) {
+                          return _buildDataRow(entry);
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+
+                  // ✅ 차량 재고 합계 (고정)
+                  _buildSummaryRow(),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  // ✅ 헤더 행 (상품 ID, 상품명, 상품 분류, 차량 재고)
+  Widget _buildHeaderRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _buildHeaderCell("상품 ID"),
+        _buildHeaderCell("상품명"),
+        _buildHeaderCell("상품 분류"),
+        _buildHeaderCell("차량 재고"),
+      ],
+    );
+  }
+
+  /// ✅ 데이터 행 (상품 ID, 상품명, 상품 분류, 차량 재고)
+  Widget _buildDataRow(Map<String, dynamic> item) {
+    final int productId = item['product_id'];
+    final String productName = item['product_name'];
+    final String category = item['category']; // ✅ 상품 분류 추가
+    final int stockQuantity = item['quantity'];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade300, width: 0.5),
         ),
+      ),
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _buildDataCell("$productId"),
+          _buildDataCell(productName),
+          _buildDataCell(category), // ✅ 상품 분류 추가
+          _buildDataCell("$stockQuantity 박스", isBold: true, isRed: stockQuantity < 0),
+        ],
+      ),
+    );
+  }
+  final NumberFormat formatter = NumberFormat("#,###");
+  // ✅ 차량 재고 합계 (고정)
+  Widget _buildSummaryRow() {
+    return Container(
+      color: Colors.grey.shade300,
+      padding: EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildSummaryCell("총 차량 재고", formatter.format(totalStockQuantity) + " 박스", isBold: true),
+        ],
+      ),
+    );
+  }
+
+  // ✅ 공통 헤더 셀
+  Widget _buildHeaderCell(String text) {
+    return Expanded(
+      child: Container(
+        alignment: Alignment.center,
+        padding: EdgeInsets.symmetric(vertical: 6),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ✅ 데이터 셀 스타일 적용
+  Widget _buildDataCell(String text, {bool isBold = false, bool isRed = false}) {
+    return Expanded(
+      child: Center(
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: isRed ? Colors.red : Colors.black87,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+
+  // ✅ 합계 셀 스타일 적용
+  Widget _buildSummaryCell(String label, String value, {bool isBold = false}) {
+    return Expanded(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            "$label: $value",
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              color: isBold ? Colors.black : Colors.black87,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }

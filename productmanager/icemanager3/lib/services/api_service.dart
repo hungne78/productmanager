@@ -2,8 +2,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 class ApiService {
-  static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
-  // static const String baseUrl = "http://192.168.0.183:8000";  //맥북
+  // static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
+  static const String baseUrl = "http://192.168.0.183:8000";  //맥북
   static Future<http.Response> login(int id, String password) async {
     final url = Uri.parse("$baseUrl/login");
     final body = jsonEncode({"id": id, "password": password});
@@ -225,13 +225,29 @@ class ApiService {
   }
 
   // ✅ 특정 직원의 차량 재고 가져오기
-  static Future<http.Response> fetchVehicleStock(String token, int employeeId) async {
-    final url = Uri.parse("$baseUrl/vehicle_stock?employee_id=$employeeId");
-    return await http.get(url, headers: {
+  static Future<List<Map<String, dynamic>>> fetchVehicleStock(String token, int employeeId) async {
+    final url = Uri.parse("$baseUrl/inventory/$employeeId");
+    final response = await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json",
     });
+
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> jsonData = jsonDecode(response.body);
+
+      if (!jsonData.containsKey("stock") || jsonData["stock"] == null) {
+        return []; // ✅ 재고 데이터가 없으면 빈 리스트 반환
+      }
+
+      final List<Map<String, dynamic>> stockList = List<Map<String, dynamic>>.from(jsonData["stock"]);
+
+      return stockList;  // ✅ 상품 ID, 상품명, 상품 분류, 재고 수량 포함하여 반환
+    } else {
+      throw Exception("차량 재고 조회 실패: ${response.body}");
+    }
   }
+
+
   static Future<Map<String, dynamic>> createOrUpdateOrder(String token, Map<String, dynamic> data) async {
     final url = Uri.parse("$baseUrl/orders/upsert");
     final headers = {
