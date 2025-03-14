@@ -181,44 +181,61 @@ def get_monthly_sales(employee_id: int, year: int, db: Session = Depends(get_db)
     results = (
         db.query(
             extract('month', SalesRecord.sale_datetime).label('sale_month'),
+            SalesRecord.client_id,
+            Client.client_name,
             func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
         )
         .join(Product, SalesRecord.product_id == Product.id)
+        .join(Client, SalesRecord.client_id == Client.id)
         .filter(SalesRecord.employee_id == employee_id)
         .filter(extract('year', SalesRecord.sale_datetime) == year)
-        .group_by(extract('month', SalesRecord.sale_datetime))
+        .group_by(extract('month', SalesRecord.sale_datetime), SalesRecord.client_id, Client.client_name)
         .all()
     )
-    monthly_data = [0] * 12
-    for row in results:
-        m = int(row.sale_month) - 1  # 1월이면 index 0
-        monthly_data[m] = float(row.sum_sales or 0)
-    return monthly_data
 
+    sales_data = [
+        {"month": row.sale_month, "client_id": row.client_id, "client_name": row.client_name, "total_sales": float(row.sum_sales or 0)}
+        for row in results
+    ]
+
+    return sales_data if sales_data else []
 
 # -----------------------------------------------------------------------------
 # 10. 특정 직원 기준, 해당 년도-월의 일자별 매출 합계 반환
 # -----------------------------------------------------------------------------
-@router.get("/daily_sales/{employee_id}/{year}/{month}")
+@router.get("/sales/daily_sales/{employee_id}/{year}/{month}")
 def get_daily_sales(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
-    daily_data = [0] * 31
-    results = (
-        db.query(
-            extract('day', SalesRecord.sale_datetime).label('sale_day'),
-            func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
-        )
-        .join(Product, SalesRecord.product_id == Product.id)
-        .filter(SalesRecord.employee_id == employee_id)
-        .filter(extract('year', SalesRecord.sale_datetime) == year)
-        .filter(extract('month', SalesRecord.sale_datetime) == month)
-        .group_by(extract('day', SalesRecord.sale_datetime))
-        .all()
-    )
-    for row in results:
-        d = int(row.sale_day) - 1
-        daily_data[d] = float(row.sum_sales or 0)
-    return daily_data
+    logger.info(f"📡 Received request: /sales/daily_sales/{employee_id}/{year}/{month}")
 
+    try:
+        results = (
+            db.query(
+                extract('day', SalesRecord.sale_datetime).label('sale_day'),
+                SalesRecord.client_id,
+                Client.client_name,
+                func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
+            )
+            .join(Product, SalesRecord.product_id == Product.id)
+            .join(Client, SalesRecord.client_id == Client.id)
+            .filter(SalesRecord.employee_id == employee_id)
+            .filter(extract('year', SalesRecord.sale_datetime) == year)
+            .filter(extract('month', SalesRecord.sale_datetime) == month)
+            .group_by(extract('day', SalesRecord.sale_datetime), SalesRecord.client_id, Client.client_name)
+            .all()
+        )
+
+        if not results:
+            print(f"⚠️ No sales data found for employee {employee_id} in {year}-{month}")
+            return []
+
+        return [
+            {"day": row.sale_day, "client_id": row.client_id, "client_name": row.client_name, "total_sales": float(row.sum_sales or 0)}
+            for row in results
+        ]
+
+    except Exception as e:
+        print(f"❌ Error fetching sales for employee {employee_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {e}")
 
 # -----------------------------------------------------------------------------
 # 11. 기간별 직원별 총 매출 조회 (직원별 합계)

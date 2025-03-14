@@ -6,6 +6,8 @@ import 'auth_provider.dart'; // 인증 관련 Provider
 import 'product_provider.dart'; // 상품 관련 Provider
 import 'vehicle_stock_provider.dart'; // 차량 재고 관련 Provider
 import 'screens/home_screen.dart';
+import 'screens/settings_screen.dart';
+import 'bluetooth_printer_provider.dart';
 void main() {
   runZonedGuarded(() {
     runApp(
@@ -20,7 +22,9 @@ void main() {
           ChangeNotifierProvider<VehicleStockProvider>(
             create: (_) => VehicleStockProvider(),
           ),
+          ChangeNotifierProvider(create: (context) => BluetoothPrinterProvider()),
         ],
+
         child: const MyApp(), // ✅ `MaterialApp`을 여기서 호출해야 함!
       ),
     );

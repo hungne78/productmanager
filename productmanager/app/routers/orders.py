@@ -97,10 +97,7 @@ def get_order(order_id: int, db: Session = Depends(get_db), is_archive: bool = Q
 def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(get_db)):
     """
     직원 ID와 주문 날짜가 같은 주문이 있으면 업데이트, 없으면 새 주문 생성
-    주문 완료 후 차량 재고를 자동 업데이트
     """
-    today = date.today()
-
     # ✅ 기존 주문 조회 (같은 직원 & 같은 날짜)
     existing_order = (
         db.query(Order)
@@ -115,28 +112,13 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
         existing_order.total_incentive = order_data.total_incentive
         existing_order.total_boxes = order_data.total_boxes
 
-        # ✅ 기존 주문 항목 조회
-        existing_items = {
-            item.product_id: item for item in db.query(OrderItem)
-            .filter(OrderItem.order_id == existing_order.id)
-            .all()
-        }
-
-        # ✅ 새 주문 항목 처리 (수량 업데이트 또는 새로 추가)
+        # ✅ 기존 주문 항목 삭제 후 새로 추가
+        db.query(OrderItem).filter(OrderItem.order_id == existing_order.id).delete()
         for item in order_data.order_items:
-            if item.product_id in existing_items:
-                # ✅ 기존 제품이 있으면 수량 업데이트
-                existing_items[item.product_id].quantity = item.quantity
-            else:
-                # ✅ 새 제품이면 추가
-                db.add(OrderItem(order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity))
+            db.add(OrderItem(order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity))
 
         db.commit()
         db.refresh(existing_order)
-
-        # ✅ 차량 재고 자동 업데이트 호출
-        update_vehicle_stock(order_data.employee_id, db)
-
         return existing_order
 
     # ✅ 기존 주문이 없으면 새 주문 생성
@@ -156,13 +138,10 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
         db.add(OrderItem(order_id=new_order.id, product_id=item.product_id, quantity=item.quantity))
 
     db.commit()
-
-    # ✅ 차량 재고 자동 업데이트 호출
+    # ✅ 주문 완료 후 차량 재고 자동 업데이트 실행
     update_vehicle_stock(order_data.employee_id, db)
 
     return new_order
-
-
 
 
 # ✅ 4️⃣ 특정 직원의 특정 날짜 주문 목록 조회
@@ -296,6 +275,63 @@ def get_orders_with_items(employee_id: int, date: str, db: Session = Depends(get
         })
 
     return result
+
+# ✅ 기존 주문 덮어쓰기 (UPSERT)
+@router.post("/orders/", response_model=OrderSchema)
+def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(get_db), is_archive: bool = Query(False)):
+    """
+    직원 ID와 주문 날짜가 같은 주문이 있으면 업데이트, 없으면 새 주문 생성 (is_archive=True면 아카이빙 테이블에 추가)
+    """
+    table = OrderArchive if is_archive else Order
+
+    # ✅ 기존 주문 조회
+    existing_order = (
+        db.query(table)
+        .filter(table.employee_id == order_data.employee_id)
+        .filter(table.order_date == order_data.order_date)
+        .first()
+    )
+
+    if existing_order:
+        # ✅ 기존 주문이 있다면 업데이트
+        existing_order.total_amount = order_data.total_amount
+        existing_order.total_incentive = order_data.total_incentive
+        existing_order.total_boxes = order_data.total_boxes
+
+        # ✅ 기존 주문 항목 삭제 후 새로 추가
+        db.query(OrderItem if not is_archive else OrderItemArchive).filter(
+            OrderItem.order_id == existing_order.id
+        ).delete()
+
+        for item in order_data.order_items:
+            db.add((OrderItem if not is_archive else OrderItemArchive)(
+                order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity
+            ))
+
+        db.commit()
+        db.refresh(existing_order)
+        return existing_order
+
+    # ✅ 기존 주문이 없으면 새 주문 생성
+    new_order = table(
+        employee_id=order_data.employee_id,
+        order_date=order_data.order_date,
+        total_amount=order_data.total_amount,
+        total_incentive=order_data.total_incentive,
+        total_boxes=order_data.total_boxes
+    )
+    db.add(new_order)
+    db.commit()
+    db.refresh(new_order)
+
+    # ✅ 새 주문 항목 추가
+    for item in order_data.order_items:
+        db.add((OrderItem if not is_archive else OrderItemArchive)(
+            order_id=new_order.id, product_id=item.product_id, quantity=item.quantity
+        ))
+
+    db.commit()
+    return new_order
 
 
 @router.put("/update_quantity/{product_id}/")

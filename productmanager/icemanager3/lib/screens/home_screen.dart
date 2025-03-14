@@ -8,6 +8,7 @@ import '../screens/order_screen.dart';
 import '../screens/clients_screen.dart';
 import '../screens/VehicleStock_Screen.dart';
 import '../screens/vehicle_management_screen.dart';
+import '../screens/sales_summary_screen.dart';
 import 'product_screen.dart';
 import 'order_history_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -573,10 +574,22 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: Icons.bar_chart,
                       label: "실적 종합 현황",
                       onPressed: () {
+                        final authProvider = context.read<AuthProvider>(); // Get authentication data
+
+                        if (authProvider.user == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("로그인이 필요합니다.")),
+                          );
+                          return;
+                        }
+
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => BluetoothPrinterScreen(),
+                            builder: (context) => SalesSummaryScreen(
+                              token: authProvider.user!.token,  // Pass token
+                              employeeId: authProvider.user!.id,  // Pass employeeId
+                            ),
                           ),
                         );
                       },

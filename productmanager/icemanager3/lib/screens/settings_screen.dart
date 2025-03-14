@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../screens/login_screen.dart';  // ✅ 로그인 화면 import
+import '../screens/printer.dart';  // ✅ 프린터 다이얼로그 import
 
 class SettingsScreen extends StatefulWidget {
   @override
@@ -72,6 +73,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             groupValue: _selectedMode,
             onChanged: (value) => _setSelectedMode(value!),
           ),
+          const Divider(), // ✅ 구분선 추가
+
+          // ✅ "프린터 연결" 버튼 추가
+          ListTile(
+            title: Text("프린터 연결", style: TextStyle(fontWeight: FontWeight.bold)),
+            leading: Icon(Icons.print, color: Colors.blue),
+            onTap: () => showBluetoothPrinterDialog(context),  // ✅ 팝업 띄우기
+          ),
+
           const Divider(), // ✅ 구분선 추가
           ListTile(
             title: Text("로그아웃", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
