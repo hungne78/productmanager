@@ -735,7 +735,7 @@ class EmployeesTab(QWidget):
     def do_search(self, keyword):
         global global_token
         employees = api_fetch_employees(global_token, keyword)
-
+        
         # 만약 API가 단일 dict로 줄 수도 있고, list로 줄 수도 있으니 처리
         if isinstance(employees, dict):
             employees = [employees]
@@ -757,7 +757,8 @@ class EmployeesTab(QWidget):
         elif len(filtered_employees) == 1:
             selected_emp = filtered_employees[0]
             self.left_panel.display_employee(selected_emp)
-            
+            # ✅ 선택된 직원의 차량 정보 조회
+            self.left_panel.fetch_vehicle()    
             # 🟢 오른쪽 패널 업데이트 (연도/월은 현재 시점 사용)
             now = datetime.now()
             self.right_panel.update_data_from_db(selected_emp["id"], now.year, now.month)
@@ -768,7 +769,8 @@ class EmployeesTab(QWidget):
             if dialog.exec_() == QDialog.Accepted and dialog.selected_employee:
                 selected_emp = dialog.selected_employee
                 self.left_panel.display_employee(selected_emp)
-
+                # ✅ 선택된 직원의 차량 정보 조회
+                self.left_panel.fetch_vehicle()     
                 # 🟢 동일하게 오른쪽 패널 업데이트
                 now = datetime.now()
                 self.right_panel.update_data_from_db(selected_emp["id"], now.year, now.month)

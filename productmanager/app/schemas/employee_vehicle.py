@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from typing import Optional
 from app.utils.time_utils import get_kst_now, convert_utc_to_kst  # ✅ KST 변환 함수 추가
-
+from datetime import date
 class EmployeeVehicleCreate(BaseModel):
     employee_id: int
     monthly_fuel_cost: float
@@ -24,16 +24,16 @@ class EmployeeVehicleCreate(BaseModel):
 
 class EmployeeVehicleOut(BaseModel):
     id: int
-    monthly_fuel_cost: Optional[float] = None
-    current_mileage: Optional[int] = None
-    last_engine_oil_change: Optional[datetime] = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-    created_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-    updated_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
-
-    @staticmethod
-    def convert_kst(obj):
-        """ UTC → KST 변환 함수 (Pydantic 자동 변환) """
-        return convert_utc_to_kst(obj) if obj else None
+    employee_id: int  # ✅ 이 필드가 누락되어 있었다면 추가해야 함
+    monthly_fuel_cost: float
+    current_mileage: int
+    last_engine_oil_change: Optional[date] = None
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
+class EmployeeVehicleUpdate(BaseModel):
+    monthly_fuel_cost: Optional[float] = 0  # ✅ 기본값 0 설정
+    current_mileage: Optional[int] = 0  # ✅ 기본값 0 설정
+    last_engine_oil_change: Optional[date] = None  # ✅ `None` 허용

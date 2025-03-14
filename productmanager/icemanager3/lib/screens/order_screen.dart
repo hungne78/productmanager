@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../product_provider.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
+import '../product_provider.dart';
 import '../auth_provider.dart';
-import 'order_history_screen.dart';
+
 class OrderScreen extends StatefulWidget {
   final String token;
-  final DateTime selectedDate; // ✅ 추가: 선택된 주문 날짜
+  final DateTime selectedDate; // 주문 날짜
   const OrderScreen({Key? key, required this.token, required this.selectedDate}) : super(key: key);
 
   @override
@@ -17,13 +17,72 @@ class OrderScreen extends StatefulWidget {
 class _OrderScreenState extends State<OrderScreen> {
   Map<int, TextEditingController> quantityControllers = {};
   Map<int, FocusNode> focusNodes = {};
+  Map<int, int> vehicleStockMap = {}; // ✅ 차량 재고 정보 저장 (product_id → stock)
   final formatter = NumberFormat("#,###");
 
   @override
   void initState() {
     super.initState();
+    _fetchAndSortProducts();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    _fetchEmployeeVehicleStock(authProvider.user?.id ?? 0); // 🔹 차량 재고 초기화
   }
 
+  // 상품 목록을 서버에서 가져오고 정렬하는 함수
+  Future<void> _fetchAndSortProducts() async {
+    try {
+      final productProvider = context.read<ProductProvider>();
+      final List<dynamic> products = await ApiService.fetchAllProducts(widget.token);
+
+      if (products.isNotEmpty) {
+        // 활성화된 상품 필터링
+        final activeProducts = products.where((product) => product['is_active'] == 1).toList();
+
+        // 분류별로 정렬
+        activeProducts.sort((a, b) {
+          return a['category'].compareTo(b['category']);
+        });
+
+        // 브랜드별로 정렬
+        activeProducts.sort((a, b) {
+          return a['brand_id'].compareTo(b['brand_id']);
+        });
+
+        // 정렬된 상품을 상품 프로바이더에 설정
+        productProvider.setProducts(activeProducts);
+      } else {
+        // 상품 목록이 비어있을 때
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("상품 목록이 비어 있습니다.")),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("상품 목록을 가져오는 중 오류 발생: $e")),
+      );
+    }
+  }
+  Future<void> _fetchEmployeeVehicleStock(int employeeId) async {
+    try {
+      final stockList = await ApiService.fetchVehicleStock(widget.token, employeeId);
+
+      setState(() {
+        vehicleStockMap = {
+          for (var stock in stockList) stock['product_id']: stock['quantity']
+        };
+      });
+    } catch (e) {
+      print("🚨 차량 재고 로딩 실패: $e");
+      setState(() {
+        vehicleStockMap = {};  // Reset in case of failure
+      });
+    }
+  }
+
+
+
+
+  // 서버에 주문을 전송하는 함수
   Future<void> _sendOrderToServer() async {
     if (quantityControllers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -33,8 +92,8 @@ class _OrderScreenState extends State<OrderScreen> {
     }
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final int employeeId = authProvider.user?.id ?? 0; // ✅ 직원 ID 가져오기
-    final String orderDate = widget.selectedDate.toIso8601String().substring(0, 10); // ✅ YYYY-MM-DD 형식 변환
+    final int employeeId = authProvider.user?.id ?? 0; // 직원 ID
+    final String orderDate = widget.selectedDate.toIso8601String().substring(0, 10); // 주문 날짜 (YYYY-MM-DD)
 
     List<Map<String, dynamic>> orderItems = [];
 
@@ -42,14 +101,9 @@ class _OrderScreenState extends State<OrderScreen> {
       int quantity = int.tryParse(controller.text) ?? 0;
       if (quantity > 0) {
         var product = _getProductById(productId);
-        double price = (product['default_price'] ?? 0).toDouble();
-        double incentive = (product['incentive'] ?? 0).toDouble();
-        double lineTotal = price * quantity;
-
         orderItems.add({
           'product_id': productId,
           'quantity': quantity,
-
         });
       }
     });
@@ -61,7 +115,7 @@ class _OrderScreenState extends State<OrderScreen> {
       return;
     }
 
-    // ✅ FastAPI 서버에 보낼 주문 데이터 구성
+    // 서버로 보낼 주문 데이터 구성
     final orderData = {
       "employee_id": employeeId,
       "order_date": orderDate,
@@ -69,22 +123,21 @@ class _OrderScreenState extends State<OrderScreen> {
       "total_incentive": getTotalIncentive(),
       "total_boxes": getTotalQuantity(),
       "order_items": orderItems,
-
     };
 
     try {
       final response = await ApiService.createOrder(widget.token, orderData);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // ✅ 주문 성공 메시지 표시
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("주문이 완료되었습니다!")),
         );
         setState(() {
-          quantityControllers.clear(); // ✅ 주문 후 입력 필드 초기화
+          quantityControllers.clear(); // 주문 후 입력 필드 초기화
         });
+        // ✅ 주문 후 차량 재고 업데이트 호출
+        await _fetchEmployeeVehicleStock(employeeId);
       } else {
-        // ❌ 오류 발생 시
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("주문 실패: ${response.body}")),
         );
@@ -96,26 +149,20 @@ class _OrderScreenState extends State<OrderScreen> {
     }
   }
 
-
-
-  /// 🔹 총 상품가격 합계 = (상품가격 × 박스당 개수 × 주문수량)의 총합
   double getTotalProductPrice() {
     double total = 0;
     quantityControllers.forEach((productId, controller) {
       int quantity = int.tryParse(controller.text) ?? 0;
-
       if (quantity > 0) {
         var product = _getProductById(productId);
         double price = (product['default_price'] ?? 0).toDouble();
-        int boxQuantity = (product['box_quantity'] ?? 1).toInt(); // ✅ 박스당 개수 적용
-        total += price * boxQuantity * quantity; // ✅ 상품가격 * 박스당 개수 * 주문수량
+        int boxQuantity = (product['box_quantity'] ?? 1).toInt();
+        total += price * boxQuantity * quantity;
       }
     });
     return total;
   }
 
-
-  /// 🔹 총 인센티브 합계 = (인센티브 × 주문수량)의 총합
   double getTotalIncentive() {
     double total = 0;
     quantityControllers.forEach((productId, controller) {
@@ -123,13 +170,12 @@ class _OrderScreenState extends State<OrderScreen> {
       if (quantity > 0) {
         var product = _getProductById(productId);
         double incentive = (product['incentive'] ?? 0).toDouble();
-        total += incentive * quantity; // ✅ 인센티브 * 주문수량
+        total += incentive * quantity;
       }
     });
     return total;
   }
 
-  /// 🔹 입력한 수량의 총합 계산
   int getTotalQuantity() {
     int total = 0;
     quantityControllers.forEach((_, controller) {
@@ -138,11 +184,7 @@ class _OrderScreenState extends State<OrderScreen> {
     return total;
   }
 
-  int getTotalVehicleStock() {
-    return 0; // ✅ 현재는 모든 차량 재고를 0으로 설정
-  }
-
-  /// 🔹 상품 ID로 상품 정보 찾기
+  // 상품 ID로 상품 정보를 찾는 함수
   Map<String, dynamic> _getProductById(int productId) {
     final productProvider = context.read<ProductProvider>();
     return productProvider.products.firstWhere((p) => p['id'] == productId, orElse: () => {});
@@ -150,55 +192,31 @@ class _OrderScreenState extends State<OrderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final productProvider = context.watch<ProductProvider>();
+
+    // 🔹 List<dynamic> → List<Map<String, dynamic>> 변환
+    final List<Map<String, dynamic>> products = List<Map<String, dynamic>>.from(productProvider.products);
+
     return Scaffold(
       appBar: AppBar(title: const Text("주문 페이지")),
       body: Column(
         children: [
           Expanded(
-            child: _buildProductTable(),
+            child: _buildProductTable(products), // 🔹 변환된 리스트 전달
           ),
-          _buildSummaryRow(), // ✅ 총합 계산을 위한 고정된 행 추가
+          _buildSummaryRow(),
           ElevatedButton.icon(
             onPressed: _sendOrderToServer,
             icon: const Icon(Icons.send),
             label: const Text("주문 전송"),
           ),
-          ElevatedButton.icon(
-            onPressed: _showDatePicker, // ✅ 날짜 선택 팝업 띄우기
-            icon: const Icon(Icons.history),
-            label: const Text("주문 조회"),
-          ),
         ],
       ),
     );
   }
-  /// 🔹 날짜 선택 후 `OrderHistoryScreen`으로 이동
-  Future<void> _showDatePicker() async {
-    DateTime? pickedDate = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2023),
-      lastDate: DateTime.now(),
-    );
 
-    if (pickedDate != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => OrderHistoryScreen(
-            token: widget.token,
-            selectedDate: pickedDate,
-          ),
-        ),
-      );
-    }
-  }
-
-  /// 🔹 상품 테이블 UI
-  Widget _buildProductTable() {
-    final productProvider = context.read<ProductProvider>();
-    final products = productProvider.products;
-
+  // 🔹 상품 테이블 UI
+  Widget _buildProductTable(List<Map<String, dynamic>> products) {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -208,56 +226,26 @@ class _OrderScreenState extends State<OrderScreen> {
       ),
       child: Column(
         children: [
-          // ✅ 고정된 헤더
           Container(
-            height: 30, // ✅ 세로 크기 줄이기
+            height: 30,
             color: Colors.black45,
             child: _buildHeaderRow(),
           ),
-
-          // ✅ 상품 목록 (스크롤 가능)
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.vertical,
               child: Column(
-                children: products.asMap().entries.map((entry) {
-                  int index = entry.key;
-                  Map<String, dynamic> product = entry.value;
-                  return _buildProductRow(product, index);
+                children: products.map((product) {
+                  return _buildProductRow(product);
                 }).toList(),
               ),
             ),
           ),
-
         ],
       ),
     );
   }
-  /// 🔹 수량 입력 필드 (자동 포커스 이동 추가)
-  Widget _buildQuantityInputField(int productId, int index) {
-    focusNodes.putIfAbsent(productId, () => FocusNode());
-    quantityControllers.putIfAbsent(productId, () => TextEditingController());
 
-    return Expanded(
-      child: TextField(
-        controller: quantityControllers[productId],
-        focusNode: focusNodes[productId], // ✅ 현재 포커스 적용
-        keyboardType: TextInputType.number,
-        style: TextStyle(fontSize: 12),
-        decoration: InputDecoration(border: OutlineInputBorder()),
-        textInputAction: TextInputAction.next, // ✅ '다음' 버튼 활성화
-        onChanged: (value) {
-          setState(() {}); // ✅ 입력 값 변경 시 UI 즉시 업데이트
-        },
-        onEditingComplete: () {
-          FocusScope.of(context).nextFocus();
-        },
-      ),
-    );
-  }
-
-
-  /// 🔹 테이블 헤더
   Widget _buildHeaderRow() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -271,12 +259,12 @@ class _OrderScreenState extends State<OrderScreen> {
     );
   }
 
-  Widget _buildProductRow(Map<String, dynamic> product, int index) {
+  // 🔹 상품 행 (차량 재고 포함)
+  Widget _buildProductRow(Map<String, dynamic> product) {
     final productId = product['id'];
-    final incentive = product['incentive'] ?? 0;
     final price = (product['default_price'] ?? 0).toDouble();
-    final boxQuantity = (product['box_quantity'] ?? 1).toInt();
-    final totalPrice = price * boxQuantity; // ✅ 상품가격 = 단가 * 박스당 개수
+    final incentive = (product['incentive'] ?? 0).toDouble();
+    final vehicleStock = vehicleStockMap[productId] ?? 0; // ✅ 차량 재고 가져오기 (없으면 0)
 
     quantityControllers.putIfAbsent(productId, () => TextEditingController());
 
@@ -284,24 +272,52 @@ class _OrderScreenState extends State<OrderScreen> {
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 0.5)),
       ),
-      padding: EdgeInsets.symmetric(vertical: 1), // ✅ 세로 간격 줄이기
+      padding: EdgeInsets.symmetric(vertical: 1),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _buildDataCell(product['product_name'], fontSize: 14), // ✅ 상품명
-          _buildDataCell(formatter.format(totalPrice), fontSize: 14), // ✅ 상품가격
-          _buildDataCell(formatter.format(incentive), fontSize: 14), // ✅ 인센티브
-          _buildDataCell("0", fontSize: 14), // ✅ 현재 차량 재고 0
-          _buildQuantityInputField(productId, index), // ✅ 인덱스 추가
+          _buildDataCell(product['product_name']),
+          _buildDataCell(formatter.format(price)),
+          _buildDataCell(formatter.format(incentive)),
+          _buildDataCell(formatter.format(vehicleStock)), // ✅ 차량 재고 추가
+          _buildQuantityInputField(productId),
         ],
       ),
     );
   }
 
+  Widget _buildDataCell(String text) {
+    return Expanded(
+      child: Center(
+        child: Text(text, style: TextStyle(fontSize: 12), textAlign: TextAlign.center),
+      ),
+    );
+  }
 
+  Widget _buildQuantityInputField(int productId) {
+    focusNodes.putIfAbsent(productId, () => FocusNode());
+    return Expanded(
+      child: TextField(
+        controller: quantityControllers[productId],
+        focusNode: focusNodes[productId],
+        keyboardType: TextInputType.number,
+        style: TextStyle(fontSize: 12),
+        decoration: InputDecoration(border: OutlineInputBorder()),
+        textInputAction: TextInputAction.next,
+        onChanged: (value) {
+          setState(() {});
+        },
+        onEditingComplete: () {
+          FocusScope.of(context).nextFocus();
+        },
+      ),
+    );
+  }
 
-  /// 🔹 합계 표시 행 추가 (버튼 위 고정)
+  // 🔹 합계 행 (차량 재고 포함)
   Widget _buildSummaryRow() {
+    int totalVehicleStock = vehicleStockMap.values.fold(0, (sum, stock) => sum + stock); // ✅ 차량 재고 합산
+
     return Container(
       color: Colors.grey.shade300,
       padding: EdgeInsets.symmetric(vertical: 4),
@@ -310,38 +326,12 @@ class _OrderScreenState extends State<OrderScreen> {
         children: [
           _buildSummaryCell("상품가격 합", "${formatter.format(getTotalProductPrice())} 원"),
           _buildSummaryCell("인센티브 합", "${formatter.format(getTotalIncentive())} 원"),
-          _buildSummaryCell("차량 재고 합", "${formatter.format(getTotalVehicleStock())}"),
-          _buildSummaryCell("수량 입력 합", "${formatter.format(getTotalQuantity())}"),
+          _buildSummaryCell("차량 재고 합", "${formatter.format(totalVehicleStock)}"), // ✅ 추가
+          _buildSummaryCell("수량 합계", "${formatter.format(getTotalQuantity())}"),
         ],
       ),
     );
   }
-
-
-
-  /// 🔹 합계 셀 디자인 (폰트 크기 조절 추가)
-  Widget _buildSummaryCell(String label, String value, {double fontSize = 12}) {
-    return Expanded(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            label,
-            style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
-            textAlign: TextAlign.center,
-          ),
-          SizedBox(height: 4), // ✅ 간격 추가
-          Text(
-            value,
-            style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold, color: Colors.black),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-
   /// 🔹 제목줄 셀 디자인
   Widget _buildHeaderCell(String text) {
     return Expanded(
@@ -352,22 +342,16 @@ class _OrderScreenState extends State<OrderScreen> {
       ),
     );
   }
-
-  /// 🔹 데이터 셀 디자인 (폰트 크기 조절)
-  Widget _buildDataCell(String text, {double fontSize = 12}) {
+  Widget _buildSummaryCell(String label, String value) {
     return Expanded(
-      child: Center(
-        child: Text(
-          text,
-          style: TextStyle(fontSize: fontSize),
-          textAlign: TextAlign.center,
-        ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+          SizedBox(height: 4),
+          Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black), textAlign: TextAlign.center),
+        ],
       ),
     );
   }
-
-
-
-
-
 }

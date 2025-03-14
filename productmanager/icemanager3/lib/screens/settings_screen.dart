@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../screens/login_screen.dart';  // ✅ 로그인 화면 import
 
 class SettingsScreen extends StatefulWidget {
   @override
@@ -32,6 +33,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  // ✅ 로그아웃 기능 추가
+  Future<void> _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();  // ✅ 모든 저장된 로그인 정보 삭제
+
+    // ✅ 로그인 화면으로 이동
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => LoginScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -58,6 +71,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             value: "BLE",
             groupValue: _selectedMode,
             onChanged: (value) => _setSelectedMode(value!),
+          ),
+          const Divider(), // ✅ 구분선 추가
+          ListTile(
+            title: Text("로그아웃", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            leading: Icon(Icons.exit_to_app, color: Colors.red),
+            onTap: _logout,
           ),
         ],
       ),

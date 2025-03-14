@@ -1,9 +1,19 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:dio/dio.dart';
 
 class ApiService {
-  // static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
-  static const String baseUrl = "http://192.168.0.183:8000";  //맥북
+
+  static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
+  // static const String baseUrl = "http://192.168.0.183:8000";  //맥북
+
+  static final Dio _dio = Dio(BaseOptions(
+    baseUrl: baseUrl, // `Dio`에 기본 URL 설정 (자동으로 붙음)
+    connectTimeout: const Duration(seconds: 10),
+    receiveTimeout: const Duration(seconds: 10),
+  ));
+
+
   static Future<http.Response> login(int id, String password) async {
     final url = Uri.parse("$baseUrl/login");
     final body = jsonEncode({"id": id, "password": password});
@@ -287,6 +297,50 @@ class ApiService {
       throw Exception("❌ API 요청 오류: $e");
     }
   }
+  // 직원의 차량 정보 가져오기
+  static Future<Response> getEmployeeVehicle(String token, int employeeId) async {
+    try {
+      return await _dio.get(
+        "/employee_vehicles/$employeeId", // `baseUrl`이 자동으로 추가됨
+        options: Options(headers: {"Authorization": "Bearer $token"}),
+      );
+    } catch (e) {
+      print("🚨 차량 정보 조회 실패: $e");
+      throw Exception("차량 정보를 불러오는 중 오류 발생");
+    }
+  }
+
+  // 차량 정보 업데이트
+  static Future<Response> updateEmployeeVehicle(
+      String token,
+      int employeeId,
+      Map<String, dynamic> updatedData,
+      ) async {
+    try {
+      // ✅ null 값을 제거하는 필터링 추가
+      final filteredData = updatedData..removeWhere((key, value) => value == null);
+
+      print("📡 [Flutter] 최종 API 요청 데이터: $filteredData");
+
+      final response = await _dio.put(
+        "/employee_vehicles/update/$employeeId",  // ✅ 직원 ID만 사용
+        data: filteredData, // ✅ `null` 값 제거된 데이터 사용
+        options: Options(headers: {"Authorization": "Bearer $token"}),
+      );
+
+      print("✅ [Flutter] 차량 업데이트 응답: ${response.statusCode} - ${response.data}");
+
+      return response;
+    } catch (e) {
+      print("🚨 [Flutter] 차량 업데이트 실패: $e");
+      throw Exception("차량 정보 업데이트 중 오류 발생");
+    }
+  }
+
+
+
+
+
 }
 
 // etc...

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.employee_vehicle import EmployeeVehicle
-from app.schemas.employee_vehicle import EmployeeVehicleCreate, EmployeeVehicleOut
+from app.schemas.employee_vehicle import EmployeeVehicleCreate, EmployeeVehicleOut, EmployeeVehicleUpdate
 from app.utils.time_utils import convert_utc_to_kst  # ✅ UTC → KST 변환 함수 추가
 
 router = APIRouter()
@@ -77,3 +77,42 @@ def delete_employee_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
     db.delete(vehicle)
     db.commit()
     return {"detail": "Employee vehicle record deleted"}
+
+from datetime import datetime, date
+
+@router.put("/update/{employee_id}", response_model=EmployeeVehicleOut)
+def update_employee_vehicle_by_employee_id(
+    employee_id: int, 
+    payload: dict, 
+    db: Session = Depends(get_db)
+):
+    print(f"📡 [FastAPI] 차량 정보 업데이트 요청 받음. 직원 ID: {employee_id}, 데이터: {payload}")
+
+    vehicle = db.query(EmployeeVehicle).filter(EmployeeVehicle.employee_id == employee_id).first()
+    
+    if not vehicle:
+        print("🚨 [FastAPI] 해당 직원의 차량 정보가 없음!")
+        raise HTTPException(status_code=404, detail="해당 직원의 차량 정보가 존재하지 않습니다.")
+
+    # ✅ 필드 업데이트 (None 값이 있으면 기존 값 유지)
+    if "monthly_fuel_cost" in payload:
+        vehicle.monthly_fuel_cost = payload["monthly_fuel_cost"]
+    if "current_mileage" in payload:
+        vehicle.current_mileage = payload["current_mileage"]
+    
+    # ✅ last_engine_oil_change를 문자열 → date로 변환
+    if "last_engine_oil_change" in payload and payload["last_engine_oil_change"]:
+        try:
+            vehicle.last_engine_oil_change = datetime.strptime(payload["last_engine_oil_change"], "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식이어야 합니다.")
+
+    print(f"✅ [FastAPI] 차량 정보 업데이트 전: {vehicle.__dict__}")
+
+    db.commit()
+    db.flush()  # ✅ 강제 반영
+
+    print(f"✅ [FastAPI] 차량 업데이트 완료: {vehicle.__dict__}")
+
+    return vehicle
+

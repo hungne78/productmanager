@@ -7,6 +7,7 @@ import '../screens/sales_screen.dart';
 import '../screens/order_screen.dart';
 import '../screens/clients_screen.dart';
 import '../screens/VehicleStock_Screen.dart';
+import '../screens/vehicle_management_screen.dart';
 import 'product_screen.dart';
 import 'order_history_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -17,6 +18,7 @@ import 'dart:typed_data';
 import 'package:charset_converter/charset_converter.dart';
 import 'dart:io';
 import '../screens/settings_screen.dart';
+import '../screens/printer.dart';
 
 // 최신 발표 시각 찾기 (06시, 18시 중 가장 최근 값)
 class WeatherService {
@@ -397,7 +399,37 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
   }
+  Future<void> _updateItemList() async {
+    setState(() {
+      _isLoading = true;
+    });
 
+    try {
+      final productData = await ApiService.fetchAllProducts(widget.token);
+      context.read<ProductProvider>().setProducts(productData);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("아이템 목록이 업데이트되었습니다!")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("아이템 목록 업데이트 실패: $e")),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+  void _launchStore() async {
+    const String appStoreUrl = "https://apps.apple.com/us/app/example/id123456789"; // ✅ 앱스토어 링크
+    const String playStoreUrl = "https://play.google.com/store/apps/details?id=com.example.app"; // ✅ 플레이스토어 링크
+
+    final Uri url = Uri.parse(Platform.isIOS ? appStoreUrl : playStoreUrl);
+
+    if (!await launchUrl(url)) {
+      throw "앱스토어나 플레이스토어를 열 수 없습니다.";
+    }
+  }
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
@@ -405,23 +437,57 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("홈 화면"),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onTap: _launchStore,
+              child: Text(
+                "업데이트",
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Colors.blue,
+
+                ),
+              ),
+            ),
+            Text(
+              widget.appVersion,  // ✅ 앱 버전 추가
+              style: TextStyle(fontSize: 14, color: Colors.black),
+            ),
+          ],
+        ),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 16.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(widget.appVersion),
-                ElevatedButton(
-                  onPressed: _loadWeather,
-                  child: const Text("날씨 업데이트"),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: _isLoading
+                ? SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                color: Colors.white,
+              ),
+            )
+                : ElevatedButton.icon(
+              onPressed: _updateItemList,
+              icon: Icon(Icons.refresh, size: 20, color: Colors.white),
+              label: Text(
+                "상품전송",
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
-              ],
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
             ),
           ),
         ],
       ),
+
       body: Column(
         children: [
           if (_isLoading)
@@ -503,8 +569,32 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-                    _buildHomeButton(icon: Icons.bar_chart, label: "실적 종합 현황", onPressed: () {}),
-                    _buildHomeButton(icon: Icons.directions_car, label: "차량 관리", onPressed: () {}),
+                    _buildHomeButton(
+                      icon: Icons.bar_chart,
+                      label: "실적 종합 현황",
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => BluetoothPrinterScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                    // ✅ 차량 관리 버튼을 _buildHomeButton 사용하여 동일한 네모난 버튼 스타일 적용
+                    _buildHomeButton(
+                      icon: Icons.directions_car,
+                      label: "차량 관리",
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => VehicleManagementScreen(token: auth.user!.token),
+                          ),
+                        );
+                      },
+                    ),
                     _buildHomeButton(icon: Icons.settings, label: "환경 설정", onPressed: () {
                       Navigator.push(
                         context,
@@ -664,7 +754,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.33, // ✅ 전체 화면의 1/3 크기로 제한
+      height: MediaQuery.of(context).size.height * 0.28, // ✅ 전체 화면의 1/3 크기로 제한
       padding: const EdgeInsets.all(12.0),
 
       child: Column(

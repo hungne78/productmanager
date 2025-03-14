@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_service.dart';
 import 'home_screen.dart';
 import 'package:provider/provider.dart';
-
-import '../auth_provider.dart';  // AuthProvider import
-import '../user.dart';        // User model
+import '../auth_provider.dart';
+import '../user.dart';
 import '../product_provider.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -22,6 +22,44 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
+  bool _rememberMe = false;
+  bool _autoLogin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedLogin();
+  }
+
+  // ✅ 저장된 로그인 정보 불러오기
+  Future<void> _loadSavedLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _idController.text = prefs.getString('saved_id') ?? '';
+      _passwordController.text = prefs.getString('saved_password') ?? '';
+      _rememberMe = prefs.getBool('remember_me') ?? false;
+      _autoLogin = prefs.getBool('auto_login') ?? false;
+    });
+
+    // ✅ 자동 로그인이 체크되어 있으면 로그인 시도
+    if (_autoLogin && _idController.text.isNotEmpty && _passwordController.text.isNotEmpty) {
+      _login();
+    }
+  }
+
+  // ✅ 로그인 정보 저장
+  Future<void> _saveLoginData() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_rememberMe) {
+      await prefs.setString('saved_id', _idController.text);
+      await prefs.setString('saved_password', _passwordController.text);
+    } else {
+      await prefs.remove('saved_id');
+      await prefs.remove('saved_password');
+    }
+    await prefs.setBool('remember_me', _rememberMe);
+    await prefs.setBool('auto_login', _autoLogin);
+  }
 
   Future<void> _login() async {
     final idText = _idController.text.trim();
@@ -59,6 +97,9 @@ class _LoginScreenState extends State<LoginScreen> {
           final productData = await ApiService.fetchAllProducts(token);
           context.read<ProductProvider>().setProducts(productData);
 
+          // ✅ 로그인 정보 저장
+          await _saveLoginData();
+
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => HomeScreen(token: token)),
@@ -81,21 +122,18 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // ✅ 배경 이미지 (화면에 꽉 차게)
           Positioned.fill(
             child: Image.asset(
-              'assets/login.png',  // assets 폴더에 login.png 추가 필요
-              fit: BoxFit.cover,  // ✅ 이미지를 화면에 꽉 차게
+              'assets/login.png',
+              fit: BoxFit.cover,
             ),
           ),
-
-          // ✅ 로그인 입력창을 화면 중앙에 배치
           Center(
             child: Container(
-              width: 300, // 로그인 박스의 너비 조절
+              width: 300,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.9), // ✅ 반투명한 흰색 배경
+                color: Colors.white.withOpacity(0.9),
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
@@ -130,6 +168,29 @@ class _LoginScreenState extends State<LoginScreen> {
                       prefixIcon: Icon(Icons.lock),
                     ),
                     obscureText: true,
+                  ),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: _rememberMe,
+                        onChanged: (value) {
+                          setState(() {
+                            _rememberMe = value!;
+                          });
+                        },
+                      ),
+                      const Text("아이디 저장"),
+                      Spacer(),
+                      Checkbox(
+                        value: _autoLogin,
+                        onChanged: (value) {
+                          setState(() {
+                            _autoLogin = value!;
+                          });
+                        },
+                      ),
+                      const Text("자동 로그인"),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   _isLoading
