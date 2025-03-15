@@ -15,7 +15,7 @@ class SalesSummaryScreen extends StatefulWidget {
 class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
   String selectedType = "일매출";
   DateTime selectedDate = DateTime.now();
-  final SalesService salesService = SalesService("http://192.168.50.221:8000");
+  final SalesService salesService = SalesService("http://192.168.0.183:8000");
 
   Future<List<dynamic>>? salesData;
   Map<String, dynamic> outstandingMap = {}; // ✅ 미수금 저장할 Map 추가
@@ -34,33 +34,68 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
           widget.employeeId,
           selectedDate.toString().split(' ')[0],
         ).then((data) {
-          return _processSalesData(data);
+          print("📌 Received Daily Sales Data: $data");
+          return _processDailySales(data);
         });
       } else if (selectedType == "월매출") {
         salesData = salesService.fetchMonthlySales(
             widget.token, widget.employeeId, selectedDate.year, selectedDate.month
         ).then((data) {
-          return _processSalesData(data);
+          print("📌 Received Monthly Sales Data: $data");
+          return _processMonthlySales(data);
         });
       } else {
         salesData = salesService.fetchYearlySales(
             widget.token, widget.employeeId, selectedDate.year
         ).then((data) {
-          return _processSalesData(data);
+          print("📌 Received Yearly Sales Data: $data");
+          return _processYearlySales(data);
         });
       }
     });
   }
-
-
-  Future<List<Map<String, dynamic>>> _processSalesData(List<dynamic> salesData) async {
-    // ✅ 미수금 데이터 가져오기
+  Future<List<Map<String, dynamic>>> _processDailySales(List<dynamic> salesData) async {
     await _fetchOutstandingData();
-
-    // ✅ 모든 거래처 리스트 가져오기 (매출이 없는 경우 0으로 설정)
     var allClients = await salesService.fetchAllClients(widget.token, widget.employeeId);
 
-    // ✅ 거래처 목록을 매출 데이터와 병합하여 날짜별 데이터 유지
+    print("📌 All Clients: $allClients");
+    print("📌 Raw Daily Sales Data Before Processing: $salesData");
+
+    List<Map<String, dynamic>> completeData = allClients.map((client) {
+      var matchingSales = salesData.firstWhere(
+              (sale) => sale["client_id"] == client["client_id"],  // ✅ client_id 기준으로 매칭
+          orElse: () => {
+            "client_id": client["client_id"],
+            "client_name": client["client_name"],  // ✅ `client_name` 유지
+            "products": [],  // ✅ 빈 제품 리스트 추가
+            "total_sales": 0.0,
+            "outstanding": outstandingMap[client["client_name"]] ?? 0
+          }
+      );
+
+      return {
+        "client_id": client["client_id"],
+        "client_name": client["client_name"],
+        "total_boxes": matchingSales.containsKey("products")
+            ? matchingSales["products"].fold(0, (sum, item) => sum + (item["quantity"] ?? 0))  // ✅ `products[].quantity` 값 합산
+            : 0,
+        "total_sales": matchingSales["total_sales"] ?? 0.0,
+        "outstanding": outstandingMap[client["client_name"]] ?? 0
+      };
+    }).toList();
+
+    print("📌 Processed Daily Sales Data: $completeData");
+    return completeData;
+  }
+
+
+  Future<List<Map<String, dynamic>>> _processMonthlySales(List<dynamic> salesData) async {
+    await _fetchOutstandingData();
+    var allClients = await salesService.fetchAllClients(widget.token, widget.employeeId);
+
+    print("📌 All Clients: $allClients");
+    print("📌 Raw Monthly Sales Data Before Processing: $salesData");
+
     List<Map<String, dynamic>> completeData = allClients.map((client) {
       var matchingSales = salesData.firstWhere(
               (sale) => sale["client_name"] == client["client_name"],
@@ -69,7 +104,7 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
             "total_boxes": 0,
             "total_sales": 0,
             "outstanding": outstandingMap[client["client_name"]] ?? 0,
-            ...Map.fromEntries(List.generate(31, (i) => MapEntry("${i + 1}", 0))), // ✅ 1~31일 데이터 초기화 (오류 해결)
+            ...Map.fromEntries(List.generate(31, (i) => MapEntry("${i + 1}", 0))),
           }
       );
 
@@ -77,13 +112,89 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
         "client_name": client["client_name"],
         "total_boxes": matchingSales["total_boxes"] ?? 0,
         "total_sales": matchingSales["total_sales"] ?? 0,
-        "outstanding": outstandingMap[client["client_name"]] ?? 0, // ✅ 미수금 포함
-        ...Map.fromEntries(List.generate(31, (i) => MapEntry("${i + 1}", matchingSales.containsKey("${i + 1}") ? matchingSales["${i + 1}"] : 0))), // ✅ 날짜별 매출 유지
+        "outstanding": outstandingMap[client["client_name"]] ?? 0,
+        ...Map.fromEntries(List.generate(31, (i) => MapEntry("${i + 1}", matchingSales.containsKey("${i + 1}") ? matchingSales["${i + 1}"] : 0))),
       };
     }).toList();
 
+    print("📌 Processed Monthly Sales Data: $completeData");
     return completeData;
   }
+  Future<List<Map<String, dynamic>>> _processYearlySales(List<dynamic> salesData) async {
+    await _fetchOutstandingData();
+    var allClients = await salesService.fetchAllClients(widget.token, widget.employeeId);
+
+    print("📌 All Clients: $allClients");
+    print("📌 Raw Yearly Sales Data Before Processing: $salesData");
+
+    List<Map<String, dynamic>> completeData = allClients.map((client) {
+      var matchingSales = salesData.firstWhere(
+              (sale) => sale["client_name"] == client["client_name"],
+          orElse: () => {
+            "client_name": client["client_name"],
+            "total_boxes": 0,
+            "total_sales": 0,
+            "outstanding": outstandingMap[client["client_name"]] ?? 0,
+            ...Map.fromEntries(List.generate(12, (i) => MapEntry("${i + 1}월", 0))),
+          }
+      );
+
+      return {
+        "client_name": client["client_name"],
+        "total_boxes": matchingSales["total_boxes"] ?? 0,
+        "total_sales": matchingSales["total_sales"] ?? 0,
+        "outstanding": outstandingMap[client["client_name"]] ?? 0,
+        ...Map.fromEntries(List.generate(12, (i) => MapEntry("${i + 1}월", matchingSales.containsKey("${i + 1}월") ? matchingSales["${i + 1}월"] : 0))),
+      };
+    }).toList();
+
+    print("📌 Processed Yearly Sales Data: $completeData");
+    return completeData;
+  }
+
+
+
+
+  Future<List<Map<String, dynamic>>> _processSalesData(List<dynamic> salesData) async {
+    await _fetchOutstandingData();
+    var allClients = await salesService.fetchAllClients(widget.token, widget.employeeId);
+
+    print("📌 All Clients: $allClients");
+    print("📌 Raw Sales Data Before Processing: $salesData");
+
+    List<Map<String, dynamic>> completeData = allClients.map((client) {
+      // ✅ client_name을 기준으로 매핑해야 함
+      var matchingSales = salesData.firstWhere(
+              (sale) => sale["client_name"] == client["client_name"], // ✅ client_name으로 비교
+          orElse: () => {
+            "index": client["client_name"],  // ✅ client_name을 기준으로 매핑
+            "client_name": client["client_name"],
+            "total_boxes": 0,
+            "total_refunds": 0.0,
+            "total_sales": 0.0,
+            "outstanding": outstandingMap[client["client_name"]] ?? 0,
+            ...Map.fromEntries(List.generate(12, (i) => MapEntry("${i + 1}월", 0))), // ✅ 1~12월 데이터 추가
+          }
+      );
+
+      return {
+        "index": matchingSales["index"] ?? client["client_name"], // ✅ 순번 유지
+        "client_name": client["client_name"],
+        "total_boxes": matchingSales["total_boxes"] ?? 0,
+        "total_refunds": matchingSales["total_refunds"] ?? 0.0,
+        "total_sales": matchingSales["total_sales"] ?? 0.0,
+        "outstanding": outstandingMap[client["client_name"]] ?? 0,
+        ...Map.fromEntries(List.generate(12, (i) => MapEntry("${i + 1}월", matchingSales.containsKey("${i + 1}월") ? matchingSales["${i + 1}월"] : 0))), // ✅ 월별 데이터 유지
+      };
+    }).toList();
+
+    print("📌 Processed Data: $completeData"); // ✅ 최종적으로 UI에 전달되는 데이터 확인
+    return completeData;
+  }
+
+
+
+
 
 
 
@@ -224,8 +335,12 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
 
     for (var row in data) {
       totalBoxes += (row["total_boxes"] as num? ?? 0).toInt();
-      totalOutstanding += (row["outstanding"] as num? ?? 0).toInt();
       totalSales += (row["total_sales"] as num? ?? 0).toInt();
+
+      if (selectedType != "일매출") {
+        // ✅ "일매출"에서는 미수금 합산하지 않음
+        totalOutstanding += (row["outstanding"] as num? ?? 0).toInt();
+      }
 
       if (selectedType == "월매출") {
         for (int i = 1; i <= 31; i++) {
@@ -241,7 +356,6 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
     // ✅ 합계 행 추가
     List<DataCell> totalCells = [];
 
-    // ✅ 매출 유형별로 합계 행 처리 방식 다르게 적용
     if (selectedType == "일매출" || selectedType == "년매출") {
       // ✅ 첫 번째 열(순번)과 두 번째 열(거래처명)은 비우고 시작
       totalCells.add(DataCell(Text("")));
@@ -249,22 +363,17 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
 
       // ✅ 나머지 데이터 한 칸씩 뒤로 밀어서 추가
       totalCells.add(DataCell(Text(totalBoxes.toString(), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))));
-      totalCells.add(DataCell(Text(totalOutstanding.toString(), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))));
+      totalCells.add(DataCell(Text("0", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)))); // ✅ "일매출"에서는 미수금 0
       totalCells.add(DataCell(Text(totalSales.toString(), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))));
     } else if (selectedType == "월매출") {
-      // ✅ 첫 번째 열(거래처명 자리)에는 '합계' 추가
       totalCells.add(DataCell(Text("합계", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))));
 
-      // ✅ 월매출에서는 1~31일 합계 추가
       totalCells.addAll(dailyTotals.map((sum) => DataCell(Text(sum.toString(), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)))));
-
-      // ✅ 나머지 합계 정보 추가
       totalCells.add(DataCell(Text(totalBoxes.toString(), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))));
       totalCells.add(DataCell(Text(totalOutstanding.toString(), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))));
       totalCells.add(DataCell(Text(totalSales.toString(), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))));
     }
 
-    // ✅ 부족한 셀을 빈 값으로 채워 정렬 유지
     while (totalCells.length < columns.length) {
       totalCells.add(DataCell(Text("")));
     }
@@ -295,6 +404,7 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
   }
 
 
+
   List<DataColumn> _getColumns() {
     if (selectedType == "일매출") {
       return [
@@ -317,7 +427,7 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
         DataColumn(label: _buildHeaderText("순번")),
         DataColumn(label: _buildHeaderText("거래처명")),
         DataColumn(label: _buildHeaderText("판매박스수")),
-        DataColumn(label: _buildHeaderText("미수금")),
+        DataColumn(label: _buildHeaderText("반품금액")),
         DataColumn(label: _buildHeaderText("매출")),
       ];
     }
@@ -334,6 +444,7 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
     );
   }
   /// ✅ 데이터 행 스타일 적용 함수
+  /// ✅ 데이터 행 스타일 적용 함수
   List<DataRow> _getRows(List<dynamic> data) {
     List<DataColumn> columns = _getColumns(); // ✅ 컬럼 개수 가져오기
 
@@ -342,6 +453,12 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
 
       String clientName = row["client_name"] ?? "-";
       String outstanding = _getOutstanding(clientName);
+      int totalSales = (row["total_sales"] as num? ?? 0).toInt();
+
+      // ✅ "일매출" 선택 시, 매출이 0인 거래처는 제외
+      if (selectedType == "일매출" && totalSales == 0) {
+        return null; // 매출이 0이면 리스트에 추가하지 않음
+      }
 
       List<DataCell> cells = [];
 
@@ -351,7 +468,7 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
           DataCell(Text(clientName)),
           DataCell(Text(row["total_boxes"]?.toString() ?? "0")),
           DataCell(Text(outstanding)),
-          DataCell(Text(row["total_sales"]?.toString() ?? "0")),
+          DataCell(Text(totalSales.toString())),
         ];
       } else if (selectedType == "월매출") {
         cells.add(DataCell(Text(clientName)));
@@ -363,14 +480,14 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
 
         cells.add(DataCell(Text(row["total_boxes"]?.toString() ?? "0")));
         cells.add(DataCell(Text(outstanding)));
-        cells.add(DataCell(Text(row["total_sales"]?.toString() ?? "0")));
+        cells.add(DataCell(Text(totalSales.toString())));
       } else {
         cells = [
           DataCell(Text("${index + 1}")),
           DataCell(Text(clientName)),
           DataCell(Text(row["total_boxes"]?.toString() ?? "0")),
           DataCell(Text(row["total_refunds"]?.toString() ?? "0")),
-          DataCell(Text(row["total_sales"]?.toString() ?? "0")),
+          DataCell(Text(totalSales.toString())),
         ];
       }
 
@@ -387,7 +504,7 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
         ),
         cells: cells,
       );
-    });
+    }).whereType<DataRow>().toList(); // ✅ null 값 필터링
   }
 
 

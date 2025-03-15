@@ -16,10 +16,12 @@ class SalesService {
       );
 
       print("✅ Response Code: ${response.statusCode}");
-      print("✅ Response Body: ${response.body}");
+      print("✅ Raw Response Body: ${response.body}");
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        var jsonData = jsonDecode(utf8.decode(response.bodyBytes)); // ✅ UTF-8 디코딩 유지
+        print("🔍 Parsed JSON Data: $jsonData");
+        return jsonData;
       } else {
         throw Exception("Failed to load daily sales data: ${response.body}");
       }
@@ -28,6 +30,8 @@ class SalesService {
       throw Exception("Error fetching daily sales: $e");
     }
   }
+
+
 
   // Fetch monthly sales data for a specific employee
   Future<List<Map<String, dynamic>>> fetchMonthlySales(

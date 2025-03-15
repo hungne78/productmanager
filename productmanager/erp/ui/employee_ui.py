@@ -601,7 +601,7 @@ class EmployeeRightPanel(QWidget):
         headers = {"Authorization": f"Bearer {global_token}"}
 
         # 1) 월별 매출
-        url_monthly_sales = f"{BASE_URL}/sales/monthly_sales/{employee_id}/{year}"
+        url_monthly_sales = f"{BASE_URL}/sales/monthly_sales_pc/{employee_id}/{year}"
         try:
             resp = requests.get(url_monthly_sales, headers=headers)
             resp.raise_for_status()
@@ -626,7 +626,7 @@ class EmployeeRightPanel(QWidget):
 
 
         # 3) 일별 매출 (해당 월)
-        url_daily_sales = f"{BASE_URL}/sales/daily_sales/{employee_id}/{year}/{month}"
+        url_daily_sales = f"{BASE_URL}/sales/daily_sales_pc/{employee_id}/{year}/{month}"
         try:
             resp = requests.get(url_daily_sales, headers=headers)
             resp.raise_for_status()
@@ -731,6 +731,31 @@ class EmployeesTab(QWidget):
         year = now.year
         month = now.month
         self.right_panel.update_data_from_db(employee_id, year, month)    
+
+    def do_custom_action(self):
+        """ '기능 버튼' 클릭 시 실행되는 동작 (모든 직원 보기) """
+        self.show_all_employees()
+
+    def show_all_employees(self):
+        """ 모든 직원 목록을 가져와서 팝업 창에 표시 """
+        global global_token
+        employees = api_fetch_employees(global_token, "")  # ✅ 빈 문자열로 모든 직원 가져오기
+
+        if not isinstance(employees, list) or len(employees) == 0:
+            QMessageBox.information(self, "직원 목록", "등록된 직원이 없습니다.")
+            return
+
+        # ✅ 직원 선택 팝업 띄우기
+        dialog = EmployeeSelectionDialog(employees, parent=self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_employee:
+            selected_emp = dialog.selected_employee
+            self.left_panel.display_employee(selected_emp)
+            self.left_panel.fetch_vehicle()  # ✅ 선택된 직원의 차량 정보 조회
+
+            # ✅ 오른쪽 패널 업데이트 (현재 연도/월 기준)
+            now = datetime.now()
+            self.right_panel.update_data_from_db(selected_emp["id"], now.year, now.month)
+
 
     def do_search(self, keyword):
         global global_token

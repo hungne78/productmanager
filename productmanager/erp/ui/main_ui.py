@@ -143,19 +143,23 @@ class MainApp(QMainWindow):
         self.search_toolbar = QToolBar("검색창")
         self.addToolBar(self.search_toolbar)
         self.addToolBar(Qt.TopToolBarArea, self.search_toolbar)
-
+        self.custom_button = QPushButton("")
         self.search_label = QLabel("검색:")
         self.search_edit = QLineEdit()
         self.search_button = QPushButton("검색")
+          
         # ✅ 검색창 크기 조정
         self.search_edit.setFixedWidth(250)
+        self.custom_button.setFixedWidth(100) 
 
         # ✅ 가로 레이아웃 생성 (오른쪽 정렬)
         search_layout = QHBoxLayout()
         search_layout.addStretch(1)  # 왼쪽 빈 공간 추가
+        search_layout.addWidget(self.custom_button) 
         search_layout.addWidget(self.search_label)
         search_layout.addWidget(self.search_edit)
         search_layout.addWidget(self.search_button)
+        
 
         # ✅ 빈 위젯을 만들어 툴바에 추가
         search_widget = QWidget()
@@ -164,6 +168,7 @@ class MainApp(QMainWindow):
 
         self.search_button.clicked.connect(self.on_search_clicked)
         self.search_edit.returnPressed.connect(self.on_search_clicked)
+        
 
         self.stacked = QStackedWidget()
         self.setCentralWidget(self.stacked)
@@ -188,7 +193,7 @@ class MainApp(QMainWindow):
         self.stacked.setCurrentWidget(self.tabs["employees"])
         self.update_search_placeholder("employees")
         self.company_info = {}  # 우리 회사 정보 저장할 dict
-
+        self.show_employees_tab()
         # ── 메뉴바 생성 ─────────────────
         menubar = self.menuBar()
         settings_menu = menubar.addMenu("설정(&S)")
@@ -197,7 +202,25 @@ class MainApp(QMainWindow):
         register_action.triggered.connect(self.open_company_info_dialog)
         settings_menu.addAction(register_action)
         
-        
+    def update_custom_button(self, tab_name):
+        """ 현재 UI에 따라 버튼 기능을 변경 """
+        current_tab = self.stacked.currentWidget()  # 현재 선택된 UI 가져오기
+
+        # ✅ 기존 이벤트 해제 (예외 방지)
+        try:
+            self.custom_button.clicked.disconnect()
+        except TypeError:
+            pass  # 연결된 슬롯이 없으면 무시
+
+        # ✅ `do_custom_action()`이 존재하면 실행하도록 설정
+        if hasattr(current_tab, "do_custom_action"):
+            self.custom_button.clicked.connect(current_tab.do_custom_action)
+            self.custom_button.setText(f"{tab_name} 기능 실행")
+        else:
+            self.custom_button.setText("기능 없음")
+            self.custom_button.clicked.connect(lambda: print("❌ 이 UI에서는 기능이 없습니다."))
+
+                
     def open_company_info_dialog(self):
         dialog = CompanyInfoDialog(self)
         if dialog.exec_() == QDialog.Accepted:
@@ -239,43 +262,53 @@ class MainApp(QMainWindow):
     def show_employees_tab(self):
         self.stacked.setCurrentWidget(self.tabs["employees"])
         self.update_search_placeholder("employees")
+        self.update_custom_button("employees")
 
     def show_clients_tab(self):
         self.stacked.setCurrentWidget(self.tabs["clients"])
         self.update_search_placeholder("clients")
+        self.update_custom_button("clients")
 
     def show_products_tab(self):
         self.stacked.setCurrentWidget(self.tabs["products"])
         self.update_search_placeholder("products")
+        self.update_custom_button("products")
 
     def show_orders_tab(self):
         self.stacked.setCurrentWidget(self.tabs["orders"])
         self.update_search_placeholder("orders")
+        self.update_custom_button("orders")
 
     def show_purchase_tab(self):
         self.stacked.setCurrentWidget(self.tabs["purchase"])
         self.update_search_placeholder("purchase")
+        self.update_custom_button("purchase")
 
     def show_employee_map_tab(self):
         self.stacked.setCurrentWidget(self.tabs["employee_map"])
         self.update_search_placeholder("employee_map")
+        self.update_custom_button("employee_map")
 
     def show_sales_tab(self):
         self.stacked.setCurrentWidget(self.tabs["sales"])
         self.update_search_placeholder("sales")
+        self.update_custom_button("sales")
 
     def show_employee_sales_tab(self):
         self.stacked.setCurrentWidget(self.tabs["employee_sales"])
         self.update_search_placeholder("employee_sales")
-        
+        self.update_custom_button("employee_sales")
+
     def show_payments_tab(self):
         self.stacked.setCurrentWidget(self.tabs["payments"])
         self.update_search_placeholder("payments")
+        self.update_custom_button("payments")
 
     def show_invoices_tab(self):
         self.stacked.setCurrentWidget(self.tabs["invoices"])
         self.update_search_placeholder("invoices")
-        
+        self.update_custom_button("invoices")
+
     def on_search_clicked(self):
         keyword = self.search_edit.text().strip()
         current_tab = self.stacked.currentWidget()
