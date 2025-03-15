@@ -4,8 +4,8 @@ import 'package:dio/dio.dart';
 
 class ApiService {
 
-  // static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
-  static const String baseUrl = "http://192.168.0.183:8000";  //맥북
+  static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
+  // static const String baseUrl = "http://192.168.0.183:8000";  //맥북
 
   static final Dio _dio = Dio(BaseOptions(
     baseUrl: baseUrl, // `Dio`에 기본 URL 설정 (자동으로 붙음)

@@ -9,7 +9,7 @@ from app.models.employee_clients import EmployeeClient
 from app.utils.time_utils import convert_utc_to_kst
 from starlette.responses import JSONResponse, StreamingResponse
 import json
-
+from typing import List
 router = APIRouter()
 
 @router.post("/", response_model=ClientOut)
@@ -111,3 +111,27 @@ def update_outstanding(client_id: int, payload: dict, db: Session = Depends(get_
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"미수금 업데이트 실패: {str(e)}")
+@router.get("/all/{employee_id}", response_model=List[dict])
+def get_all_clients(employee_id: int, db: Session = Depends(get_db)):
+    """
+    특정 직원이 담당하는 모든 거래처 목록 반환
+    """
+    from sqlalchemy.orm import joinedload
+
+    print(f"📌 [API CALL] GET /clients/all/{employee_id}")
+
+    clients = (
+        db.query(Client.id, Client.client_name)
+        .join(EmployeeClient, EmployeeClient.client_id == Client.id)
+        .filter(EmployeeClient.employee_id == employee_id)
+        .all()
+    )
+
+    if not clients:
+        logger.warning(f"⚠️ No clients found for employee {employee_id}")
+        return []
+
+    response_data = [{"client_id": c.id, "client_name": c.client_name.strip()} for c in clients]
+
+    print(f"📌 Final API Response: {response_data}")
+    return response_data

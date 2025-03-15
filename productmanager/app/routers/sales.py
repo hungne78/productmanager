@@ -18,8 +18,20 @@ from app.models.client_visits import ClientVisit
 from app.schemas.sales import SalesAggregateCreate, SaleItem
 from app.utils.time_utils import get_kst_now, convert_utc_to_kst 
 from app.utils.inventory_service import update_vehicle_stock
+from fastapi.responses import JSONResponse
+import json
+import logging
+from decimal import Decimal  # ✅ Import Decimal
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+def decimal_to_float(obj):
+    """Helper function to convert Decimal values to float"""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
 
 def get_kst_today():
     """KST 기준으로 오늘 날짜 가져오기"""
@@ -177,33 +189,72 @@ def get_total_sales(sale_date: date, db: Session = Depends(get_db)):
 # 9. 특정 직원 기준, 해당 년도 월별 매출 합계 반환
 # -----------------------------------------------------------------------------
 @router.get("/monthly_sales/{employee_id}/{year}")
-def get_monthly_sales(employee_id: int, year: int, db: Session = Depends(get_db)):
-    results = (
-        db.query(
-            extract('month', SalesRecord.sale_datetime).label('sale_month'),
-            SalesRecord.client_id,
-            Client.client_name,
-            func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
+def get_yearly_sales(employee_id: int, year: int, db: Session = Depends(get_db)):
+    logger.info(f"📡 Received request: /sales/monthly_sales/{employee_id}/{year}")
+
+    try:
+        # ✅ Query yearly sales grouped by client
+        results = (
+            db.query(
+                SalesRecord.client_id,
+                Client.client_name,
+                func.sum(SalesRecord.quantity).label('total_boxes'),
+                func.sum(SalesRecord.return_amount).label('total_refunds'),
+                func.sum(Product.default_price * SalesRecord.quantity).label('total_sales')
+            )
+            .join(Product, SalesRecord.product_id == Product.id)
+            .join(Client, SalesRecord.client_id == Client.id)
+            .filter(SalesRecord.employee_id == employee_id)
+            .filter(extract('year', SalesRecord.sale_datetime) == year)
+            .group_by(SalesRecord.client_id, Client.client_name)  # ✅ FIXED: Now grouping by client
+            .all()
         )
-        .join(Product, SalesRecord.product_id == Product.id)
-        .join(Client, SalesRecord.client_id == Client.id)
-        .filter(SalesRecord.employee_id == employee_id)
-        .filter(extract('year', SalesRecord.sale_datetime) == year)
-        .group_by(extract('month', SalesRecord.sale_datetime), SalesRecord.client_id, Client.client_name)
-        .all()
-    )
 
-    sales_data = [
-        {"month": row.sale_month, "client_id": row.client_id, "client_name": row.client_name, "total_sales": float(row.sum_sales or 0)}
-        for row in results
-    ]
+        logger.info(f"🔍 Raw SQL Query Results: {results}")  # ✅ Log raw data
 
-    return sales_data if sales_data else []
+        # ✅ Convert to list of dictionaries
+        sales_data = []
+        total_boxes = 0
+        total_refunds = 0.0
+        total_sales = 0.0
+
+        for idx, row in enumerate(results, start=1):
+            sales_data.append({
+                "index": idx,  # ✅ 순번 추가
+                "client_name": row[1],  # ✅ Korean text preserved
+                "total_boxes": int(row[2]) if row[2] else 0,  # ✅ Convert Decimal to int
+                "total_refunds": float(row[3]) if row[3] else 0.0,  # ✅ Convert Decimal to float
+                "total_sales": float(row[4]) if row[4] else 0.0  # ✅ Convert Decimal to float
+            })
+
+            # ✅ Calculate totals for the last row
+            total_boxes += int(row[2]) if row[2] else 0
+            total_refunds += float(row[3]) if row[3] else 0.0
+            total_sales += float(row[4]) if row[4] else 0.0
+
+        # ✅ Add final row for totals (합계)
+        if sales_data:
+            sales_data.append({
+                "index": "합계",
+                "client_name": "합계",  # ✅ Korean text for "Total"
+                "total_boxes": total_boxes,
+                "total_refunds": total_refunds,
+                "total_sales": total_sales
+            })
+
+        logger.info(f"✅ Formatted Sales Data: {sales_data}")  # ✅ Log formatted data
+
+        return sales_data  # ✅ Return correctly formatted response
+
+    except Exception as e:
+        logger.error(f"❌ Error fetching yearly sales for employee {employee_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
 
 # -----------------------------------------------------------------------------
 # 10. 특정 직원 기준, 해당 년도-월의 일자별 매출 합계 반환
 # -----------------------------------------------------------------------------
-@router.get("/sales/daily_sales/{employee_id}/{year}/{month}")
+@router.get("/daily_sales/{employee_id}/{year}/{month}")
 def get_daily_sales(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
     logger.info(f"📡 Received request: /sales/daily_sales/{employee_id}/{year}/{month}")
 
@@ -213,30 +264,41 @@ def get_daily_sales(employee_id: int, year: int, month: int, db: Session = Depen
                 extract('day', SalesRecord.sale_datetime).label('sale_day'),
                 SalesRecord.client_id,
                 Client.client_name,
-                func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
+                func.sum(SalesRecord.quantity).label('total_boxes'),
+                func.sum(Product.default_price * SalesRecord.quantity).label('total_sales')
             )
             .join(Product, SalesRecord.product_id == Product.id)
             .join(Client, SalesRecord.client_id == Client.id)
             .filter(SalesRecord.employee_id == employee_id)
             .filter(extract('year', SalesRecord.sale_datetime) == year)
             .filter(extract('month', SalesRecord.sale_datetime) == month)
-            .group_by(extract('day', SalesRecord.sale_datetime), SalesRecord.client_id, Client.client_name)
+            .group_by(SalesRecord.client_id, Client.client_name, extract('day', SalesRecord.sale_datetime))
             .all()
         )
 
-        if not results:
-            print(f"⚠️ No sales data found for employee {employee_id} in {year}-{month}")
-            return []
+        sales_data = {}
+        for row in results:
+            client_id = row.client_id
+            day = str(row.sale_day)  
 
-        return [
-            {"day": row.sale_day, "client_id": row.client_id, "client_name": row.client_name, "total_sales": float(row.sum_sales or 0)}
-            for row in results
-        ]
+            if client_id not in sales_data:
+                sales_data[client_id] = {
+                    "client_id": client_id,
+                    "client_name": row.client_name,
+                    "total_boxes": 0,
+                    "total_sales": 0,
+                }
+
+            sales_data[client_id][day] = float(row.total_sales or 0)  # ✅ Convert Decimal to float
+            sales_data[client_id]["total_boxes"] += int(row.total_boxes)  # ✅ Ensure int type
+            sales_data[client_id]["total_sales"] += float(row.total_sales or 0)  # ✅ Convert Decimal to float
+
+        # ✅ Convert Decimal objects before sending JSON response
+        return JSONResponse(content=json.loads(json.dumps(list(sales_data.values()), ensure_ascii=False, default=decimal_to_float)))
 
     except Exception as e:
-        print(f"❌ Error fetching sales for employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {e}")
-
+        logger.error(f"❌ Error fetching sales for employee {employee_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 # -----------------------------------------------------------------------------
 # 11. 기간별 직원별 총 매출 조회 (직원별 합계)
 # -----------------------------------------------------------------------------
@@ -738,29 +800,7 @@ def get_clients_invoices(year: int, month: int, db: Session = Depends(get_db)):
         })
     return data
 
-@router.get("/monthly_sales/{employee_id}/{year}")
-def get_monthly_sales(employee_id: int, year: int, db: Session = Depends(get_db)):
-    """
-    특정 직원의 해당 연도 월별 매출 합계 반환
-    """
-    results = (
-        db.query(
-            extract('month', SalesRecord.sale_datetime).label('sale_month'),
-            func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
-        )
-        .join(Product, SalesRecord.product_id == Product.id)
-        .filter(SalesRecord.employee_id == employee_id)
-        .filter(extract('year', SalesRecord.sale_datetime) == year)
-        .group_by(extract('month', SalesRecord.sale_datetime))
-        .all()
-    )
 
-    monthly_data = [0] * 12
-    for row in results:
-        m = int(row.sale_month) - 1  # 1월이면 index=0
-        monthly_data[m] = float(row.sum_sales)
-
-    return monthly_data
 @router.get("/employee_sales/{employee_id}/{year}/{month}")
 def get_employee_sales_data(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
     """
@@ -873,3 +913,20 @@ def fetch_monthly_sales(db: Session = Depends(get_db)):
     print(f"📊 [FastAPI] 매출 데이터 반환: {sales_data}")
 
     return sales_data
+from fastapi.responses import JSONResponse
+
+@router.get("/outstanding/{employee_id}")
+def get_outstanding_balances(employee_id: int, db: Session = Depends(get_db)):
+    results = (
+        db.query(Client.client_name, Client.outstanding_amount)
+        .join(EmployeeClient, EmployeeClient.client_id == Client.id)
+        .filter(EmployeeClient.employee_id == employee_id)
+        .all()
+    )
+
+    response_data = [
+        {"client_name": r.client_name.strip(), "outstanding": float(r.outstanding_amount)}
+        for r in results
+    ]
+
+    return JSONResponse(content=response_data, media_type="application/json; charset=utf-8")

@@ -37,16 +37,21 @@ class SalesService {
 
       final response = await http.get(
         Uri.parse('$baseUrl/sales/daily_sales/$employeeId/$year/$month'),
-        headers: {"Authorization": "Bearer $token"},
+        headers: {
+          "Authorization": "Bearer $token",
+          "Content-Type": "application/json; charset=UTF-8"  // ✅ Ensure UTF-8 decoding
+        },
       );
 
       print("✅ Response Code: ${response.statusCode}");
-      print("✅ Response Body: ${response.body}");
+      print("✅ Raw Response Body: ${response.body}");
 
       if (response.statusCode == 200) {
-        var jsonData = jsonDecode(response.body);
-        if (jsonData is List) {
-          return List<Map<String, dynamic>>.from(jsonData);
+        var jsonData = utf8.decode(response.bodyBytes);  // ✅ Decode response to preserve Korean text
+        var parsedData = jsonDecode(jsonData);
+
+        if (parsedData is List) {
+          return List<Map<String, dynamic>>.from(parsedData);
         } else {
           return [];
         }
@@ -73,13 +78,16 @@ class SalesService {
       );
 
       print("✅ Response Code: ${response.statusCode}");
-      print("✅ Response Body: ${response.body}");
+      print("✅ Raw Response Body: ${response.body}");
 
       if (response.statusCode == 200) {
-        var jsonData = jsonDecode(response.body);
-        if (jsonData is List) {
+        var jsonData = jsonDecode(utf8.decode(response.bodyBytes)); // ✅ Preserve Korean text
+        print("🔍 Parsed JSON Data: $jsonData");  // ✅ Log parsed data
+
+        if (jsonData is List && jsonData.isNotEmpty && jsonData[0] is Map<String, dynamic>) {
           return List<Map<String, dynamic>>.from(jsonData);
         } else {
+          print("⚠️ API returned a list, but it's empty or contains unexpected data: $jsonData");
           return [];
         }
       } else {
@@ -90,5 +98,52 @@ class SalesService {
       throw Exception("Error fetching yearly sales: $e");
     }
   }
+
+  // ✅ 새로운 미수금 데이터를 가져오는 함수 추가
+  Future<List<dynamic>> fetchOutstanding(String token, int employeeId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/sales/outstanding/$employeeId'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    if (response.statusCode == 200) {
+      // ✅ UTF-8로 강제 디코딩
+      String decodedBody = utf8.decode(response.bodyBytes);
+      print("📌 Decoded API Response: $decodedBody");
+
+      return jsonDecode(decodedBody);
+    } else {
+      throw Exception('Failed to fetch outstanding balance');
+    }
+  }
+  Future<List<dynamic>> fetchSalesSummary(String token, int employeeId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/sales/summary/$employeeId'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    if (response.statusCode == 200) {
+      String decodedBody = utf8.decode(response.bodyBytes); // ✅ UTF-8 디코딩
+      print("📌 Decoded API Response: $decodedBody");
+      return jsonDecode(decodedBody);
+    } else {
+      throw Exception('Failed to fetch sales summary');
+    }
+  }
+  Future<List<dynamic>> fetchAllClients(String token, int employeeId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/clients/all/$employeeId'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    if (response.statusCode == 200) {
+      String decodedBody = utf8.decode(response.bodyBytes); // ✅ UTF-8 디코딩
+      return jsonDecode(decodedBody);
+    } else {
+      throw Exception('Failed to fetch clients');
+    }
+  }
+
+
 
 }
