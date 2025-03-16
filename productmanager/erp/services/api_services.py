@@ -119,6 +119,9 @@ def api_fetch_vehicle(token, emp_id):
     try:
         response = requests.get(url, headers=headers)
         print(f"🚀 서버 응답 코드: {response.status_code}")  # 응답 코드 출력
+        if response.status_code == 404:
+            print("⚠️ 차량 정보 없음")
+            return {}  # 차량 정보가 없을 경우 None 반환
         print(f"🚀 서버 응답 내용: {response.text}")  # 응답 데이터 출력
 
         response.raise_for_status()

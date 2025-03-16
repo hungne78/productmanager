@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, String, Date, ForeignKey
+from sqlalchemy import Column, Integer, Float, String, Date, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import pytz
@@ -10,6 +10,15 @@ def get_kst_today():
     """ 현재 날짜를 한국 시간(KST) 기준으로 반환 """
     return datetime.now(KST).date()
 
+# ✅ 1️⃣ 주문 종료 테이블 추가
+class OrderLock(Base):
+    __tablename__ = "order_locks"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    lock_date = Column(Date, unique=True, nullable=False)  # ✅ 특정 날짜의 주문 잠금 여부
+    is_locked = Column(Boolean, default=False)  # ✅ 기본값: False (주문 수정 가능)
+    is_finalized = Column(Boolean, default=False)  # ✅ 기본값: False (출고 확정 여부)
+    
 class Order(Base):
     __tablename__ = "orders"
 

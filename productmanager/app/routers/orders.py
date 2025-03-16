@@ -10,17 +10,12 @@ from app.models import Product
 from app.db.base import Base
 from fastapi.responses import JSONResponse
 from app.utils.inventory_service import update_vehicle_stock
+from app.models.orders import OrderLock
 router = APIRouter()
 
-# ✅ 1️⃣ 주문 종료 테이블 추가
-class OrderLock(Base):
-    __tablename__ = "order_locks"
 
-    id = Column(Integer, primary_key=True, index=True)
-    lock_date = Column(Date, unique=True, nullable=False)  # ✅ 차단할 날짜
-    is_locked = Column(Boolean, default=True)  # ✅ 주문 차단 여부 (기본값: True)
 
-# ✅ 2️⃣ 주문 종료 (관리자용)
+# ✅ 1️⃣ 주문 잠금 (관리자용)
 @router.post("/lock/{order_date}")
 def lock_order_date(order_date: date, db: Session = Depends(get_db)):
     """
@@ -37,8 +32,7 @@ def lock_order_date(order_date: date, db: Session = Depends(get_db)):
     db.commit()
     return {"message": f"{order_date} 주문이 종료되었습니다."}
 
-
-# ✅ 3️⃣ 주문 해제 (관리자용)
+# ✅ 2️⃣ 주문 해제 (관리자용)
 @router.post("/unlock/{order_date}")
 def unlock_order_date(order_date: date, db: Session = Depends(get_db)):
     """
@@ -53,6 +47,21 @@ def unlock_order_date(order_date: date, db: Session = Depends(get_db)):
 
     raise HTTPException(status_code=404, detail="해당 날짜의 주문 차단 기록이 없습니다.")
 
+@router.get("/lock_status/{order_date}")
+def check_order_lock_status(order_date: date, db: Session = Depends(get_db)):
+    """
+    특정 날짜의 주문이 잠겨있는지 및 출고 확정되었는지 확인
+    """
+    order_lock = db.query(OrderLock).filter(OrderLock.lock_date == order_date).first()
+
+    if not order_lock:
+        return {"order_date": order_date, "is_locked": False, "is_finalized": False}
+
+    return {
+        "order_date": order_date,
+        "is_locked": order_lock.is_locked,
+        "is_finalized": order_lock.is_finalized
+    }
 
 # ✅ 4️⃣ 특정 날짜가 차단되었는지 확인
 @router.get("/orders/is_locked/{order_date}")
@@ -100,6 +109,11 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
     주문 완료 후 차량 재고를 자동 업데이트
     """
     today = date.today()
+
+    # ✅ 주문이 잠겨 있는지 확인
+    order_lock = db.query(OrderLock).filter(OrderLock.lock_date == order_data.order_date).first()
+    if order_lock and order_lock.is_locked:
+        raise HTTPException(status_code=403, detail="이 날짜의 주문은 수정이 불가능합니다.")
 
     # ✅ 기존 주문 조회 (같은 직원 & 같은 날짜)
     existing_order = (
@@ -298,7 +312,8 @@ def get_orders_with_items(employee_id: int, date: str, db: Session = Depends(get
 @router.post("/orders/", response_model=OrderSchema)
 def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(get_db), is_archive: bool = Query(False)):
     """
-    직원 ID와 주문 날짜가 같은 주문이 있으면 업데이트, 없으면 새 주문 생성 (is_archive=True면 아카이빙 테이블에 추가)
+    직원 ID와 주문 날짜가 같은 주문이 있으면 업데이트, 없으면 새 주문 생성
+    (is_archive=True면 아카이빙 테이블에 추가)
     """
     table = OrderArchive if is_archive else Order
 
@@ -316,18 +331,23 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
         existing_order.total_incentive = order_data.total_incentive
         existing_order.total_boxes = order_data.total_boxes
 
-        # ✅ 기존 주문 항목 삭제 후 새로 추가
-        db.query(OrderItem if not is_archive else OrderItemArchive).filter(
-            OrderItem.order_id == existing_order.id
-        ).delete()
-
+        # ✅ 기존 주문 항목을 삭제하지 않고 업데이트
         for item in order_data.order_items:
-            db.add((OrderItem if not is_archive else OrderItemArchive)(
-                order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity
-            ))
+            existing_order_item = (
+                db.query(OrderItem)
+                .filter(OrderItem.order_id == existing_order.id, OrderItem.product_id == item.product_id)
+                .first()
+            )
+            if existing_order_item:
+                existing_order_item.quantity = item.quantity  # ✅ 기존 데이터 업데이트
+            else:
+                db.add(OrderItem(order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity))
 
         db.commit()
         db.refresh(existing_order)
+
+        print(f"✅ [디버깅] 주문 수정 완료 - 차량 재고 업데이트 ❌ (출고 확정 시 업데이트됨)")
+
         return existing_order
 
     # ✅ 기존 주문이 없으면 새 주문 생성
@@ -352,39 +372,31 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
     return new_order
 
 
-@router.put("/update_quantity/{product_id}/")
+
+from fastapi import Body
+
+@router.put("/update_quantity/{order_id}/")
 def update_order_quantity(
-    product_id: int,
-    order_date: str = Query(...),  # ✅ 선택한 날짜를 query parameter로 받음
-    data: dict = Body(...),  # ✅ 수량은 request body에서 받음
+    order_id: int, 
+    order_date: date, 
+    quantity: int = Body(..., embed=True),  # ✅ Body 객체 사용
+    is_admin: bool = Query(False, description="관리자 여부"), 
     db: Session = Depends(get_db)
 ):
     """
-    특정 날짜에 주문된 특정 상품의 주문 수량을 수정
+    특정 주문 항목의 수량을 수정 (주문이 잠겨있으면 수정 불가)
     """
-    new_quantity = data.get("quantity")
-    if new_quantity is None or not isinstance(new_quantity, int) or new_quantity < 0:
-        raise HTTPException(status_code=400, detail="유효한 수량(quantity)이 필요합니다.")
+    # ✅ 주문이 잠겨있는지 확인
+    order_lock = db.query(OrderLock).filter(OrderLock.lock_date == order_date).first()
+    if order_lock and order_lock.is_locked and not is_admin:
+        raise HTTPException(status_code=403, detail="이 날짜의 주문은 수정이 불가능합니다.")
 
-    # ✅ 특정 날짜의 주문 중 해당 상품을 포함한 주문 찾기
-    order_item = (
-        db.query(OrderItem)
-        .join(Order, OrderItem.order_id == Order.id)
-        .filter(Order.order_date == order_date, OrderItem.product_id == product_id)
-        .first()
-    )
-
+    # ✅ 해당 주문 항목 가져오기
+    order_item = db.query(OrderItem).filter(OrderItem.id == order_id).first()
     if not order_item:
-        raise HTTPException(status_code=404, detail="해당 날짜에 주문된 해당 상품을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="해당 주문 항목을 찾을 수 없습니다.")
 
     # ✅ 주문 수량 업데이트
-    order_item.quantity = new_quantity
+    order_item.quantity = quantity
     db.commit()
-    db.refresh(order_item)
-
-    return {
-        "message": "주문 수량이 성공적으로 업데이트되었습니다.",
-        "order_id": order_item.order_id,
-        "product_id": product_id,
-        "new_quantity": new_quantity
-    }
+    return {"message": "주문 수량이 수정되었습니다.", "order_id": order_id, "quantity": quantity}

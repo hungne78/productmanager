@@ -139,7 +139,7 @@ class _OrderScreenState extends State<OrderScreen> {
         await _fetchEmployeeVehicleStock(employeeId);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("주문 실패: ${response.body}")),
+          SnackBar(content: Text("주문종료")),
         );
       }
     } catch (e) {

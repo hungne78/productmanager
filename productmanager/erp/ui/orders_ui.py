@@ -38,6 +38,10 @@ class OrderLeftWidget(QWidget):
         self.unlock_button = QPushButton("✅ 주문 해제")
         self.unlock_button.clicked.connect(self.unlock_order)
         layout.addWidget(self.unlock_button)
+        
+        self.finalize_button = QPushButton("📦 출고 확정")
+        self.finalize_button.clicked.connect(self.finalize_inventory)
+        layout.addWidget(self.finalize_button)
                          
         # ✅ 2. 직원 목록 (세로 버튼)
         self.scroll_area = QScrollArea()
@@ -59,6 +63,23 @@ class OrderLeftWidget(QWidget):
 
         self.setLayout(layout)
 
+    def finalize_inventory(self):
+        """
+        선택한 날짜의 최종 주문을 차량 재고에 반영 (출고 확정)
+        """
+        selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
+        url = f"{BASE_URL}/inventory/finalize_inventory/{selected_date}"
+        headers = {"Authorization": f"Bearer {global_token}"}
+
+        try:
+            response = requests.post(url, headers=headers)
+            if response.status_code == 200:
+                QMessageBox.information(self, "성공", f"{selected_date} 출고가 확정되었습니다. 차량 재고가 업데이트되었습니다.")
+            else:
+                QMessageBox.critical(self, "실패", f"출고 확정 실패: {response.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류 발생", f"서버 요청 오류: {e}")
+            
     def on_date_changed(self):
         """
         날짜 선택 시 `self.selected_order_date`를 업데이트하고 오른쪽 패널에도 전달

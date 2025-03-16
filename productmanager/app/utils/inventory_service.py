@@ -1,15 +1,16 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.models.employee_inventory import EmployeeInventory
 from app.models.sales_records import SalesRecord
-from app.models.orders import OrderItem, Order
-from sqlalchemy import func  # Make sure this line is added at the top of your file
-from app.models.products import Product  # ✅ Product 모델 import
-from datetime import datetime
+
+# ✅ KST(한국 시간, UTC+9)로 변환하는 함수
+def get_kst_now():
+    return datetime.utcnow().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=9)))
 
 def update_vehicle_stock(employee_id: int, db: Session):
     """
-    특정 직원의 차량 재고를 주문 및 판매 데이터를 기반으로 자동 업데이트
+    특정 직원의 차량 재고를 즉시 업데이트 (판매 반영, 주문은 반영하지 않음)
     """
     today = date.today()
 
@@ -27,35 +28,6 @@ def update_vehicle_stock(employee_id: int, db: Session):
         last_update_time = datetime(today.year, today.month, today.day)  # 기본값 설정
 
     print(f"🕒 [디버깅] 최근 재고 업데이트 시각: {last_update_time}")
-
-    # ✅ 기존 주문 조회
-    previous_orders = (
-        db.query(OrderItem.product_id, func.sum(OrderItem.quantity))
-        .join(Order, OrderItem.order_id == Order.id)
-        .filter(Order.employee_id == employee_id, Order.order_date == today)
-        .group_by(OrderItem.product_id)
-        .all()
-    )
-    previous_order_map = {product_id: total_quantity for product_id, total_quantity in previous_orders}
-
-    # ✅ 새로운 주문 조회
-    new_orders = (
-        db.query(OrderItem.product_id, func.sum(OrderItem.quantity))
-        .join(Order, OrderItem.order_id == Order.id)
-        .filter(Order.employee_id == employee_id, Order.order_date == today)
-        .group_by(OrderItem.product_id)
-        .all()
-    )
-    new_order_map = {product_id: total_quantity for product_id, total_quantity in new_orders}
-
-    # ✅ 차량 재고 업데이트 (주문 반영 - 증가)
-    for product_id, new_quantity in new_order_map.items():
-        previous_quantity = previous_order_map.get(product_id, 0)
-        difference = new_quantity - previous_quantity  # ✅ 주문량 변화 반영
-
-        print(f"📌 [주문 반영] 상품 {product_id}: 기존 주문 {previous_quantity}박스 → 수정 후 {new_quantity}박스 (변화량: +{difference})")
-
-        stock_map[product_id] = stock_map.get(product_id, 0) + difference  # ✅ 차량 재고 증가!
 
     # ✅ 오늘 판매한 상품 차감 (과거 판매 내역 중복 차감 방지)
     sold_products = (
@@ -95,4 +67,4 @@ def update_vehicle_stock(employee_id: int, db: Session):
 
     db.commit()
     print(f"✅ [완료] 차량 재고 자동 업데이트 완료")
-    return {"message": "차량 재고 자동 업데이트 완료", "updated_stock": stock_map}
+    return {"message": "판매 반영 완료", "updated_stock": stock_map}
