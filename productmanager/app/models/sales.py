@@ -23,6 +23,9 @@ class Sales(Base):
     total_quantity = Column(Integer, nullable=True, default=0)  # 해당 카테고리의 총 수량
     total_amount = Column(Float, nullable=True, default=0.0)  # 해당 카테고리의 총 금액
 
+    # ✅ 반품 금액 추가
+    return_amount = Column(Float, nullable=False, default=0.0)  # 반품 금액 추가
+    
     # ✅ KST 기준으로 판매 시간 저장
     sale_datetime = Column(DateTime, default=get_kst_now)
 

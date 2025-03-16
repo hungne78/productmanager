@@ -162,7 +162,9 @@ def create_app() -> FastAPI:
     app.include_router(lent.router, prefix="/lent", tags=["Lent"])
     app.include_router(sales_router, prefix="/sales", tags=["Sales"])
     app.include_router(payments.router, prefix="/payments", tags=["Payments"])
-    app.include_router(employee_inventory_router, prefix="/inventory", tags=["Inventory"])  # ✅ 수정
+    print("✅ FastAPI 서버 시작: 라우터 등록 중...")  # ✅ 서버 시작 시 로그 추가
+    app.include_router(employee_inventory_router, prefix="/inventory", tags=["Inventory"])
+    print("✅ /inventory 라우터 등록 완료!")  # ✅ 정상 등록 확인 로그
     app.include_router(company_router, prefix="/company", tags=["Company"]) 
     return app
 

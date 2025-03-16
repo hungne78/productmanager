@@ -304,15 +304,15 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
 
         if (existingIndex >= 0) {
           setState(() {
-            _returnedItems[existingIndex]['box_count']++;
+            _returnedItems[existingIndex]['box_quantity']++;
           });
         } else {
           setState(() {
             _returnedItems.add({
               'product_id': product['id'],
               'name': productName,
-              'box_quantity': product['box_quantity'] ?? 1, // ✅ 박스수 1 고정
-              'box_count': 1, // ✅ 개수 기본 1
+              'box_quantity': 1, // ✅ 박스수 1 고정
+              'box_count': 0, // ✅ 개수 기본 1
               'default_price': defaultPrice, // ✅ 상품의 원래 가격 (기본 가격)
               'client_price': appliedPrice, // ✅ 거래처 적용 단가
               'price_type': priceType, // ✅ 가격 유형 (일반가 / 고정가)
@@ -608,61 +608,94 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   }
 
 
-  //입금 팝업창
   void _showPaymentDialog() {
     double outstandingAmount = widget.client['outstanding_amount']?.toDouble() ?? 0;
     TextEditingController paymentController = TextEditingController(text: "");
+    bool isSubsidy = false; // ✅ 지원금 체크박스 상태 변수 추가
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text("거래처 입금"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text("현재 미수금: ${outstandingAmount.toStringAsFixed(2)} 원"),
-              SizedBox(height: 10),
-              TextField(
-                controller: paymentController,
-                focusNode: paymentFocusNode,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: "입금 금액 입력 (빈 값은 0 처리)",
-                  border: OutlineInputBorder(),
-                ),
+        return StatefulBuilder( // ✅ 팝업 내부에서도 상태 업데이트 가능하도록 함
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text("입금 / 지원금 처리"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text("현재 미수금: ${outstandingAmount.toStringAsFixed(2)} 원"),
+                  SizedBox(height: 10),
+                  TextField(
+                    controller: paymentController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: "입금 금액 입력 (빈 값은 0 처리)",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: isSubsidy,
+                        onChanged: (value) {
+                          setState(() {
+                            isSubsidy = value ?? false;
+                          });
+                        },
+                      ),
+                      Text("이 금액을 지원금으로 처리"),
+                    ],
+                  ),
+                ],
               ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text("취소"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                // ✅ 입력값이 없으면 0으로 처리
-                double paymentAmount = double.tryParse(paymentController.text.trim()) ?? 0;
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text("취소"),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    double amount = double.tryParse(paymentController.text.trim()) ?? 0;
 
-                if (paymentAmount < 0) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("올바른 금액을 입력하세요.")),
-                  );
-                  return;
-                }
+                    if (isSubsidy) {
+                      _applySubsidy(amount); // ✅ 지원금으로 처리
+                    } else {
+                      _processPayment(amount); // ✅ 일반 입금 처리
+                    }
 
-                _processPayment(paymentAmount); // ✅ double 값 전달
-                Navigator.of(context).pop(); // ✅ 팝업 닫기
-              },
-              child: Text("입금"),
-            ),
-          ],
+                    Navigator.of(context).pop(); // 팝업 닫기
+                  },
+                  child: Text("확인"),
+                ),
+              ],
+            );
+          },
         );
       },
-    ).then((_) {
-      paymentFocusNode.requestFocus(); // ✅ 포커스 유지
-      _returnedItems.clear();
-    });
+    );
+  }
+  void _applySubsidy(double subsidyAmount) async {
+    final auth = context.read<AuthProvider>();
+    final clientId = widget.client['id'];
+    final String nowStr = DateTime.now().toIso8601String();
+
+    final payload = {
+      "employee_id": auth.user?.id,
+      "client_id": clientId,
+      "product_id": null,  // ✅ 제품 없음
+      "quantity": 0,       // ✅ 수량 0
+      "sale_datetime": nowStr,
+      "return_amount": 0,
+      "subsidy_amount": subsidyAmount,  // ✅ 지원금 전송
+    };
+
+    final resp = await ApiService.createSales(widget.token, payload);
+    if (resp.statusCode == 200 || resp.statusCode == 201) {
+      Fluttertoast.showToast(msg: "지원금이 적용되었습니다.");
+    } else {
+      Fluttertoast.showToast(msg: "지원금 적용 실패: ${resp.body}");
+    }
   }
 
 
@@ -699,7 +732,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
         {"outstanding_amount": updatedOutstandingAmount},
       );
       for (var item in _scannedItems) {
-        final int totalUnits = item['box_quantity'] * item['box_count'];
+        final int totalUnits = item['box_count'];
         final double returnAmount = 0.0; // ✅ 기본적으로 반품 금액 0으로 설정
         final payload = {
           "employee_id": auth.user?.id, // ✅ 직원 ID 포함
@@ -717,7 +750,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       }
       // ✅ 반품 상품 서버 전송
       for (var item in _returnedItems) {
-        final int totalUnits = item['box_quantity'] * item['box_count'];
+        final int totalUnits = item['box_quantity'];
         final double defaultPrice = (item['default_price'] ?? 0).toDouble();
         final double clientPrice = (item['client_price'] ?? 0).toDouble();
         final double returnAmount = (totalUnits * defaultPrice * clientPrice * 0.01).toDouble();
@@ -799,7 +832,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
         var item = _returnedItems[index];
 
         // ✅ 반품 합계 금액 정상 계산 (4열 포함)
-        double totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01) * -1;
+        double totalPrice = (item['box_quantity'] * item['default_price'] * item['client_price'] * 0.01) * -1;
 
 
         return Container(
@@ -977,7 +1010,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     int totalReturnBoxCount = _returnedItems.fold(0, (sum, item) {
       int boxQty = (item['box_quantity'] ?? 0).toInt();
       int boxCnt = (item['box_count'] ?? 0).toInt();
-      return sum - (boxQty * boxCnt);
+      return sum - (boxQty);
     });
 
     // ✅ 판매 상품의 총 수량 계산
@@ -1009,7 +1042,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       double defaultPrice = item['default_price'] ?? 0.0;
       double clientPrice = item['client_price'] ?? 0.0;
 
-      return sum - ((boxQuantity * boxCount * defaultPrice * clientPrice) * 0.01).round();
+      return sum - ((boxQuantity * defaultPrice * clientPrice) * 0.01).round();
     });
     totalReturnedItemsPrice = -totalReturnAmount.toDouble();
     // ✅ 최종 총 매출 금액 계산 (판매 - 반품)
@@ -1023,6 +1056,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
         children: [
           _buildSummaryCell("수량 합계", formatter.format(totalBoxCount + totalReturnBoxCount)), // ✅ 천단위 콤마 적용
           _buildSummaryCell("박스수 합계", formatter.format(totalItemCount )), // ✅ 천단위 콤마 적용
+          _buildSummaryCell("반품 합계", formatter.format(totalReturnedItemsPrice)), // ✅ 천단위 콤마 적용
           _buildSummaryCell("총 금액", formatter.format(finalTotal) + " 원", isBold: true), // ✅ 천단위 콤마 적용 & 소수점 제거
         ],
       ),

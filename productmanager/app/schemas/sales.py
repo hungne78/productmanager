@@ -22,7 +22,7 @@ class SalesRecordCreate(BaseModel):
     quantity: int
     sale_datetime: datetime
     return_amount: float = 0.0  # ✅ 기본값 0.0
-
+    subsidy_amount: float = 0.0  # ✅ 지원금 필드 추가   
     
 
 class TotalSalesOut(BaseModel):

@@ -365,7 +365,7 @@ def api_fetch_products(token, search_name=None):
 
 
 def api_create_product(token, data):
-    """ 상품 추가 API 요청 함수 (직원 차량 재고 자동 추가 포함) """
+    """ 상품 추가 API 요청 함수 (전 직원 차량 재고 자동 추가 포함) """
     url = f"{BASE_URL}/products/"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -373,14 +373,14 @@ def api_create_product(token, data):
     }
 
     try:
-        print("📡 [상품 등록 요청]")  # ✅ 디버깅 로그 추가
+        print("📡 [상품 등록 요청]")
         print(f"📡 요청 URL: {url}")
         print(f"📡 요청 데이터: {data}")
 
         response = requests.post(url, json=data, headers=headers)
 
-        print(f"📡 응답 코드: {response.status_code}")  # ✅ 응답 코드 확인
-        print(f"📡 응답 본문: {response.text}")  # ✅ 응답 본문 출력
+        print(f"📡 응답 코드: {response.status_code}")
+        print(f"📡 응답 본문: {response.text}")
 
         response.raise_for_status()
 
@@ -389,15 +389,18 @@ def api_create_product(token, data):
         product_id = product_data.get("id")
 
         if product_id:
-            # ✅ 직원별 차량 재고에 새로운 상품 추가
-            inventory_url = f"{BASE_URL}/inventory/add_new_product/{product_id}"
+            # ✅ 전 직원의 차량 재고에 새로운 상품 추가 (개별 employee_id 필요 없음)
+            inventory_url = f"{BASE_URL}/inventory/add_product/{product_id}"
+            
+            print(f"📡 차량 재고 업데이트 요청 URL: {inventory_url}")  # ✅ 디버깅 로그 추가
+            
             inventory_response = requests.post(inventory_url, headers=headers)
 
             print(f"📡 차량 재고 업데이트 응답 코드: {inventory_response.status_code}")
             print(f"📡 차량 재고 업데이트 응답 본문: {inventory_response.text}")
 
             if inventory_response.status_code == 200:
-                print("✅ 직원별 차량 재고에 상품이 정상적으로 추가됨.")
+                print("✅ 전 직원 차량 재고에 상품이 정상적으로 추가됨.")
 
         return response
 
@@ -411,8 +414,6 @@ def api_create_product(token, data):
         print(f"❌ 상품 추가 실패: {e}")
 
     return None
-
-
 
 
 def api_update_product(token, product_id, data):

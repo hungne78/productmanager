@@ -235,6 +235,8 @@ class ApiService {
   }
 
   // ✅ 특정 직원의 차량 재고 가져오기
+
+
   static Future<List<Map<String, dynamic>>> fetchVehicleStock(String token, int employeeId) async {
     final url = Uri.parse("$baseUrl/inventory/$employeeId");
     final response = await http.get(url, headers: {
@@ -242,20 +244,36 @@ class ApiService {
       "Content-Type": "application/json",
     });
 
-    if (response.statusCode == 200) {
-      final Map<String, dynamic> jsonData = jsonDecode(response.body);
+    try {
+      print("📡 [API 요청] 차량 재고 조회: $url");
+      print("📡 [응답 코드]: ${response.statusCode}");
 
-      if (!jsonData.containsKey("stock") || jsonData["stock"] == null) {
-        return []; // ✅ 재고 데이터가 없으면 빈 리스트 반환
+      if (response.statusCode == 200) {
+        // ✅ UTF-8 디코딩 적용
+        final decodedBody = utf8.decode(response.bodyBytes);
+        final Map<String, dynamic> jsonData = jsonDecode(decodedBody);
+
+        if (!jsonData.containsKey("stock") || jsonData["stock"] == null) {
+          print("🚨 [경고] 직원 $employeeId 차량 재고가 없습니다.");
+          return [];
+        }
+
+        final List<Map<String, dynamic>> stockList =
+        List<Map<String, dynamic>>.from(jsonData["stock"]);
+
+        print("📡 [차량 재고 데이터] 직원 $employeeId: $stockList");
+
+        return stockList;
+      } else {
+        print("❌ [오류] 차량 재고 조회 실패: ${response.body}");
+        throw Exception("차량 재고 조회 실패: ${response.body}");
       }
-
-      final List<Map<String, dynamic>> stockList = List<Map<String, dynamic>>.from(jsonData["stock"]);
-
-      return stockList;  // ✅ 상품 ID, 상품명, 상품 분류, 재고 수량 포함하여 반환
-    } else {
-      throw Exception("차량 재고 조회 실패: ${response.body}");
+    } catch (e) {
+      print("❌ [예외 발생] 차량 재고 불러오기 실패: $e");
+      return [];
     }
   }
+
 
 
   static Future<Map<String, dynamic>> createOrUpdateOrder(String token, Map<String, dynamic> data) async {

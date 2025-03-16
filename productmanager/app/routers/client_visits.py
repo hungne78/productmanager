@@ -98,7 +98,7 @@ def get_today_visits_details(
     employee_id: int = Query(...),
     db: Session = Depends(get_db)
 ):
-    """ 오늘(KST) 방문한 거래처 목록 조회 """
+    """ 오늘(KST) 방문한 거래처 목록 조회 (개별 방문 기록 유지) """
 
     today_kst = get_kst_today()
     print(f"🔍 KST 기준 오늘 날짜: {today_kst}")
@@ -125,6 +125,7 @@ def get_today_visits_details(
         .outerjoin(Product, Product.id == SalesRecord.product_id)
         .filter(ClientVisit.employee_id == employee_id)
         .filter(ClientVisit.visit_date == today_kst)  # ✅ 오늘 방문 데이터만 조회
+        .group_by(ClientVisit.id, ClientVisit.visit_datetime, ClientVisit.visit_count, Client.id, Client.client_name, Client.outstanding_amount)  # ✅ 방문 기록 개별 출력
         .all()
     )
 

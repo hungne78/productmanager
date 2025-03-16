@@ -18,7 +18,9 @@ class SalesRecord(Base):
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)  # 거래처 ID
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)  # 제품 ID
     quantity = Column(Integer, default=0)  # 판매 수량
+    
     return_amount = Column(Float, nullable=False, default=0.0)  # ✅ 반품 금액 추가
+    subsidy_amount = Column(Float, nullable=False, default=0.0)  # ✅ 지원금 필드 추가
     # ✅ KST 기준으로 판매 날짜 저장
     sale_datetime = Column(DateTime, nullable=False, default=get_kst_now)
 

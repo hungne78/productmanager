@@ -413,74 +413,86 @@ from fastapi.exceptions import RequestValidationError
 # -----------------------------------------------------------------------------
 @router.post("", response_model=SalesRecordOut)
 def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
-    print("📡 [FastAPI] create_sale() 호출됨")  # ✅ 강제 출력
-    print(f"📡 [FastAPI] 받은 요청 데이터: {sale_data.model_dump()}")  # 
+    print("📡 [FastAPI] create_sale() 호출됨")  
+    print(f"📡 [FastAPI] 받은 요청 데이터: {sale_data.model_dump()}")  
+
     try:
         print(f"📡 판매 등록 요청 데이터: {sale_data.model_dump()}")
 
+        # ✅ 지원금 여부 확인
+        subsidy_amount = sale_data.subsidy_amount if hasattr(sale_data, "subsidy_amount") else 0.0
+        is_subsidy = subsidy_amount > 0
+
+        if is_subsidy:
+            # ✅ 지원금 처리: 제품 없이 지원금만 적용 (미수금에서 차감)
+            client = db.query(Client).filter(Client.id == sale_data.client_id).first()
+            if client:
+                client.outstanding_amount -= subsidy_amount  # ✅ 미수금에서 차감
+                db.commit()
+                print(f"✅ 지원금 적용 완료: 거래처 {sale_data.client_id}, 지원금 {subsidy_amount}")
+            return {"message": "지원금이 적용되었습니다."}
+
+        # ✅ 일반 매출 처리
         product = db.query(Product).filter(Product.id == sale_data.product_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
         
-        # 재고 차감
-        # if product.stock < sale_data.quantity:
-        #     raise HTTPException(status_code=400, detail="재고 부족")
-
-        # product.stock -= sale_data.quantity
         total_amount = sale_data.quantity * product.default_price
-
-        # ✅ `sale_datetime`을 변환 없이 그대로 저장
         sale_datetime_kst = sale_data.sale_datetime
 
+        # ✅ 거래처 방문 기록 확인 및 업데이트
         today_kst = get_kst_now().date()
         existing_visit = (
             db.query(ClientVisit)
             .filter(ClientVisit.employee_id == sale_data.employee_id)
             .filter(ClientVisit.client_id == sale_data.client_id)
-            .filter(ClientVisit.visit_date == today_kst)  # ✅ 같은 날짜 비교
+            .filter(ClientVisit.visit_date == today_kst)
             .first()
         )
 
         if existing_visit:
-            # ✅ 같은 날 방문한 기록이 있으면 visit_datetime만 업데이트
             existing_visit.visit_datetime = get_kst_now()
             db.commit()
-            print(f"🔄 기존 방문 기록 업데이트: 직원 {sale_data.employee_id}, 거래처 {sale_data.client_id}, 날짜 {today_kst}, 새로운 시간 {existing_visit.visit_datetime}")
+            print(f"🔄 기존 방문 기록 업데이트: 직원 {sale_data.employee_id}, 거래처 {sale_data.client_id}, 날짜 {today_kst}")
         else:
-            # ✅ 기존 방문 기록이 없으면 새로운 방문 기록 생성
             new_visit = ClientVisit(
                 employee_id=sale_data.employee_id,
                 client_id=sale_data.client_id,
                 visit_datetime=get_kst_now(),
-                visit_date=today_kst,  # ✅ 날짜만 저장 (중복 방지)
-                visit_count=1  # ✅ 새로운 방문은 1부터 시작
+                visit_date=today_kst,
+                visit_count=1
             )
             db.add(new_visit)
-            db.flush()  # 즉시 `id` 반영
+            db.flush()
             print(f"✅ 새로운 방문 기록 추가: 직원 {sale_data.employee_id}, 거래처 {sale_data.client_id}, 날짜 {today_kst}")
 
-
-        # ✅ 매출 기록 저장 (변환 없이 저장)
+        # ✅ 매출 저장
         new_sale = SalesRecord(
             employee_id=sale_data.employee_id,
             client_id=sale_data.client_id,
             product_id=sale_data.product_id,
             quantity=sale_data.quantity,
-            sale_datetime=sale_datetime_kst,  # ✅ 변환 없이 저장
-            return_amount=sale_data.return_amount  # ✅ 기본값 0.0, 반품 발생 시 업데이트 가능
+            sale_datetime=sale_datetime_kst,
+            return_amount=sale_data.return_amount,
+            subsidy_amount=0.0  # ✅ 일반 매출이므로 지원금 없음
         )
-        print("📡 반품 데이터 전송: $payload");  
-        print(f"✅ 매출 저장 완료: ID={new_sale.id}, 반품 금액={new_sale.return_amount}")
         db.add(new_sale)
-        db.flush()  # 즉시 반영
-
-        db.commit()  # 최종 저장
-        db.refresh(new_sale)  # `id` 자동 증가 적용
+        db.flush()
+        db.commit()
+        db.refresh(new_sale)
 
         print(f"✅ 매출 저장 완료: ID={new_sale.id}, 총액={total_amount}")
+
         # ✅ 판매 완료 후 차량 재고 자동 업데이트 실행
         update_vehicle_stock(sale_data.employee_id, db)
-        return new_sale  # ✅ 변환 없이 반환
+
+        return new_sale
+    
+    except Exception as e:
+        db.rollback()
+        print(f"❌ 판매 등록 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"판매 등록 실패: {e}")
+
     
     except Exception as e:
         db.rollback()
