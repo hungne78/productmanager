@@ -191,7 +191,26 @@ def api_create_client(token, data):
         return None
 
 import requests
+def api_fetch_client_names(token):
+    """ 모든 거래처 이름 목록 조회 API 요청 """
+    url = f"{BASE_URL}/clients/names"
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    response = requests.get(url, headers=headers)
 
+    print(f"📌 API 요청: {url}")  # ✅ 요청 URL 확인
+    print(f"📌 API 응답 코드: {response.status_code}")  # ✅ 응답 코드 확인
+    print(f"📌 API 응답 데이터 (원본): {response.content}")  # ✅ 응답 데이터 확인
+    
+    if response.status_code == 200:
+        try:
+            return response.json()  # ✅ JSON으로 변환하여 반환
+        except ValueError:
+            print("🚨 JSON 디코딩 실패! 응답을 수동으로 변환합니다.")
+            return json.loads(response.content.decode("utf-8"))  # ✅ 강제 디코딩
+    else:
+        return []
+    
 def api_update_client(token, client_id, data):
     """
     거래처 정보를 업데이트하는 API 요청 함수

@@ -5,7 +5,7 @@ import os
 from PyQt5.QtGui import QColor
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from services.api_services import api_fetch_clients, api_create_client, api_update_client, api_delete_client, \
+from services.api_services import api_fetch_clients, api_create_client, api_update_client, api_delete_client, api_fetch_client_names,\
     api_assign_employee_client, api_fetch_employee_clients_all, get_auth_headers, api_fetch_lent_freezers, api_fetch_employees, api_unassign_employee_client
 from baselefttabwidget import BaseLeftTableWidget
 from PyQt5.QtCore import Qt
@@ -98,20 +98,21 @@ class ClientDialog(QDialog):
             self.email_edit.setText(client.get("email", ""))
             
 class ClientSelectionDialog(QDialog):
-    def __init__(self, clients, parent=None):
+    def __init__(self, client_names, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("검색 결과")
+        self.setWindowTitle("거래처 목록")
         self.resize(300, 400)
-        self.clients = clients  # 거래처 목록 (dict 리스트)
+        self.client_names = client_names  # ✅ 거래처 이름 리스트
         self.selected_client = None
 
         layout = QVBoxLayout(self)
         self.list_widget = QListWidget()
         
-        # "ID - 거래처명" 형식으로 항목 추가
-        for client in clients:
-            display_text = f"{client.get('id')} - {client.get('client_name')}"
-            self.list_widget.addItem(display_text)
+        print(f"📌 ClientSelectionDialog 받은 거래처 이름 목록: {client_names}")  # ✅ 거래처 데이터 확인
+
+        # ✅ 거래처 이름만 리스트에 추가
+        for name in client_names:
+            self.list_widget.addItem(name)  # ✅ client.get() 대신 직접 문자열 사용
         layout.addWidget(self.list_widget)
 
         btn_layout = QHBoxLayout()
@@ -127,11 +128,11 @@ class ClientSelectionDialog(QDialog):
     def on_ok(self):
         selected_items = self.list_widget.selectedItems()
         if selected_items:
-            index = self.list_widget.row(selected_items[0])
-            self.selected_client = self.clients[index]
+            self.selected_client = selected_items[0].text()  # ✅ 선택한 거래처 이름 저장
             self.accept()
         else:
             QMessageBox.warning(self, "선택", "거래처를 선택해주세요.")
+
             
 class ClientLeftPanel(BaseLeftTableWidget):
     """ 거래처 상세 정보 및 담당 직원 배정 기능 추가 """
@@ -779,6 +780,49 @@ class ClientsTab(QWidget):
         main_layout.addWidget(self.right_panel)
 
         self.setLayout(main_layout)
+
+    def do_custom_action(self):
+        """ '기능 버튼' 클릭 시 실행되는 동작 (모든 거래처 보기) """
+        self.show_all_clients()
+
+    def show_all_clients(self):
+        """ 모든 거래처 목록을 가져와서 팝업 창에 표시 """
+        global global_token
+
+        # ✅ 전체 거래처 데이터 가져오기
+        resp = api_fetch_clients(global_token)
+        if not resp or resp.status_code != 200:
+            QMessageBox.critical(self, "실패", "거래처 목록 불러오기 실패!")
+            return
+
+        clients = resp.json()  # ✅ 전체 거래처 정보 가져오기
+        client_names = [c["client_name"] for c in clients]  # ✅ 거래처 이름 리스트 생성
+
+        print(f"📌 UI에서 받은 거래처 데이터: {clients}")  # ✅ 전체 거래처 정보 디버깅
+        print(f"📌 ClientSelectionDialog 받은 거래처 이름 목록: {client_names}")  # ✅ 거래처 이름 디버깅
+
+        if not client_names:
+            QMessageBox.information(self, "거래처 목록", "등록된 거래처가 없습니다.")
+            return
+
+        # ✅ 거래처 선택 팝업 띄우기
+        dialog = ClientSelectionDialog(client_names, parent=self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_client:
+            selected_client_name = dialog.selected_client
+            print(f"✅ 선택한 거래처: {selected_client_name}")  # ✅ 선택한 거래처 확인
+
+            # ✅ 선택한 거래처의 전체 정보 찾기
+            selected_client = next((c for c in clients if c["client_name"] == selected_client_name), None)
+
+            if selected_client:
+                print(f"✅ 선택한 거래처 정보: {selected_client}")  # ✅ 선택한 거래처 정보 출력
+                self.left_panel.display_client(selected_client)  # ✅ 왼쪽 패널 업데이트
+                self.right_panel.update_data_for_client(selected_client["id"])  # ✅ 오른쪽 패널 업데이트
+            else:
+                print(f"🚨 거래처 '{selected_client_name}'를 찾을 수 없음!")
+
+
+
 
         
 

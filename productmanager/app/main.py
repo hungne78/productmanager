@@ -15,6 +15,7 @@ from app.routers.client_visits import router as client_visits_router
 from app.routers.employee_vehicle import router as employee_vehicle_router
 from app.routers.sales import router as sales_router
 from app.routers.brands import router as brands_router
+from app.routers.company import router as company_router
 from app.core.security import get_password_hash
 from app.routers import payments
 from app.models.employees import Employee
@@ -162,7 +163,7 @@ def create_app() -> FastAPI:
     app.include_router(sales_router, prefix="/sales", tags=["Sales"])
     app.include_router(payments.router, prefix="/payments", tags=["Payments"])
     app.include_router(employee_inventory_router, prefix="/inventory", tags=["Inventory"])  # ✅ 수정
-    
+    app.include_router(company_router, prefix="/company", tags=["Company"]) 
     return app
 
 app = create_app()

@@ -20,6 +20,8 @@ from PyQt5.QtWidgets import QSpacerItem, QSizePolicy
 import json
 from PyQt5.QtGui import QIcon
 from pathlib import Path
+import requests
+BASE_URL = "http://127.0.0.1:8000"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 파일의 절대 경로
 ICONS_DIR = os.path.join(BASE_DIR, "assets/icons")  # icons 폴더 경로 설정
 def load_dark_theme():
@@ -69,37 +71,79 @@ def load_dark_theme():
     }
     """
 class CompanyInfoDialog(QDialog):
-    """
-    우리 회사 정보(상호, 대표자, 사업자번호 등)를 입력받는 다이얼로그
-    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("회사 정보 등록/수정")
+
         self.company_name_edit = QLineEdit()
         self.ceo_edit = QLineEdit()
         self.business_num_edit = QLineEdit()
         self.address_edit = QLineEdit()
+        self.phone_edit = QLineEdit()
+        self.bank_account_edit = QLineEdit()
 
         layout = QFormLayout()
         layout.addRow("회사명:", self.company_name_edit)
         layout.addRow("대표자명:", self.ceo_edit)
         layout.addRow("사업자번호:", self.business_num_edit)
         layout.addRow("주소:", self.address_edit)
+        layout.addRow("전화번호:", self.phone_edit)
+        layout.addRow("계좌번호:", self.bank_account_edit)
 
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
-        btn_box.accepted.connect(self.accept)
+        btn_box.accepted.connect(self.save_company_info)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
 
         self.setLayout(layout)
+        self.load_company_info()
 
     def get_company_info(self):
+        """ 입력된 회사 정보를 딕셔너리로 반환 """
         return {
             "company_name": self.company_name_edit.text(),
-            "ceo": self.ceo_edit.text(),
+            "ceo_name": self.ceo_edit.text(),
             "business_number": self.business_num_edit.text(),
             "address": self.address_edit.text(),
+            "phone": self.phone_edit.text(),
+            "bank_account": self.bank_account_edit.text(),
         }
+        
+    def load_company_info(self):
+        """서버에서 회사 정보를 불러옴"""
+        try:
+            response = requests.get("http://127.0.0.1:8000/company/")
+            if response.status_code == 200:
+                data = response.json()
+                self.company_name_edit.setText(data["company_name"])
+                self.ceo_edit.setText(data["ceo_name"])
+                self.business_num_edit.setText(data["business_number"])
+                self.address_edit.setText(data["address"])
+                self.phone_edit.setText(data["phone"])
+                self.bank_account_edit.setText(data["bank_account"])
+        except requests.exceptions.RequestException as e:
+            print(f"회사 정보 로드 실패: {e}")
+
+    def save_company_info(self):
+        """서버에 회사 정보를 저장"""
+        data = {
+            "company_name": self.company_name_edit.text(),
+            "ceo_name": self.ceo_edit.text(),
+            "business_number": self.business_num_edit.text(),
+            "address": self.address_edit.text(),
+            "phone": self.phone_edit.text(),
+            "bank_account": self.bank_account_edit.text(),
+        }
+
+        try:
+            response = requests.post(f"{BASE_URL}/company/", json=data)
+            if response.status_code == 200:
+                print("회사 정보 저장 완료")
+                self.accept()
+            else:
+                print("회사 정보 저장 실패")
+        except requests.exceptions.RequestException as e:
+            print(f"회사 정보 저장 요청 실패: {e}")
 
 class MainApp(QMainWindow):
     def __init__(self):
@@ -150,7 +194,7 @@ class MainApp(QMainWindow):
           
         # ✅ 검색창 크기 조정
         self.search_edit.setFixedWidth(250)
-        self.custom_button.setFixedWidth(100) 
+        self.custom_button.setFixedWidth(250) 
 
         # ✅ 가로 레이아웃 생성 (오른쪽 정렬)
         search_layout = QHBoxLayout()
