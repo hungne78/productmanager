@@ -9,6 +9,7 @@ from datetime import date
 from app.models.orders import OrderLock
 from app.models.employees import Employee  # ✅ 직원 목록 조회를 위해 import
 from app.models.orders import Order, OrderItem
+from app.utils.inventory_service import update_vehicle_stock
 router = APIRouter()
 
 # @router.get("/inventory/{employee_id}")
@@ -146,7 +147,7 @@ def finalize_inventory(order_date: date, db: Session = Depends(get_db)):
     existing_shipments_query = (
         db.query(OrderItem.product_id, Order.employee_id, func.sum(OrderItem.quantity))
         .join(Order, OrderItem.order_id == Order.id)
-        .filter(Order.order_date == order_date, Order.shipment_round < current_shipment_round)  # ✅ 이전 출고 내역만 가져오기
+        .filter(Order.order_date == order_date, Order.shipment_round < current_shipment_round)
         .group_by(OrderItem.product_id, Order.employee_id)
     )
     existing_shipments = {
@@ -158,7 +159,7 @@ def finalize_inventory(order_date: date, db: Session = Depends(get_db)):
     last_orders_query = (
         db.query(OrderItem.product_id, Order.employee_id, func.sum(OrderItem.quantity))
         .join(Order, OrderItem.order_id == Order.id)
-        .filter(Order.order_date == order_date, Order.shipment_round == last_shipment_round)  # ✅ 마지막 출고 차수 기준으로 가져오기
+        .filter(Order.order_date == order_date, Order.shipment_round == last_shipment_round)
         .group_by(OrderItem.product_id, Order.employee_id)
     )
 
@@ -194,6 +195,8 @@ def finalize_inventory(order_date: date, db: Session = Depends(get_db)):
         if inventory_item:
             print(f"🛒 [재고 업데이트] 직원 {employee_id} - 제품 {product_id} 차량 재고 {inventory_item.quantity} → {inventory_item.quantity + quantity_to_ship}")
             inventory_item.quantity += quantity_to_ship
+            db.commit()  # ✅ 강제 반영
+            db.refresh(inventory_item)  # ✅ 최신 데이터 반영
         else:
             print(f"➕ [새 제품 추가] 직원 {employee_id} - 제품 {product_id}, 초기 재고 {quantity_to_ship}")
             new_item = EmployeeInventory(
@@ -202,6 +205,8 @@ def finalize_inventory(order_date: date, db: Session = Depends(get_db)):
                 quantity=quantity_to_ship
             )
             db.add(new_item)
+            db.commit()  # ✅ 강제 반영
+            db.refresh(new_item)  # ✅ 최신 데이터 반영
 
     # ✅ 새로운 주문 생성 (출고 차수 업데이트)
     for order in last_orders:
@@ -224,10 +229,13 @@ def finalize_inventory(order_date: date, db: Session = Depends(get_db)):
             quantity=order["quantity"]
         )
         db.add(new_order_item)
-
-    db.commit()
+        db.commit()
 
     print(f"✅ [완료] 차량 재고 자동 업데이트 완료")
+
+    # ✅ 🚀 출고 반영 후 차량 재고 업데이트 실행 (중복 방지)
+    print(f"[차량 재고 업데이트 실행] 직원 {employee_id}")
+    update_vehicle_stock(employee_id, db, order_date)  # ✅ order_date 추가하여 호출
 
     # ✅ 출고 확정 후, 주문을 다시 개방하여 추가 주문 가능하게 설정
     order_lock.is_locked = False  # ✅ 주문 다시 개방
@@ -238,3 +246,4 @@ def finalize_inventory(order_date: date, db: Session = Depends(get_db)):
         "message": f"출고 확정 완료 (출고 단계: {current_shipment_round})",
         "updated_stock": last_orders
     }
+

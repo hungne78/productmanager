@@ -415,7 +415,7 @@ from fastapi.exceptions import RequestValidationError
 def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
     print("📡 [FastAPI] create_sale() 호출됨")  
     print(f"📡 [FastAPI] 받은 요청 데이터: {sale_data.model_dump()}")  
-
+    today_date = date.today()
     try:
         print(f"📡 판매 등록 요청 데이터: {sale_data.model_dump()}")
 
@@ -484,7 +484,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         print(f"✅ 매출 저장 완료: ID={new_sale.id}, 총액={total_amount}")
 
         # ✅ 판매 완료 후 차량 재고 자동 업데이트 실행
-        update_vehicle_stock(sale_data.employee_id, db)
+        update_vehicle_stock(sale_data.employee_id, db, today_date)
 
         return new_sale
     

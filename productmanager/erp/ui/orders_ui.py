@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import QWidget, QHBoxLayout, QHBoxLayout, QPushButton, QTab
 import os
 import sys
 from PyQt5.QtCore import Qt, QDate
-from PyQt5.QtGui import QFont, QResizeEvent,QFontMetrics, QColor
+from PyQt5.QtGui import QFont, QResizeEvent,QFontMetrics, QColor, QStandardItem
 import requests
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -27,7 +27,7 @@ class OrderLeftWidget(QWidget):
         self.order_date_picker.setDate(QDate.currentDate())
         self.selected_order_date = self.order_date_picker.date().toString("yyyy-MM-dd")  # ✅ 초기값 설정
         self.order_date_picker.dateChanged.connect(self.on_date_changed)  # ✅ 이벤트 연결
-
+        self.order_date_picker.dateChanged.connect(self.on_order_date_changed)
         layout.addWidget(self.order_date_label)
         layout.addWidget(self.order_date_picker)
 
@@ -72,7 +72,44 @@ class OrderLeftWidget(QWidget):
         self.setLayout(layout)
          # ✅ 현재 출고 단계 불러오기
         self.fetch_current_shipment_round()
-        
+    
+    def on_order_date_changed(self):
+        """
+        주문 날짜가 변경될 때 출고 단계를 새로 가져오고 드롭다운을 업데이트
+        """
+        self.fetch_current_shipment_round()  # ✅ 새 출고 단계 가져오기
+
+
+    def update_shipment_dropdown(self):
+        """
+        출고 드롭다운 메뉴를 선택한 날짜의 출고 차수에 맞게 갱신
+        """
+        self.shipment_round_dropdown.clear()  # ✅ 기존 항목 초기화
+
+        for i in range(10):  # ✅ 1차 ~ 10차까지 표시
+            item_text = f"{i + 1}차 출고"
+            item = QStandardItem(item_text)
+
+            # ✅ 현재 출고 차수까지만 활성화, 이후는 비활성화 (회색 표시)
+            if i == self.current_shipment_round:  # ✅ 현재 출고 차수는 선택 가능
+                item.setEnabled(True)
+                item.setForeground(QColor(0, 0, 0))  # ✅ 활성화 (검은색)
+            elif i < self.current_shipment_round:  # ✅ 이미 출고된 단계는 비활성화
+                item.setEnabled(False)
+                item.setForeground(QColor(100, 100, 100))  # ✅ 비활성화 (연한 회색)
+            else:  # ✅ 아직 출고되지 않은 미래 차수
+                item.setEnabled(False)
+                item.setForeground(QColor(150, 150, 150))  # ✅ 회색 (비활성화)
+
+            self.shipment_round_dropdown.model().appendRow(item)
+
+        # ✅ 출고 가능한 차수를 자동 선택 (현재 출고 차수)
+        self.shipment_round_dropdown.setCurrentIndex(self.current_shipment_round)
+        self.shipment_round_dropdown.setEnabled(True)
+
+        print(f"📌 [디버깅] {self.current_shipment_round + 1}차까지 선택 가능")
+
+
     def fetch_current_shipment_round(self):
         """
         서버에서 현재 출고 단계를 가져와서 드롭다운을 업데이트
@@ -85,25 +122,18 @@ class OrderLeftWidget(QWidget):
             response = requests.get(url, headers=headers)
             if response.status_code == 200:
                 data = response.json()
-                self.current_shipment_round = data.get("shipment_round", 0)
+                self.current_shipment_round = data.get("shipment_round", 0)  # ✅ 기본값 0
 
-                # ✅ 현재 출고 단계까지만 활성화 (예: 1차 출고 완료되면 2차 활성화)
-                for i in range(10):
-                    item = self.shipment_round_dropdown.model().item(i)
-                    if i == self.current_shipment_round:
-                        self.shipment_round_dropdown.model().item(i).setEnabled(True)
-                    else:
-                        self.shipment_round_dropdown.model().item(i).setEnabled(False)
-                        item.setForeground(QColor(150, 150, 150))
+                # ✅ 출고 차수 드롭다운 업데이트 함수 호출
+                self.update_shipment_dropdown()
 
-                self.shipment_round_dropdown.setCurrentIndex(self.current_shipment_round)
-                self.shipment_round_dropdown.setEnabled(True)
+                print(f"📌 [디버깅] {selected_date} 출고 차수: {self.current_shipment_round}")
 
             else:
                 print(f"❌ 출고 단계 조회 실패: {response.text}")
         except Exception as e:
             print(f"❌ 출고 단계 조회 중 오류 발생: {e}")
-            
+
     def check_finalized_status(self):
         """
         출고 확정 상태를 확인하여 버튼을 비활성화
@@ -213,14 +243,14 @@ class OrderLeftWidget(QWidget):
 
     def display_orders(self, orders):
         """
-        주문 데이터를 오른쪽 패널의 테이블에 표시
+        주문 데이터를 오른쪽 패널의 테이블에 표시 (출고 차수 적용)
         """
-        print(f"📌 [display_orders] 호출됨, 받은 데이터: {orders}")  # ✅ 로그 추가
+        print(f"📌 [display_orders] 호출됨, 받은 데이터: {orders}")  
         if self.order_right_widget:
-            print("✅ [display_orders] → update_orders() 호출")  # ✅ 로그 추가
-            self.order_right_widget.update_orders(orders)  # ✅ 업데이트 실행
+            self.order_right_widget.update_orders(orders)  
         else:
             print("❌ order_right_widget가 None입니다.")
+
 
 
 
@@ -258,20 +288,21 @@ class OrderLeftWidget(QWidget):
 
     def fetch_orders_by_employee(self, employee_id):
         """
-        선택한 날짜와 직원 ID를 기반으로 주문 데이터 가져오기
+        선택한 날짜와 직원 ID를 기반으로 주문 데이터 가져오기 (출고 차수 포함)
         """
         selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
+        selected_round = self.shipment_round_dropdown.currentIndex() + 1  # ✅ 선택된 출고 차수
 
-        url = f"{BASE_URL}/orders/orders_with_items?employee_id={employee_id}&date={selected_date}"
+        url = f"{BASE_URL}/orders/orders_with_items?employee_id={employee_id}&date={selected_date}&shipment_round={selected_round}"
         headers = {"Authorization": f"Bearer {global_token}"}
 
         try:
             resp = requests.get(url, headers=headers)
             if resp.status_code == 200:
                 orders = resp.json()
-                print(f"📌 직원 {employee_id}의 주문 조회 성공: {orders}")  # ✅ 주문 데이터 확인 로그
+                print(f"📌 직원 {employee_id}의 {selected_round}차 주문 조회 성공: {orders}")  
                 self.display_orders(orders)
-                self.update_employee_buttons(employee_id)  # ✅ 버튼 스타일 변경
+                self.update_employee_buttons(employee_id)  
             else:
                 print(f"❌ 주문 조회 실패: {resp.status_code}, 응답: {resp.text}")
                 QMessageBox.warning(self, "주문 조회 실패", "주문 데이터를 불러오지 못했습니다.")
@@ -281,6 +312,7 @@ class OrderLeftWidget(QWidget):
         except Exception as e:
             print(f"❌ 오류 발생: {e}")
             QMessageBox.warning(self, "오류 발생", f"주문 조회 중 오류 발생: {e}")
+
 
     def update_employee_buttons(self, selected_employee_id):
         """
@@ -307,9 +339,10 @@ class OrderLeftWidget(QWidget):
 
     def fetch_orders_for_all_employees(self):
         """
-        모든 직원의 주문을 개별 조회 후, 상품별로 합산하여 표시
+        모든 직원의 주문을 개별 조회 후, 상품별로 합산하여 표시 (출고 차수 포함)
         """
         selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
+        selected_round = self.shipment_round_dropdown.currentIndex() + 1  # ✅ 선택된 출고 차수
 
         url = f"{BASE_URL}/employees/"
         headers = {"Authorization": f"Bearer {global_token}"}
@@ -328,20 +361,23 @@ class OrderLeftWidget(QWidget):
             # ✅ 2. 모든 직원의 주문을 개별 조회
             for employee in employees:
                 employee_id = employee["id"]
-                order_url = f"{BASE_URL}/orders/orders_with_items?employee_id={employee_id}&date={selected_date}"
+                order_url = f"{BASE_URL}/orders/orders_with_items?employee_id={employee_id}&date={selected_date}&shipment_round={selected_round}"
                 order_resp = requests.get(order_url, headers=headers)
 
                 if order_resp.status_code == 200:
                     orders = order_resp.json()
                     for order in orders:
+                        if order["shipment_round"] != selected_round:  # ✅ 출고 차수가 다르면 무시
+                            continue
+
                         for item in order["items"]:
                             product_id = item["product_id"]
                             quantity = item["quantity"]
 
-                            if product_id in aggregated_orders:
-                                aggregated_orders[product_id]["quantity"] += quantity
+                            if (product_id, selected_round) in aggregated_orders:
+                                aggregated_orders[(product_id, selected_round)]["quantity"] += quantity
                             else:
-                                aggregated_orders[product_id] = {
+                                aggregated_orders[(product_id, selected_round)] = {
                                     "product_id": product_id,
                                     "product_name": item["product_name"],
                                     "quantity": quantity
@@ -644,12 +680,11 @@ class OrderRightWidget(QWidget):
 
     def update_orders(self, orders):
         """
-        주문 데이터를 받아서 기존 테이블의 두 번째 열(수량)에 반영
+        주문 데이터를 받아서 기존 테이블의 두 번째 열(수량)에 반영 (출고 차수 적용)
         """
         print("\n🔹 [update_orders] 호출됨")
         print(f"🔹 받은 주문 데이터: {orders}")
 
-        # ✅ 주문된 상품 ID와 수량을 매핑
         order_quantity_map = {item["product_id"]: item["quantity"] for order in orders for item in order["items"]}
         print(f"📌 주문 ID → 수량 매핑 결과: {order_quantity_map}")
 
@@ -672,14 +707,12 @@ class OrderRightWidget(QWidget):
                         product_name = product_name_item.text().strip()
                         print(f"🔍 테이블 행 {row}: 품명 = {product_name}")
 
-                        # ✅ 기존 상품 목록에서 해당 `product_name`을 가진 제품 찾기
                         matching_product = next((p for p in self.current_products if p["product_name"] == product_name), None)
 
                         if matching_product:
                             product_id = matching_product["id"]
                             print(f"   ✅ 상품 매칭됨 → ID: {product_id}, 이름: {product_name}")
 
-                            # ✅ 주문 목록에 있는 상품이면 수량 업데이트, 없으면 0으로 설정
                             if product_id in order_quantity_map:
                                 quantity = order_quantity_map[product_id]
                                 quantity_item.setText(str(quantity))
@@ -692,6 +725,27 @@ class OrderRightWidget(QWidget):
 
                     else:
                         print(f"   ❗ row={row}에서 product_name_item 또는 quantity_item이 없음")
+
+
+    def fetch_orders_for_whole_day(self):
+        """
+        선택된 날짜의 전체 주문을 가져와 표시 (출고 차수 관계 없음)
+        """
+        selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
+
+        url = f"{BASE_URL}/orders/orders_with_items?date={selected_date}&all_shipment_rounds=True"
+        headers = {"Authorization": f"Bearer {global_token}"}
+
+        try:
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                orders = response.json()
+                print(f"📌 [전체 주문 조회] {selected_date}: {orders}")
+                self.display_orders(orders)
+            else:
+                print(f"❌ 전체 주문 조회 실패: {response.status_code}, 응답: {response.text}")
+        except Exception as e:
+            print(f"❌ 오류 발생: {e}")
 
 
     def refresh_orders(self):

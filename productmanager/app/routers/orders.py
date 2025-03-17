@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.utils.inventory_service import update_vehicle_stock
 from app.models.orders import OrderLock
 from sqlalchemy import func
+from typing import Optional
 router = APIRouter()
 
 
@@ -106,8 +107,7 @@ def get_order(order_id: int, db: Session = Depends(get_db), is_archive: bool = Q
 @router.post("/", response_model=OrderSchema)
 def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(get_db)):
     """
-    직원 ID와 주문 날짜가 같은 주문이 있으면 업데이트, 없으면 새 주문 생성
-    주문 완료 후 차량 재고를 자동 업데이트
+    주문 생성 또는 업데이트 (출고 단계 고려)
     """
     today = date.today()
 
@@ -116,69 +116,60 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
     if order_lock and order_lock.is_locked:
         raise HTTPException(status_code=403, detail="이 날짜의 주문은 수정이 불가능합니다.")
 
-    # ✅ 수량이 음수인지 확인 (0 이상만 허용)
-    for item in order_data.order_items:
-        if item.quantity < 0:
-            raise HTTPException(status_code=400, detail=f"상품 {item.product_id}의 수량이 유효하지 않습니다. (0 이상 필요)")
-
-    # ✅ 현재 출고 단계 조회 (출고 단계가 없으면 기본값 0 설정)
+    # ✅ 현재 출고 단계 조회
     last_shipment_round = (
         db.query(func.max(Order.shipment_round))
         .filter(Order.order_date == order_data.order_date)
         .scalar()
-    ) or 0  # ✅ None이면 0으로 설정
+    ) or 0  # ✅ 기본값 0
 
-    # ✅ 기존 주문 조회 (같은 직원 & 같은 날짜)
+    # ✅ 기존 주문 조회 (같은 직원 & 같은 날짜 & 같은 출고 단계)
     existing_order = (
         db.query(Order)
         .filter(Order.employee_id == order_data.employee_id)
         .filter(Order.order_date == order_data.order_date)
+        .filter(Order.shipment_round == last_shipment_round)  # ✅ 동일한 출고 차수만 조회
         .first()
     )
 
     if existing_order:
-        # ✅ 기존 주문이 있다면 업데이트
+        # ✅ 출고 확정된 주문은 수정 불가
+        if existing_order.shipment_round < last_shipment_round:
+            raise HTTPException(status_code=400, detail="이미 출고된 주문은 수정할 수 없습니다.")
+
+        # ✅ 기존 주문이 있으면 업데이트
         existing_order.total_amount = order_data.total_amount
         existing_order.total_incentive = order_data.total_incentive
         existing_order.total_boxes = order_data.total_boxes
-        existing_order.shipment_round = last_shipment_round  # ✅ 출고 단계 유지
 
         # ✅ 기존 주문 항목 조회 및 매핑
         existing_order_items = db.query(OrderItem).filter(OrderItem.order_id == existing_order.id).all()
         existing_order_map = {item.product_id: item.quantity for item in existing_order_items}
 
-        # ✅ 출고된 내역이 있는지 확인하여 변경 불가하도록 설정
+        # ✅ 기존 주문 항목 업데이트
         for item in order_data.order_items:
             if item.product_id in existing_order_map:
-                if existing_order.shipment_round > last_shipment_round:
-                    # ✅ 이미 출고된 상품은 수량 변경 불가
-                    raise HTTPException(status_code=400, detail=f"상품 {item.product_id}은(는) 이미 출고되어 수정할 수 없습니다.")
-
-                # ✅ 기존 주문이 있으면 수량만 업데이트 (출고되지 않은 경우)
                 db.query(OrderItem).filter(
                     OrderItem.order_id == existing_order.id,
                     OrderItem.product_id == item.product_id
                 ).update({"quantity": item.quantity})
             else:
-                # ✅ 기존에 없던 제품이면 새로 추가
                 db.add(OrderItem(order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity))
 
         db.commit()
         db.refresh(existing_order)
 
-        print(f"✅ [디버깅] 주문 수정 완료 - 차량 재고 업데이트 호출")
-        update_vehicle_stock(order_data.employee_id, db)  # ✅ 차량 재고 업데이트 호출
+        print(f"✅ [디버깅] 주문 수정 완료")
+        return existing_order  # 🚀 차량 재고 업데이트 X (출고 확정 시에만 업데이트)
 
-        return existing_order
-
-    # ✅ 기존 주문이 없으면 새 주문 생성
+    # ✅ 새로운 출고 차수이면 새 주문 생성
     new_order = Order(
         employee_id=order_data.employee_id,
         order_date=order_data.order_date,
         total_amount=order_data.total_amount,
         total_incentive=order_data.total_incentive,
         total_boxes=order_data.total_boxes,
-        shipment_round=last_shipment_round  # ✅ 출고 단계 유지
+        # shipment_round=last_shipment_round + 1  # ✅ 출고 단계 증가
     )
     db.add(new_order)
     db.commit()
@@ -189,11 +180,9 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
         db.add(OrderItem(order_id=new_order.id, product_id=item.product_id, quantity=item.quantity))
 
     db.commit()
+    print(f"✅ [디버깅] 새 주문 생성 완료")
+    return new_order  # 🚀 차량 재고 업데이트 X (출고 확정 시에만 업데이트)
 
-    print(f"✅ [디버깅] 새 주문 생성 완료 - 차량 재고 업데이트 호출")
-    update_vehicle_stock(order_data.employee_id, db)  # ✅ 차량 재고 업데이트 호출
-
-    return new_order
 
 
 
@@ -296,18 +285,63 @@ def get_order_summary_by_employee_date(employee_id: int, order_date: str, db: Se
         "total_incentive": order.total_incentive,
         "total_boxes": order.total_boxes
     }
-@router.get("/orders_with_items", response_model=List[dict])
-def get_orders_with_items(employee_id: int, date: str, db: Session = Depends(get_db)):
+
+
+@router.get("/all_orders_by_shipment", response_model=List[dict])
+def get_all_orders_by_shipment(date: str, shipment_round: int, db: Session = Depends(get_db)):
     """
-    특정 직원의 특정 날짜 주문과 해당 주문의 상품 항목을 함께 조회하는 API (품명 포함)
+    특정 날짜 및 출고 차수에 해당하는 모든 직원의 주문을 조회하여 품목별 합산 반환
     """
     orders = db.query(Order).filter(
-        Order.employee_id == employee_id,
-        Order.order_date == date
+        Order.order_date == date,
+        Order.shipment_round == shipment_round
     ).all()
 
     if not orders:
-        raise HTTPException(status_code=404, detail="해당 직원의 주문이 없습니다.")
+        raise HTTPException(status_code=404, detail="해당 날짜 및 출고 차수에 주문이 없습니다.")
+
+    aggregated_orders = {}
+
+    for order in orders:
+        order_items = (
+            db.query(OrderItem, Product.product_name)
+            .join(Product, Product.id == OrderItem.product_id)
+            .filter(OrderItem.order_id == order.id)
+            .all()
+        )
+
+        for item in order_items:
+            product_id = item.OrderItem.product_id
+            quantity = item.OrderItem.quantity
+            product_name = item.product_name
+
+            if product_id in aggregated_orders:
+                aggregated_orders[product_id]["quantity"] += quantity
+            else:
+                aggregated_orders[product_id] = {
+                    "product_id": product_id,
+                    "product_name": product_name,
+                    "quantity": quantity
+                }
+
+    return list(aggregated_orders.values())
+
+
+
+
+@router.get("/orders_with_items", response_model=List[dict])
+def get_orders_with_items(employee_id: int, date: str, shipment_round: int, db: Session = Depends(get_db)):
+    """
+    특정 직원의 특정 날짜 및 출고 차수에 해당하는 주문과 상품 목록을 조회하는 API (품명 포함)
+    """
+    orders = db.query(Order).filter(
+        Order.employee_id == employee_id,
+        Order.order_date == date,
+        Order.shipment_round == shipment_round  # ✅ 출고 차수를 필터링
+    ).all()
+
+    if not orders:
+        raise HTTPException(status_code=404, detail="해당 직원의 해당 출고 차수에 대한 주문이 없습니다.")
 
     result = []
     for order in orders:
@@ -317,17 +351,27 @@ def get_orders_with_items(employee_id: int, date: str, db: Session = Depends(get
             .filter(OrderItem.order_id == order.id)
             .all()
         )
-        items = [{"product_id": item.OrderItem.product_id, "product_name": item.product_name, "quantity": item.OrderItem.quantity} for item in order_items]
-        
+
+        items = [
+            {
+                "product_id": item.OrderItem.product_id,
+                "product_name": item.product_name,
+                "quantity": item.OrderItem.quantity
+            }
+            for item in order_items
+        ]
+
         result.append({
             "order_id": order.id,
             "order_date": order.order_date,
+            "shipment_round": order.shipment_round,  # ✅ 출고 차수 추가
             "total_amount": order.total_amount,
             "total_boxes": order.total_boxes,
             "items": items
         })
 
     return result
+
 
 # ✅ 기존 주문 덮어쓰기 (UPSERT)
 @router.post("/orders/", response_model=OrderSchema)
@@ -425,10 +469,12 @@ def update_order_quantity(
 @router.get("/current_shipment_round/{order_date}")
 def get_current_shipment_round(order_date: date, db: Session = Depends(get_db)):
     """
-    현재 날짜의 마지막 출고 단계를 반환
+    특정 날짜(order_date)의 현재 출고 차수 반환 (새 주문 시 적용)
     """
-    last_shipment_round = db.query(func.max(Order.shipment_round)).filter(
+    shipment_round = db.query(func.max(Order.shipment_round)).filter(
         Order.order_date == order_date
-    ).scalar() or 0
+    ).scalar() or 0  # ✅ None이면 0으로 설정
 
-    return {"order_date": order_date, "shipment_round": last_shipment_round}
+    print(f"📌 [디버깅] {order_date}의 현재 출고 차수: {shipment_round}")
+    
+    return {"shipment_round": shipment_round}
