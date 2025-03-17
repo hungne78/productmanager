@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import QWidget, QHBoxLayout, QHBoxLayout, QPushButton, QTab
 import os
 import sys
 from PyQt5.QtCore import Qt, QDate
-from PyQt5.QtGui import QFont, QResizeEvent,QFontMetrics
+from PyQt5.QtGui import QFont, QResizeEvent,QFontMetrics, QColor
 import requests
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -17,7 +17,7 @@ class OrderLeftWidget(QWidget):
     def __init__(self, parent=None, order_right_widget=None):
         super().__init__(parent)
         self.order_right_widget = order_right_widget  # ✅ 오른쪽 패널을 저장
-
+        self.current_shipment_round = 0  # ✅ 현재 출고 단계 저장 (초기값 0)
         layout = QVBoxLayout()
 
         # ✅ 1. 날짜 선택을 가장 위로 이동
@@ -30,6 +30,13 @@ class OrderLeftWidget(QWidget):
 
         layout.addWidget(self.order_date_label)
         layout.addWidget(self.order_date_picker)
+
+        # ✅ 2. 출고 단계 선택 드롭다운 (현재 출고 가능 단계만 활성화)
+        self.shipment_round_dropdown = QComboBox()
+        self.shipment_round_dropdown.addItems([f"{i}차 출고" for i in range(1, 11)])  # ✅ 1차 ~ 10차
+        self.shipment_round_dropdown.setEnabled(False)  # ✅ 기본적으로 비활성화
+        layout.addWidget(QLabel("출고 단계 선택"))
+        layout.addWidget(self.shipment_round_dropdown)
 
         self.lock_button = QPushButton("🚫 주문 종료")
         self.lock_button.clicked.connect(self.lock_order)
@@ -60,21 +67,77 @@ class OrderLeftWidget(QWidget):
         self.order_button = QPushButton("전체 주문 조회")
         self.order_button.clicked.connect(self.fetch_orders_for_all_employees)  # ✅ 전체 주문 조회
         layout.addWidget(self.order_button)
-
+        # ✅ 초기 UI 로드 시 출고 확정 상태 확인
+        self.check_finalized_status()
         self.setLayout(layout)
+         # ✅ 현재 출고 단계 불러오기
+        self.fetch_current_shipment_round()
+        
+    def fetch_current_shipment_round(self):
+        """
+        서버에서 현재 출고 단계를 가져와서 드롭다운을 업데이트
+        """
+        selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
+        url = f"{BASE_URL}/orders/current_shipment_round/{selected_date}"
+        headers = {"Authorization": f"Bearer {global_token}"}
+
+        try:
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                self.current_shipment_round = data.get("shipment_round", 0)
+
+                # ✅ 현재 출고 단계까지만 활성화 (예: 1차 출고 완료되면 2차 활성화)
+                for i in range(10):
+                    item = self.shipment_round_dropdown.model().item(i)
+                    if i == self.current_shipment_round:
+                        self.shipment_round_dropdown.model().item(i).setEnabled(True)
+                    else:
+                        self.shipment_round_dropdown.model().item(i).setEnabled(False)
+                        item.setForeground(QColor(150, 150, 150))
+
+                self.shipment_round_dropdown.setCurrentIndex(self.current_shipment_round)
+                self.shipment_round_dropdown.setEnabled(True)
+
+            else:
+                print(f"❌ 출고 단계 조회 실패: {response.text}")
+        except Exception as e:
+            print(f"❌ 출고 단계 조회 중 오류 발생: {e}")
+            
+    def check_finalized_status(self):
+        """
+        출고 확정 상태를 확인하여 버튼을 비활성화
+        """
+        url = f"{BASE_URL}/orders/lock_status/{self.selected_order_date}"
+        headers = {"Authorization": f"Bearer {global_token}"}
+
+        try:
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                lock_status = response.json()
+                if lock_status["is_finalized"]:  # ✅ 출고 확정 여부 확인
+                    self.finalize_button.setEnabled(False)  # ✅ 출고 확정 버튼 비활성화
+                    self.finalize_button.setText("출고 완료됨 ✅")
+            else:
+                print(f"❌ 출고 확정 상태 확인 실패: {response.status_code}")
+        except Exception as e:
+            print(f"❌ 서버 오류 발생: {e}")
 
     def finalize_inventory(self):
         """
-        선택한 날짜의 최종 주문을 차량 재고에 반영 (출고 확정)
+        선택한 출고 단계를 서버로 전송하여 출고 확정 실행
         """
         selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
-        url = f"{BASE_URL}/inventory/finalize_inventory/{selected_date}"
+        selected_round = self.shipment_round_dropdown.currentIndex() + 1  # ✅ 콤보박스 인덱스 (0부터 시작하므로 +1)
+
+        url = f"{BASE_URL}/inventory/finalize_inventory/{selected_date}?shipment_round={selected_round}"
         headers = {"Authorization": f"Bearer {global_token}"}
 
         try:
             response = requests.post(url, headers=headers)
             if response.status_code == 200:
-                QMessageBox.information(self, "성공", f"{selected_date} 출고가 확정되었습니다. 차량 재고가 업데이트되었습니다.")
+                QMessageBox.information(self, "성공", f"{selected_round}차 출고가 확정되었습니다.")
+                self.fetch_current_shipment_round()  # ✅ 출고 확정 후 드롭다운 업데이트
             else:
                 QMessageBox.critical(self, "실패", f"출고 확정 실패: {response.text}")
         except Exception as e:
@@ -388,6 +451,7 @@ class OrderRightWidget(QWidget):
         if not self.selected_order_date:
             self.selected_order_date = QDate.currentDate().toString("yyyy-MM-dd")  # ✅ 날짜가 None이면 오늘 날짜로 설정
             print(f"✅ [자동 설정] 선택된 주문 날짜: {self.selected_order_date}")
+
         print(f"📝 [DEBUG] 주문 수정 요청 진행")
         print(f"📝 선택된 상품 ID: {getattr(self, 'selected_order_id', None)}")
         print(f"📝 선택된 상품명: {getattr(self, 'selected_product_name', None)}")
@@ -400,9 +464,6 @@ class OrderRightWidget(QWidget):
             getattr(self, 'selected_order_date', None)
         ]):
             print("⚠️ [DEBUG] 필수값 누락 → 주문 수정 불가")
-            QMessageBox.warning(self, "오류", "수정할 주문을 선택하세요.")
-            return
-        if not self.selected_order_id or not hasattr(self, 'selected_product_name') or not hasattr(self, 'selected_order_date'):
             QMessageBox.warning(self, "오류", "수정할 주문을 선택하세요.")
             return
 
@@ -432,7 +493,6 @@ class OrderRightWidget(QWidget):
 
         # ✅ 기존 값 가져오기 (주문 수량)
         quantity_item = selected_table.item(selected_order_row, 1)  # ✅ "갯수" 열(두 번째 열)
-
         existing_quantity = int(quantity_item.text()) if quantity_item else 0
 
         # ✅ 팝업 창을 띄워 수정할 주문 수량 입력 받기
@@ -441,8 +501,8 @@ class OrderRightWidget(QWidget):
         if not ok:
             return  # ✅ 사용자가 입력을 취소하면 종료
 
-        # ✅ FastAPI의 `product_id` + `order_date`를 사용하여 요청 보내기
-        url = f"{BASE_URL}/orders/update_quantity/{self.selected_order_id}/?order_date={self.selected_order_date}"
+        # ✅ FastAPI의 `product_id` + `order_date`를 사용하여 요청 보내기 (is_admin=True 추가)
+        url = f"{BASE_URL}/orders/update_quantity/{self.selected_order_id}/?order_date={self.selected_order_date}&is_admin=True"
         headers = {"Authorization": f"Bearer {global_token}", "Content-Type": "application/json"}
         data = {
             "quantity": new_quantity  # ✅ 주문 수량(갯수)만 변경
@@ -457,6 +517,7 @@ class OrderRightWidget(QWidget):
                 QMessageBox.critical(self, "실패", f"주문 수량 수정 실패: {response.text}")
         except Exception as e:
             QMessageBox.critical(self, "오류 발생", f"서버 요청 오류: {e}")
+
 
 
 

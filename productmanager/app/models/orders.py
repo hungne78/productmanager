@@ -29,7 +29,8 @@ class Order(Base):
     total_amount = Column(Float, default=0.0)  # ✅ 총 금액 (order_items에서 계산 후 저장)
     total_incentive = Column(Float, default=0.0)  # ✅ 총 인센티브 (order_items에서 계산 후 저장)
     total_boxes = Column(Integer, default=0)  # ✅ 총 박스 수량 (order_items에서 계산 후 저장)
-
+    shipment_round = Column(Integer, default=0)
+    
     # 관계 설정
     employee = relationship("Employee", back_populates="orders")
     order_items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
@@ -40,7 +41,7 @@ class OrderItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)  # ✅ 주문 ID 유지
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)  # ✅ 상품 ID 유지
-    quantity = Column(Integer, default=1)  # ✅ 수량 유지
+    quantity = Column(Integer, nullable=False)  # ✅ 수량 유지
 
     # 관계 설정
     order = relationship("Order", back_populates="order_items")

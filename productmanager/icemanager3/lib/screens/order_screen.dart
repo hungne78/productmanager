@@ -15,6 +15,11 @@ class OrderScreen extends StatefulWidget {
 }
 
 class _OrderScreenState extends State<OrderScreen> {
+  int currentShipmentRound = 0; // ✅ 현재 출고 단계 저장
+  int selectedShipmentRound = 1; // ✅ 드롭다운에서 선택된 출고 단계
+  List<int> shipmentRounds = List.generate(10, (index) => index + 1); // ✅ 1차 ~ 10차 출고
+
+
   Map<int, TextEditingController> quantityControllers = {};
   Map<int, FocusNode> focusNodes = {};
   Map<int, int> vehicleStockMap = {}; // ✅ 차량 재고 정보 저장 (product_id → stock)
@@ -23,9 +28,29 @@ class _OrderScreenState extends State<OrderScreen> {
   @override
   void initState() {
     super.initState();
+    _fetchCurrentShipmentRound(); // ✅ 현재 출고 단계 가져오기
     _fetchAndSortProducts();
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _fetchEmployeeVehicleStock(authProvider.user?.id ?? 0); // 🔹 차량 재고 초기화
+  }
+
+
+  // ✅ 서버에서 현재 출고 단계를 가져오기
+  Future<void> _fetchCurrentShipmentRound() async {
+    try {
+      final response = await ApiService.getShipmentRound(widget.token, widget.selectedDate);
+      if (response.statusCode == 200) {
+        final data = response.data;
+        setState(() {
+          currentShipmentRound = data['shipment_round']; // ✅ 현재 출고 단계 업데이트
+          selectedShipmentRound = currentShipmentRound + 1; // ✅ 현재 가능 단계 설정
+        });
+      } else {
+        throw Exception("출고 단계 조회 실패");
+      }
+    } catch (e) {
+      print("🚨 출고 단계 조회 실패: $e");
+    }
   }
 
   // 상품 목록을 서버에서 가져오고 정렬하는 함수
@@ -201,10 +226,64 @@ class _OrderScreenState extends State<OrderScreen> {
       appBar: AppBar(title: const Text("주문 페이지")),
       body: Column(
         children: [
+          // ✅ 현재 출고 단계 표시
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                Text(
+                  "현재 출고 단계: ${currentShipmentRound + 1}차 출고 대기",
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(
+                  value: currentShipmentRound / 10, // ✅ 10차 출고 기준 진행률
+                  minHeight: 8,
+                  backgroundColor: Colors.grey[300],
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "출고 확정은 PC에서 진행됩니다.",
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+
+          // ✅ 출고 단계 선택 드롭다운 (현재 출고 가능 단계만 활성화, 비활성 단계는 회색)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: DropdownButton<int>(
+              value: selectedShipmentRound,
+              onChanged: (int? newValue) {
+                if (newValue != null && newValue == currentShipmentRound + 1) {
+                  setState(() {
+                    selectedShipmentRound = newValue;
+                  });
+                }
+              },
+              items: shipmentRounds.map((round) {
+                return DropdownMenuItem<int>(
+                  value: round,
+                  child: Text(
+                    "$round차 출고",
+                    style: TextStyle(
+                      color: round == currentShipmentRound + 1 ? Colors.black : Colors.grey, // ✅ 가능 차수는 검정, 불가능 차수는 회색
+                    ),
+                  ),
+                  enabled: round == currentShipmentRound + 1, // ✅ 현재 가능 차수만 선택 가능
+                );
+              }).toList(),
+            ),
+          ),
+
           Expanded(
             child: _buildProductTable(products), // 🔹 변환된 리스트 전달
           ),
           _buildSummaryRow(),
+
+          // ✅ 주문 전송 버튼 (출고 확정 아님)
           ElevatedButton.icon(
             onPressed: _sendOrderToServer,
             icon: const Icon(Icons.send),

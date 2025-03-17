@@ -11,6 +11,7 @@ from app.db.base import Base
 from fastapi.responses import JSONResponse
 from app.utils.inventory_service import update_vehicle_stock
 from app.models.orders import OrderLock
+from sqlalchemy import func
 router = APIRouter()
 
 
@@ -115,6 +116,18 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
     if order_lock and order_lock.is_locked:
         raise HTTPException(status_code=403, detail="이 날짜의 주문은 수정이 불가능합니다.")
 
+    # ✅ 수량이 음수인지 확인 (0 이상만 허용)
+    for item in order_data.order_items:
+        if item.quantity < 0:
+            raise HTTPException(status_code=400, detail=f"상품 {item.product_id}의 수량이 유효하지 않습니다. (0 이상 필요)")
+
+    # ✅ 현재 출고 단계 조회 (출고 단계가 없으면 기본값 0 설정)
+    last_shipment_round = (
+        db.query(func.max(Order.shipment_round))
+        .filter(Order.order_date == order_data.order_date)
+        .scalar()
+    ) or 0  # ✅ None이면 0으로 설정
+
     # ✅ 기존 주문 조회 (같은 직원 & 같은 날짜)
     existing_order = (
         db.query(Order)
@@ -128,14 +141,20 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
         existing_order.total_amount = order_data.total_amount
         existing_order.total_incentive = order_data.total_incentive
         existing_order.total_boxes = order_data.total_boxes
+        existing_order.shipment_round = last_shipment_round  # ✅ 출고 단계 유지
 
-        # ✅ 기존 주문 항목을 삭제하지 않고, 기존 데이터와 비교하여 업데이트
+        # ✅ 기존 주문 항목 조회 및 매핑
         existing_order_items = db.query(OrderItem).filter(OrderItem.order_id == existing_order.id).all()
         existing_order_map = {item.product_id: item.quantity for item in existing_order_items}
 
+        # ✅ 출고된 내역이 있는지 확인하여 변경 불가하도록 설정
         for item in order_data.order_items:
             if item.product_id in existing_order_map:
-                # ✅ 기존 주문이 있으면 수량만 업데이트
+                if existing_order.shipment_round > last_shipment_round:
+                    # ✅ 이미 출고된 상품은 수량 변경 불가
+                    raise HTTPException(status_code=400, detail=f"상품 {item.product_id}은(는) 이미 출고되어 수정할 수 없습니다.")
+
+                # ✅ 기존 주문이 있으면 수량만 업데이트 (출고되지 않은 경우)
                 db.query(OrderItem).filter(
                     OrderItem.order_id == existing_order.id,
                     OrderItem.product_id == item.product_id
@@ -158,7 +177,8 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
         order_date=order_data.order_date,
         total_amount=order_data.total_amount,
         total_incentive=order_data.total_incentive,
-        total_boxes=order_data.total_boxes
+        total_boxes=order_data.total_boxes,
+        shipment_round=last_shipment_round  # ✅ 출고 단계 유지
     )
     db.add(new_order)
     db.commit()
@@ -174,6 +194,7 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
     update_vehicle_stock(order_data.employee_id, db)  # ✅ 차량 재고 업데이트 호출
 
     return new_order
+
 
 
 # ✅ 4️⃣ 특정 직원의 특정 날짜 주문 목록 조회
@@ -400,3 +421,14 @@ def update_order_quantity(
     order_item.quantity = quantity
     db.commit()
     return {"message": "주문 수량이 수정되었습니다.", "order_id": order_id, "quantity": quantity}
+
+@router.get("/current_shipment_round/{order_date}")
+def get_current_shipment_round(order_date: date, db: Session = Depends(get_db)):
+    """
+    현재 날짜의 마지막 출고 단계를 반환
+    """
+    last_shipment_round = db.query(func.max(Order.shipment_round)).filter(
+        Order.order_date == order_date
+    ).scalar() or 0
+
+    return {"order_date": order_date, "shipment_round": last_shipment_round}

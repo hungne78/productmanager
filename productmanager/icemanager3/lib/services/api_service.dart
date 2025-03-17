@@ -327,7 +327,23 @@ class ApiService {
       throw Exception("차량 정보를 불러오는 중 오류 발생");
     }
   }
-
+  // ✅ 현재 출고 단계를 가져오는 함수
+  static Future<Response> getShipmentRound(String token, DateTime orderDate) async {
+    try {
+      final formattedDate = "${orderDate.year}-${orderDate.month.toString().padLeft(2, '0')}-${orderDate.day.toString().padLeft(2, '0')}";
+      final response = await _dio.get(
+        "/orders/current_shipment_round/$formattedDate",
+        options: Options(
+          headers: {
+            "Authorization": "Bearer $token",
+          },
+        ),
+      );
+      return response;
+    } catch (e) {
+      throw Exception("🚨 출고 단계 조회 실패: $e");
+    }
+  }
   // 차량 정보 업데이트
   static Future<Response> updateEmployeeVehicle(
       String token,

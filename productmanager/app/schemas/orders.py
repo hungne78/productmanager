@@ -1,11 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import date
 from typing import List, Optional
 
 # ✅ 주문 항목(OrderItem) 스키마
 class OrderItemSchema(BaseModel):
     product_id: int
-    quantity: int
+    quantity: int = Field(ge=0)
 
     class Config:
         from_attributes = True
