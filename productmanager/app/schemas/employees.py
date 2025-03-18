@@ -46,7 +46,7 @@ class EmployeeLoginResponse(BaseModel):
     
     id: int
     name: str
-    phone: Optional[str]
+    phone: Optional[str] = Field(None, example="010-1234-5678")
     role: str
     token: str
 

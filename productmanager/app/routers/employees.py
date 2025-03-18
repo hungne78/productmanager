@@ -53,12 +53,15 @@ def login_employee(payload: EmployeeLogin, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid employee id.")
     if not verify_password(payload.password, emp.password_hash):
         raise HTTPException(status_code=401, detail="Invalid password.")
+
     token_data = {"sub": str(emp.id)}
     token = create_access_token(data=token_data)
+
+    # ✅ UTF-8로 변환하여 반환
     return EmployeeLoginResponse(
         id=emp.id,
-        name=emp.name,
-        phone=emp.phone,
+        name=emp.name.encode("utf-8").decode("utf-8"),  # ✅ 한글 깨짐 방지
+        phone=emp.phone if emp.phone else None,  # ✅ phone 필드 유지
         role=emp.role,
         token=token
     )

@@ -78,37 +78,31 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final id = int.parse(idText);
 
-      final response = await ApiService.login(id, password);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final token = data['token'];
+      // ✅ 수정된 API 호출
+      final data = await ApiService.login(id, password); // Map<String, dynamic> 반환
 
-        if (token == null) {
-          setState(() => _errorMessage = "응답에 token이 없습니다.");
-        } else {
-          final user = User(
-            id: data["id"],
-            name: data["name"],
-            role: data["role"],
-            token: data["token"],
-          );
+      if (data.containsKey("token")) {
+        final user = User(
+          id: data["id"],
+          name: data["name"],
+          role: data["role"],
+          token: data["token"],
+          phone: data["phone"] ?? "정보 없음", // ✅ phone 값 추가
+        );
 
-          context.read<AuthProvider>().setUser(user);
-          final productData = await ApiService.fetchAllProducts(token);
-          context.read<ProductProvider>().setProducts(productData);
+        context.read<AuthProvider>().setUser(user);
+        final productData = await ApiService.fetchAllProducts(user.token);
+        context.read<ProductProvider>().setProducts(productData);
 
-          // ✅ 로그인 정보 저장
-          await _saveLoginData();
+        // ✅ 로그인 정보 저장
+        await _saveLoginData();
 
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => HomeScreen(token: token)),
-          );
-        }
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => HomeScreen(token: user.token)),
+        );
       } else {
-        setState(() {
-          _errorMessage = "로그인 실패: ${response.statusCode}\n${response.body}";
-        });
+        setState(() => _errorMessage = "로그인 실패: 응답에 token이 없습니다.");
       }
     } catch (e) {
       setState(() => _errorMessage = "로그인 오류: $e");
@@ -116,6 +110,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _isLoading = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

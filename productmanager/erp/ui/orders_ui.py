@@ -291,7 +291,7 @@ class OrderLeftWidget(QWidget):
         선택한 날짜와 직원 ID를 기반으로 주문 데이터 가져오기 (출고 차수 포함)
         """
         selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
-        selected_round = self.shipment_round_dropdown.currentIndex() + 1  # ✅ 선택된 출고 차수
+        selected_round = self.shipment_round_dropdown.currentIndex()  # ✅ 선택된 출고 차수
 
         url = f"{BASE_URL}/orders/orders_with_items?employee_id={employee_id}&date={selected_date}&shipment_round={selected_round}"
         headers = {"Authorization": f"Bearer {global_token}"}
@@ -342,7 +342,7 @@ class OrderLeftWidget(QWidget):
         모든 직원의 주문을 개별 조회 후, 상품별로 합산하여 표시 (출고 차수 포함)
         """
         selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
-        selected_round = self.shipment_round_dropdown.currentIndex() + 1  # ✅ 선택된 출고 차수
+        selected_round = self.shipment_round_dropdown.currentIndex()  # ✅ 선택된 출고 차수
 
         url = f"{BASE_URL}/employees/"
         headers = {"Authorization": f"Bearer {global_token}"}

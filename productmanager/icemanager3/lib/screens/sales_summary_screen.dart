@@ -15,7 +15,7 @@ class SalesSummaryScreen extends StatefulWidget {
 class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
   String selectedType = "일매출";
   DateTime selectedDate = DateTime.now();
-  final SalesService salesService = SalesService("http://192.168.0.183:8000");
+  final SalesService salesService = SalesService("http://192.168.50.221:8000");
 
   Future<List<dynamic>>? salesData;
   Map<String, dynamic> outstandingMap = {}; // ✅ 미수금 저장할 Map 추가

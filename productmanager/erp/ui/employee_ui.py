@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import QSizePolicy
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
-from services.api_services import api_fetch_employees, api_create_employee, api_update_employee, api_delete_employee, \
+from services.api_services import api_fetch_employees_, api_create_employee, api_update_employee, api_delete_employee, \
     api_fetch_vehicle, get_auth_headers, api_create_vehicle, api_fetch_employee_vehicle_info
 from baselefttabwidget import BaseLeftTableWidget
 
@@ -739,7 +739,7 @@ class EmployeesTab(QWidget):
     def show_all_employees(self):
         """ 모든 직원 목록을 가져와서 팝업 창에 표시 """
         global global_token
-        employees = api_fetch_employees(global_token, "")  # ✅ 빈 문자열로 모든 직원 가져오기
+        employees = api_fetch_employees_(global_token, "")  # ✅ 빈 문자열로 모든 직원 가져오기
 
         if not isinstance(employees, list) or len(employees) == 0:
             QMessageBox.information(self, "직원 목록", "등록된 직원이 없습니다.")
@@ -759,7 +759,7 @@ class EmployeesTab(QWidget):
 
     def do_search(self, keyword):
         global global_token
-        employees = api_fetch_employees(global_token, keyword)
+        employees = api_fetch_employees_(global_token, keyword)
         
         # 만약 API가 단일 dict로 줄 수도 있고, list로 줄 수도 있으니 처리
         if isinstance(employees, dict):

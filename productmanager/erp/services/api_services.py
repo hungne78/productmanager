@@ -732,3 +732,242 @@ def api_update_product_stock(token, product_id, stock_increase):
     except requests.RequestException as e:
         print(f"❌ API 요청 실패: {e}")
     return None
+
+# api_services.py
+
+def api_fetch_employees(token: str):
+    """
+    /employees로부터 직원 목록 가져오기.
+    응답 예: [ {id: 1, name: "김영업", ...}, {id:2, name:"이사원", ...}, ... ]
+    """
+    url = f"{BASE_URL}/employees/"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()  # list[dict]
+    except Exception as e:
+        print("직원 목록 조회 실패:", e)
+        return []
+
+
+def api_fetch_monthly_sales(year: int, month: int, token: str):
+    """
+    GET /payments/salary/{year}/{month} → 월매출 dict
+    예: { "김영업": 500000, "이사원": 300000, ... }
+    """
+    url = f"{BASE_URL}/payments/salary/{year}/{month}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()  # dict
+    except Exception as e:
+        print(f"월매출 조회 실패: {e}")
+        return {}
+
+def api_fetch_monthly_sales_(token: str, employee_id: int, year: int, month: int):
+    """
+    GET /sales/daily_sales/{employee_id}/{year}/{month} 
+    -> [{ "client_name":"...", "1":..., "2":..., ..., "31":... }, ...]
+    """
+    url = f"{BASE_URL}/sales/daily_sales/{employee_id}/{year}/{month}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=UTF-8"
+    }
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list):
+            return data  # list of dict
+        return []
+    except Exception as e:
+        print("월매출 조회 실패:", e)
+        return []
+    
+def api_fetch_incentives(year: int, month: int, token: str):
+    """
+    GET /payments/incentives/{year}/{month} → 인센티브 dict
+    예: { "김영업": 20000, "이사원": 10000, ... }
+    실제로 이 라우터가 없다면, 백엔드에 만들어줘야 함.
+    """
+    url = f"{BASE_URL}/payments/incentives/{year}/{month}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()  # dict
+    except Exception as e:
+        print(f"인센티브 조회 실패: {e}")
+        return {}
+# api_services.py (일부)
+
+def api_fetch_employee_monthly_sales(token: str, employee_id: int, year: int, month: int):
+    """
+    직원별로 (거래처명, 1..31일 날짜별 매출, 현재월매출, 전월매출, 전년도매출)을
+    Flutter 앱과 동일한 JSON 형태로 반환하는 엔드포인트를 호출하는 예시
+
+    - 실제 라우터 예시: GET /sales/employee_monthly_full/{employee_id}/{year}/{month}
+    - 응답 예시:
+      [
+        {
+          "client_id": 123,
+          "client_name": "홍길동상회",
+          "1": 0, "2": 10, "3": 5, ... "31": 20,
+          "current_month_sales": 500000,
+          "prev_month_sales": 300000,
+          "last_year_sales": 800000
+        },
+        ...
+      ]
+    """
+    import requests
+
+    url = f"{BASE_URL}/sales/employee_monthly_full/{employee_id}/{year}/{month}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()  # list[dict]
+    except Exception as e:
+        print(f"❌ 매출 데이터 호출 실패: {e}")
+        return []
+def api_fetch_employees_(token, name_keyword=""):
+    url = f"{BASE_URL}/employees/"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"search": name_keyword} if name_keyword else {}
+
+    try:
+        resp = requests.get(url, headers=headers, params=params)
+        resp.raise_for_status()
+        return resp.json()  # ✅ JSON 변환 후 반환
+    except Exception as e:
+        print("api_fetch_employees error:", e)
+        return []
+    
+def api_fetch_employees(token: str):
+    """ /employees로부터 직원 목록 가져오기 예시 """
+    import requests
+    url = f"{BASE_URL}/employees/"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()  # [ {id, name, ...}, ...]
+    except Exception as e:
+        print("직원 조회 실패:", e)
+        return []
+
+def api_fetch_monthly_sales_full(token: str, employee_id: int, year: int, month: int):
+    """
+    거래처별로 1..31일 날짜별 매출 + 현재월매출 + 전월매출 + 전년도매출을
+    한 번에 반환하는 API가 있다고 가정 (Flutter용과 동일).
+    예: GET /sales/employee_monthly_full/{employee_id}/{year}/{month}
+         => [
+              {
+                "client_name": "홍길동상회",
+                "1": 100, "2": 200, ..., "31": 50,
+                "current_month_sales": 500000,
+                "prev_month_sales": 300000,
+                "last_year_sales": 800000
+              },
+              ...
+            ]
+    """
+    import requests
+    url = f"{BASE_URL}/sales/employee_monthly_full/{employee_id}/{year}/{month}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json()  # list[dict]
+    except Exception as e:
+        print("월매출 데이터 조회 실패:", e)
+        return []
+    
+def api_fetch_monthly_sales_with_prev_and_last_year(token: str, employee_id: int, year: int, month: int):
+    """
+    1) 현재 달  => api_fetch_monthly_sales(token, employee_id, year, month)
+    2) 전월     => (year, month-1) 조정
+    3) 전년도   => (year-1, same month)
+    => 세 데이터를 합쳐서
+       [ { "client_name":"...", "1"~"31":..., "monthly_sales":..., "prev_month_sales":..., "last_year_sales":... }, ... ]
+    형태로 반환
+    """
+    # A) 현재달
+    current_data = api_fetch_monthly_sales_(token, employee_id, year, month)
+
+    # B) 전월 (주의: month가 1이면 전월은 12, year-1)
+    if month == 1:
+        prev_month = 12
+        prev_year  = year - 1
+    else:
+        prev_month = month - 1
+        prev_year  = year
+
+    prev_data = api_fetch_monthly_sales_(token, employee_id, prev_year, prev_month)
+
+    # C) 전년도
+    last_year_data = api_fetch_monthly_sales_(token, employee_id, year - 1, month)
+
+    # 변환: list[dict], key=client_name
+    # 예: current_data[i] = { "client_name":"홍길동상회", "1":..., ..., "31":... }
+    # => 딕셔너리 형태 { client_name -> rowdict }
+    cur_map  = { x["client_name"]: x for x in current_data if "client_name" in x }
+    prev_map = { x["client_name"]: x for x in prev_data    if "client_name" in x }
+    last_map = { x["client_name"]: x for x in last_year_data if "client_name" in x }
+
+    # 모든 거래처 이름 합치기
+    all_clients = set(cur_map.keys()) | set(prev_map.keys()) | set(last_map.keys())
+
+    results = []
+    for cname in sorted(all_clients):
+        row_cur  = cur_map.get(cname, {})
+        row_prev = prev_map.get(cname, {})
+        row_last = last_map.get(cname, {})
+
+        # 1) 1..31 일별
+        daily_dict = {}
+        for d in range(1, 32):
+            # 현재달의 일자별 값만 표시. 전월/전년도는 sum만 쓸 예정
+            daily_dict[str(d)] = row_cur.get(str(d), 0)
+
+        # 2) 월매출 (= 해당 달의 1..31 합)
+        sum_current = sum(row_cur.get(str(d), 0) for d in range(1,32))
+
+        # 3) 전월매출 = sum of prev_data row
+        sum_prev = sum(row_prev.get(str(d), 0) for d in range(1,32))
+
+        # 4) 전년도매출 = sum of last_year_data row
+        sum_last = sum(row_last.get(str(d), 0) for d in range(1,32))
+
+        merged_row = {
+            "client_name": cname,
+            **daily_dict,  # "1".."31"
+            "monthly_sales": sum_current,
+            "prev_month_sales": sum_prev,
+            "last_year_sales": sum_last,
+        }
+        results.append(merged_row)
+
+    return results    
+def api_fetch_employee_inventory(token: str, employee_id: int):
+    """ 특정 직원의 차량 재고 조회 """
+    url = f"{BASE_URL}/inventory/{employee_id}"
+    headers = get_auth_headers()
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("stock", [])  # {"stock": [...]}
+    except Exception as e:
+        print(f"🚨 차량 재고 조회 실패: {e}")
+        return []

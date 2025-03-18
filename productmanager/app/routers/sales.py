@@ -17,7 +17,7 @@ from app.schemas.sales import OutstandingUpdate
 from app.models.client_visits import ClientVisit
 from app.schemas.sales import SalesAggregateCreate, SaleItem
 from app.utils.time_utils import get_kst_now, convert_utc_to_kst 
-from app.utils.inventory_service import update_vehicle_stock
+from app.utils.inventory_service import update_vehicle_stock, subtract_inventory_on_sale
 from fastapi.responses import JSONResponse
 import json
 import logging
@@ -484,7 +484,12 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         print(f"✅ 매출 저장 완료: ID={new_sale.id}, 총액={total_amount}")
 
         # ✅ 판매 완료 후 차량 재고 자동 업데이트 실행
-        update_vehicle_stock(sale_data.employee_id, db, today_date)
+        subtract_inventory_on_sale(
+            employee_id=sale_data.employee_id,
+            product_id=sale_data.product_id,
+            sold_qty=sale_data.quantity,
+            db=db
+        )
 
         return new_sale
     

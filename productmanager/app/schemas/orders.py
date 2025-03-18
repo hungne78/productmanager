@@ -28,6 +28,7 @@ class OrderSchema(BaseModel):
 class OrderCreateSchema(BaseModel):
     employee_id: int
     order_date: date
+    shipment_round: int = 0
     total_amount: float  # ✅ 총 주문 금액 추가
     total_incentive: float  # ✅ 총 인센티브 추가
     total_boxes: int  # ✅ 총 박스 수량 추가

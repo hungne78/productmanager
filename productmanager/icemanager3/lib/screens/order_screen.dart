@@ -139,17 +139,18 @@ class _OrderScreenState extends State<OrderScreen> {
       );
       return;
     }
-
+    final adjustedRound = selectedShipmentRound - 1;
     // 서버로 보낼 주문 데이터 구성
     final orderData = {
       "employee_id": employeeId,
       "order_date": orderDate,
+      "shipment_round": adjustedRound,
       "total_amount": getTotalProductPrice(),
       "total_incentive": getTotalIncentive(),
       "total_boxes": getTotalQuantity(),
       "order_items": orderItems,
     };
-
+    print("[Flutter] Sending orderData => $orderData");
     try {
       final response = await ApiService.createOrder(widget.token, orderData);
 

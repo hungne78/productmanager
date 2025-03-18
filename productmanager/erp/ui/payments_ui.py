@@ -1,14 +1,47 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
-    QHeaderView, QLabel, QComboBox, QLineEdit, QMessageBox
-import requests
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
+    QTableWidgetItem, QHeaderView, QLabel, QComboBox, QLineEdit,
+    QMessageBox, QSizePolicy
+)
+import os
+import json
 from datetime import datetime
 import sys
-import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from services.api_services import get_auth_headers
-from PyQt5.QtWidgets import QSizePolicy
-BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL
+
+### 추가: api_services 임포트
+from services.api_services import (
+    get_auth_headers,
+    api_fetch_employees,
+    api_fetch_monthly_sales,
+    api_fetch_incentives
+)
+
+BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL (사용 안 할 수도 있음)
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
+
+### (A) 직원 비율 로컬 파일
+RATIO_FILE = "ratio_data.json"
+
+def load_ratio_data() -> dict:
+    """로컬 JSON에서 {직원명: 비율}을 로딩"""
+    if not os.path.exists(RATIO_FILE):
+        return {}
+    try:
+        with open(RATIO_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[load_ratio_data] 실패: {e}")
+        return {}
+
+def save_ratio_data(ratio_dict: dict):
+    """로컬 JSON에 {직원명: 비율} 저장"""
+    try:
+        with open(RATIO_FILE, "w", encoding="utf-8") as f:
+            json.dump(ratio_dict, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[save_ratio_data] 실패: {e}")
+
 
 class PaymentsLeftPanel(QWidget):
     """
@@ -40,7 +73,6 @@ class PaymentsLeftPanel(QWidget):
         date_layout.addWidget(self.year_combo)
         date_layout.addWidget(QLabel("월:"))
         date_layout.addWidget(self.month_combo)
-
         layout.addLayout(date_layout)
 
         # (B) 직원별 비율 입력 테이블
@@ -63,39 +95,42 @@ class PaymentsLeftPanel(QWidget):
 
     def load_employees(self):
         """
-        직원 목록을 /employees로부터 가져온 뒤, 테이블 행을 생성
-        각 행마다 '직원명' 표시, '비율(%)'은 디폴트 8.0
+        직원 목록을 api_services.api_fetch_employees()로부터 가져온 뒤, 테이블 행을 생성
+        각 행마다 '직원명' 표시, '비율(%)'은 로컬파일에서 읽어온 값을 우선 (기본 8.0)
         """
-        global global_token
-        url = f"{BASE_URL}/employees/"
-        headers = {"Authorization": f"Bearer {global_token}"}
+        # 토큰 획득
+        token_headers = global_token()
+        token_str = token_headers.get("Authorization", "").replace("Bearer ", "")
 
         try:
-            resp = requests.get(url, headers=headers)
-            resp.raise_for_status()
-            employees = resp.json()  # list[dict]
+            employees = api_fetch_employees(token_str)  # list[dict], [{'id':..., 'name':...}, ...]
         except Exception as e:
             print(f"직원 목록 조회 실패: {e}")
             employees = []
+
+        # 로컬 파일에서 저장된 직원 비율을 불러옴
+        saved_ratios = load_ratio_data()
 
         self.table.setRowCount(0)
         for emp in employees:
             row = self.table.rowCount()
             self.table.insertRow(row)
 
-            # (1) 직원명
             emp_name = emp.get("name", "")
+
             self.table.setItem(row, 0, QTableWidgetItem(emp_name))
 
-            # (2) 비율 입력칸 (default 8.0)
+            # default ratio (기본 8.0) or saved_ratios
+            ratio_val = saved_ratios.get(emp_name, 8.0)
             line_edit = QLineEdit()
-            line_edit.setText("8.0")  # 기본값
+            line_edit.setText(str(ratio_val))
             self.table.setCellWidget(row, 1, line_edit)
 
     def on_search(self):
         """
-        '조회' 버튼 클릭 → year, month, 각 직원별 비율을 가져와
-        parent_widget.load_payments(...) 호출
+        '조회' 버튼 클릭
+        → year, month, 각 직원별 비율을 가져와 JSON파일 저장
+        → parent_widget.load_payments(...) 호출
         """
         if not self.parent_widget:
             return
@@ -128,7 +163,10 @@ class PaymentsLeftPanel(QWidget):
 
             ratio_dict[emp_name] = ratio_val
 
-        # 부모로 넘김
+        # 로컬 파일에 저장
+        save_ratio_data(ratio_dict)
+
+        # 부모(메인 탭)으로 넘김
         self.parent_widget.load_payments(year, month, ratio_dict)
 
 
@@ -136,7 +174,7 @@ class PaymentsRightPanel(QWidget):
     """
     오른쪽 패널:
     - 테이블에 (직원명 / 월매출 / 비율 / 계산식 / 결과) 표시
-    - 인센티브 = 월매출 × (비율/100)
+    - (인센티브 포함) 급여 = 월매출 × (비율/100) + 인센티브합
     """
     def __init__(self):
         super().__init__()
@@ -155,34 +193,40 @@ class PaymentsRightPanel(QWidget):
 
         self.setLayout(layout)
 
-    def update_data(self, monthly_sales: dict, ratio_dict: dict):
+    def update_data(self, monthly_sales: dict, ratio_dict: dict, incentives: dict):
         """
-        monthly_sales: { 직원명: 월매출 }
-        ratio_dict: { 직원명: 비율(%) }
-        계산 = 월매출 × (비율/100)
+        monthly_sales: { "김영업": 500000, "이사원": 300000, ...}
+        ratio_dict   : { "김영업": 8.0,     "이사원": 10.0, ...}
+        incentives   : { "김영업": 20000,   "이사원": 5000, ...}
+
+        최종 급여 = 월매출 × (비율/100) + 인센티브
         """
         self.table.setRowCount(0)
 
-        for emp_name, sales_amt in monthly_sales.items():
+        # 직원명을 합쳐서 loop
+        all_names = set(monthly_sales.keys()) | set(incentives.keys()) | set(ratio_dict.keys())
+        for emp_name in sorted(all_names):
             row = self.table.rowCount()
             self.table.insertRow(row)
 
-            # 1) 직원명
+            # (1) 직원명
             self.table.setItem(row, 0, QTableWidgetItem(emp_name))
-            # 2) 월매출 (ex: 200000)
-            sales_val = float(sales_amt or 0)
+
+            # (2) 월매출
+            sales_val = float(monthly_sales.get(emp_name, 0))
             self.table.setItem(row, 1, QTableWidgetItem(f"{sales_val:,.0f}"))
 
-            # 3) 비율(%) (없으면 8%)
-            ratio_val = ratio_dict.get(emp_name, 8.0)
+            # (3) 비율
+            ratio_val = float(ratio_dict.get(emp_name, 8.0))
             self.table.setItem(row, 2, QTableWidgetItem(f"{ratio_val:.1f}%"))
 
-            # 4) 계산식
-            calc_expr = f"{sales_val:,.0f} × {ratio_val/100:.3f}"
+            # (4) 계산식
+            incentive_val = float(incentives.get(emp_name, 0))
+            calc_expr = f"{sales_val:,.0f} × {ratio_val/100:.3f} + {incentive_val:,.0f}"
             self.table.setItem(row, 3, QTableWidgetItem(calc_expr))
 
-            # 5) 최종 인센티브/급여
-            final_pay = round(sales_val * (ratio_val/100), 2)
+            # (5) 최종 급여
+            final_pay = round(sales_val*(ratio_val/100) + incentive_val, 2)
             self.table.setItem(row, 4, QTableWidgetItem(f"{final_pay:,.0f}"))
 
 
@@ -210,21 +254,19 @@ class PaymentsTab(QWidget):
 
     def load_payments(self, year: int, month: int, ratio_dict: dict):
         """
-        왼쪽에서 (연/월, 직원별 비율 dict) 전달 → 이 메서드에서
-        1) GET /payments/salary/{year}/{month} 호출 (월매출 dict)
-        2) 오른쪽 패널 update_data(월매출, ratio_dict) 호출
+        왼쪽에서 (연/월, 직원별 비율 dict) 받음
+        → api_services를 통해 월매출 + 인센티브 조회
+        → 오른쪽 패널로 전달
         """
-        global global_token
-        url = f"{BASE_URL}/payments/salary/{year}/{month}"
-        headers = {"Authorization": f"Bearer {global_token}"}
-        
-        try:
-            resp = requests.get(url, headers=headers)
-            resp.raise_for_status()
-            monthly_sales = resp.json()  # { "김영업": 500000, "이사원": 300000, ...}
-        except Exception as e:
-            QMessageBox.critical(self, "오류", f"급여 계산 실패: {str(e)}")
-            return
+        # 토큰 추출
+        token_headers = global_token()
+        token_str = token_headers.get("Authorization", "").replace("Bearer ", "")
 
-        # 오른쪽 패널에 업데이트 (월매출 + 사용자가 입력한 ratio_dict)
-        self.right_panel.update_data(monthly_sales, ratio_dict)
+        # (1) 월매출 불러오기
+        monthly_sales = api_fetch_monthly_sales(year, month, token_str)
+
+        # (2) 인센티브 불러오기
+        incentives = api_fetch_incentives(year, month, token_str)
+
+        # (3) 오른쪽 패널 업데이트
+        self.right_panel.update_data(monthly_sales, ratio_dict, incentives)

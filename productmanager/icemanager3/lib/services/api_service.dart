@@ -4,8 +4,8 @@ import 'package:dio/dio.dart';
 
 class ApiService {
 
-  // static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
-  static const String baseUrl = "http://192.168.0.183:8000";  //맥북
+  static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
+  // static const String baseUrl = "http://192.168.0.183:8000";  //맥북
 
   static final Dio _dio = Dio(BaseOptions(
     baseUrl: baseUrl, // `Dio`에 기본 URL 설정 (자동으로 붙음)
@@ -14,11 +14,24 @@ class ApiService {
   ));
 
 
-  static Future<http.Response> login(int id, String password) async {
+  static Future<Map<String, dynamic>> login(int id, String password) async {
     final url = Uri.parse("$baseUrl/login");
     final body = jsonEncode({"id": id, "password": password});
     final headers = {"Content-Type": "application/json"};
-    return await http.post(url, headers: headers, body: body);
+
+    final response = await http.post(url, headers: headers, body: body);
+
+    if (response.statusCode == 200) {
+      final bodyDecoded = utf8.decode(response.bodyBytes); // ✅ 한글 깨짐 방지
+      final jsonData = jsonDecode(bodyDecoded);
+
+      // ✅ 응답에 phone 필드가 없는 경우 기본값 처리
+      jsonData["phone"] = jsonData.containsKey("phone") ? jsonData["phone"] : "정보 없음";
+
+      return jsonData;
+    } else {
+      throw Exception("로그인 실패: ${response.statusCode}");
+    }
   }
 
   static Future<Map<String, dynamic>> fetchClientDetailsById(String token, int clientId) async {
