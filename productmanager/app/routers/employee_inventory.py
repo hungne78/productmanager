@@ -49,10 +49,17 @@ import json
 @router.get("/{employee_id}")
 def get_vehicle_stock(employee_id: int, db: Session = Depends(get_db)):
     """
-    특정 직원의 최신 차량 재고를 조회 (상품명 + 상품 분류 포함)
+    특정 직원의 최신 차량 재고를 조회 (상품명 + 상품 분류 + 박스당 개수 + 상품 가격 포함)
     """
     inventory = (
-        db.query(EmployeeInventory.product_id, EmployeeInventory.quantity, Product.product_name, Product.category)
+        db.query(
+            EmployeeInventory.product_id,
+            EmployeeInventory.quantity,
+            Product.product_name,
+            Product.category,
+            Product.box_quantity,  # ✅ 박스당 개수 추가
+            Product.default_price  # ✅ 상품 가격 추가
+        )
         .join(Product, EmployeeInventory.product_id == Product.id)
         .filter(EmployeeInventory.employee_id == employee_id)
         .all()
@@ -62,13 +69,15 @@ def get_vehicle_stock(employee_id: int, db: Session = Depends(get_db)):
         print(f"🚨 [경고] 직원 {employee_id}의 차량 재고가 없음.")
         return JSONResponse(content={"message": "해당 직원의 차량 재고가 없습니다.", "stock": []}, status_code=200)
 
-    # ✅ JSON 변환 (상품 ID, 상품명, 상품 분류, 재고 수량)
+    # ✅ JSON 변환 (상품명, 분류, 박스당 개수, 상품 가격, 재고 수량)
     stock_list = [
         {
             "product_id": item.product_id,
             "product_name": item.product_name,
             "category": item.category if item.category else "미분류",
-            "quantity": item.quantity
+            "box_quantity": item.box_quantity,  # ✅ 박스당 개수
+            "price": float(item.default_price),  # ✅ 상품 가격
+            "quantity": item.quantity  # ✅ 재고 수량
         }
         for item in inventory
     ]
@@ -76,7 +85,6 @@ def get_vehicle_stock(employee_id: int, db: Session = Depends(get_db)):
     print(f"📡 [응답 데이터] 직원 {employee_id} 차량 재고: {json.dumps(stock_list, ensure_ascii=False)}")    
 
     return JSONResponse(content={"stock": stock_list}, status_code=200, media_type="application/json")
-
     
 
 from app.models.employee_inventory import EmployeeInventory

@@ -62,12 +62,18 @@ class PaymentsLeftPanel(QWidget):
         date_layout = QHBoxLayout()
         self.year_combo = QComboBox()
         current_year = datetime.now().year
+        current_month = datetime.now().month
         for y in range(current_year - 5, current_year + 6):
             self.year_combo.addItem(str(y))
 
         self.month_combo = QComboBox()
         for m in range(1, 13):
             self.month_combo.addItem(str(m).zfill(2))
+
+        # ✅ 기본값을 현재 연도/월로 설정
+        self.year_combo.setCurrentText(str(current_year))
+        self.month_combo.setCurrentText(str(current_month).zfill(2))
+
 
         date_layout.addWidget(QLabel("연도:"))
         date_layout.addWidget(self.year_combo)

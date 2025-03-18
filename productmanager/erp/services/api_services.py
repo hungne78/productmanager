@@ -960,7 +960,7 @@ def api_fetch_monthly_sales_with_prev_and_last_year(token: str, employee_id: int
 
     return results    
 def api_fetch_employee_inventory(token: str, employee_id: int):
-    """ 특정 직원의 차량 재고 조회 """
+    """ 특정 직원의 차량 재고 조회 (가격 및 박스당 개수 포함) """
     url = f"{BASE_URL}/inventory/{employee_id}"
     headers = get_auth_headers()
     try:

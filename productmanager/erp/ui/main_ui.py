@@ -15,6 +15,7 @@ from sales_ui import SalesTab
 from payments_ui import PaymentsTab
 from invoices_ui import InvoicesTab
 from employee_sales_ui import EmployeeSalesTab
+from employee_vehicle_inventory_tab import EmployeeVehicleInventoryTab
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QSpacerItem, QSizePolicy
 import json
@@ -124,7 +125,9 @@ class MainApp(QMainWindow):
             ("총매출", os.path.join(ICONS_DIR, "sales.png"), self.show_sales_tab),
             ("방문주기", os.path.join(ICONS_DIR, "sales.png"), self.show_employee_sales_tab),
             ("월급여", os.path.join(ICONS_DIR, "payments.png"), self.show_payments_tab),
-            ("세금계산서", os.path.join(ICONS_DIR, "invoices.png"), self.show_invoices_tab)
+            ("세금계산서", os.path.join(ICONS_DIR, "invoices.png"), self.show_invoices_tab),
+            ("차량재고", os.path.join(ICONS_DIR, "inventory.png"), self.show_inventory_tab)
+
         ]
 
         # 툴바 스타일 설정 추가
@@ -183,7 +186,8 @@ class MainApp(QMainWindow):
             "sales": SalesTab(),
             "employee_sales" : EmployeeSalesTab(),
             "payments": PaymentsTab(),
-            "invoices": InvoicesTab()
+            "invoices": InvoicesTab(),
+            "inventory": EmployeeVehicleInventoryTab()
         }
         
         self.tabs["invoices"].right_panel.set_company_info(self.company_info)
@@ -309,6 +313,11 @@ class MainApp(QMainWindow):
         self.update_search_placeholder("invoices")
         self.update_custom_button("invoices")
 
+    def show_inventory_tab(self):
+        self.stacked.setCurrentWidget(self.tabs["inventory"])
+        self.update_search_placeholder("inventory")
+        self.update_custom_button("inventory")
+
     def on_search_clicked(self):
         keyword = self.search_edit.text().strip()
         current_tab = self.stacked.currentWidget()
@@ -336,6 +345,10 @@ class MainApp(QMainWindow):
             current_tab.do_search(keyword) 
         elif isinstance(current_tab, InvoicesTab):
             current_tab.do_search(keyword)
+        elif isinstance(current_tab, EmployeeVehicleInventoryTab):
+            current_tab.do_search(keyword)
+    
+        
 
     def update_search_placeholder(self, tab_name):
         placeholders = {
@@ -348,6 +361,7 @@ class MainApp(QMainWindow):
             "sales": "매출날짜입력",
             "employee_sales": "직원이름 검색",
             "payments" : "직원이름 검색",
-            "invoices" : "거래처명 검색"
+            "invoices" : "거래처명 검색",
+            "inventory" : "직원이름 검색"
         }
         self.search_edit.setPlaceholderText(placeholders.get(tab_name, "검색"))

@@ -9,7 +9,9 @@ import requests
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from services.api_services import api_fetch_orders, api_create_order, api_update_order, api_delete_order, get_auth_headers
 from PyQt5.QtWidgets import QSizePolicy
-
+from PyQt5.QtPrintSupport import QPrintDialog, QPrinter
+from PyQt5.QtGui import QTextDocument, QFont
+from PyQt5.QtCore import QSizeF
 BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
@@ -433,7 +435,8 @@ class OrderRightWidget(QWidget):
         self.selected_order_date = QDate.currentDate().toString("yyyy-MM-dd")  # ✅ 기본값: 오늘 날짜
         self.current_products = []  # ✅ 상품 목록 저장
         self.selected_order_id = None  # ✅ 선택한 주문 ID 저장
-
+        self.current_items = []
+        self.current_mode = "전체"
         # ✅ 주문 수정 버튼 추가
         self.update_button = QPushButton("✏️ 주문 수정")
         self.update_button.clicked.connect(self.fix_order)
@@ -455,10 +458,224 @@ class OrderRightWidget(QWidget):
         self.container = QWidget()
         self.grid_layout = QGridLayout(self.container)  # ✅ 창 크기에 따라 동적 정렬
         self.layout.addWidget(self.container)
+        self.total_items_label = QLabel("📦 총 주문 품목 수: 0")
+        self.total_quantity_label = QLabel("💰 총 주문 수량: 0")
+        self.layout.addWidget(self.total_items_label)
+        self.layout.addWidget(self.total_quantity_label)
+        # ✅ 인쇄 버튼 추가
+        self.print_button = QPushButton("🖨️ 인쇄")
+        self.print_button.clicked.connect(self.on_print_clicked)
+        self.layout.addWidget(self.print_button)
 
         self.setLayout(self.layout)
         self.load_products()  # ✅ 서버에서 상품 목록 로드
     
+    def update_mode(self, mode_str):
+        self.current_mode = mode_str  # "전체" or 직원명
+
+    def update_date(self, date_str):
+        self.current_date = date_str
+
+    def update_items(self, items):
+        """
+        items: [ { "product_name":..., "quantity":... }, ... ]
+        """
+        self.current_items = items
+        QMessageBox.information(self, "주문 내역", f"주문 {len(items)}개 로드됨")
+
+    def set_selected_order_date(self, date_str):
+        self.current_date = date_str
+
+    def on_print_clicked(self):
+        self.print_orders_painter(self.current_items, self.selected_order_date, self.current_mode)
+
+    def print_orders_painter(self, items, order_date, mode):
+        """
+        QPainter로 A4 한 장에 16칸 × 50행 표를 그리고,
+        '왼쪽 위->아래' (상품명/갯수) 채우고 표 상단에 날짜+모드(전체/직원명).
+        """
+        from PyQt5.QtGui import QPainter, QFont
+        from PyQt5.QtCore import QRectF, Qt
+
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPrinter.A4)
+        printer.setOrientation(QPrinter.Portrait)
+        printer.setFullPage(True)
+        printer.setResolution(300)
+
+        dlg = QPrintDialog(printer, self)
+        if dlg.exec_() != QPrintDialog.Accepted:
+            return
+
+        # ✅ items 확인 (주문 목록이 비어 있지 않은지 체크)
+        print(f"📌 [DEBUG] print_orders_painter() 호출됨 → items 개수: {len(items)}")
+        for idx, item in enumerate(items[:10]):  # 최대 10개만 출력 확인
+            print(f"📌 [DEBUG] items[{idx}] = {item}")
+
+        # A4 = 210×297mm, 여백=10mm => 190×277mm
+        margin_mm = 10
+        page_width_mm = 210 - margin_mm * 2
+        page_height_mm = 297 - margin_mm * 2
+
+        # 16열(8쌍), 50행 -> 400개 item
+        total_columns = 16
+        rows = 50
+
+        cell_w_mm = page_width_mm / total_columns  # 190/16
+        cell_h_mm = page_height_mm / rows          # 277/50
+
+        dpmm = printer.resolution() / 25.4
+        cell_w_px = cell_w_mm * dpmm
+        cell_h_px = cell_h_mm * dpmm
+        margin_x_px = margin_mm * dpmm
+        margin_y_px = margin_mm * dpmm
+
+        # ✅ QPainter 중복 실행 방지
+        painter = QPainter()
+        if not painter.begin(printer):  
+            print("❌ QPainter 시작 실패")
+            return
+
+        # (1) 상단 제목
+        font_title = QFont("Arial", 12)
+        painter.setFont(font_title)
+        title_text = f"주문 날짜: {order_date}  /  {mode}"
+        title_x = margin_x_px
+        title_y = margin_y_px - (5 * dpmm)
+        painter.drawText(int(title_x), int(title_y), title_text)
+
+        # (2) 표 폰트
+        font_cell = QFont("Arial", 8)
+        painter.setFont(font_cell)
+
+        max_items = 400  # 16×50/2 = 8×50=400
+        item_count = min(len(items), max_items)
+
+        # ✅ 첫 번째 열(품목명) 출력 로직 수정 및 colPair 오타 수정
+        for i in range(item_count):
+            col_pair = i // rows  # 열쌍 인덱스 (0~7)
+            row_idx = i % rows    # 행 인덱스 (0~49)
+
+            # ✅ items에서 product_name 가져오기
+            if i < len(items):  
+                product_name = items[i].get("product_name", "❌ 없음")
+                quantity_str = str(items[i].get("quantity", "0"))
+            else:
+                product_name = "❌ 없음"
+                quantity_str = "0"
+
+            colName = col_pair * 2
+            colQty  = col_pair * 2 + 1  # ✅ 오타 수정 (colPair → col_pair)
+
+            # 상품명칸
+            x_name = margin_x_px + colName * cell_w_px
+            y_name = margin_y_px + row_idx * cell_h_px
+            rect_name = QRectF(x_name, y_name, cell_w_px, cell_h_px)
+            painter.drawRect(rect_name)
+            painter.drawText(rect_name, int(Qt.AlignCenter), product_name)  # ✅ 품목명 출력
+
+            # 갯수칸
+            x_qty = margin_x_px + colQty * cell_w_px
+            y_qty = margin_y_px + row_idx * cell_h_px
+            rect_qty = QRectF(x_qty, y_qty, cell_w_px, cell_h_px)
+            painter.drawRect(rect_qty)
+            painter.drawText(rect_qty, int(Qt.AlignCenter), quantity_str)  # ✅ 수량 출력
+
+        # 남은 칸은 빈칸
+        total_cells = rows * (total_columns // 2)
+        for i in range(item_count, total_cells):
+            col_pair = i // rows
+            row_idx = i % rows
+            colName = col_pair * 2
+            colQty  = col_pair * 2 + 1
+
+            x_name = margin_x_px + colName * cell_w_px
+            y_name = margin_y_px + row_idx * cell_h_px
+            rect_name = QRectF(x_name, y_name, cell_w_px, cell_h_px)
+            painter.drawRect(rect_name)
+
+            x_qty = margin_x_px + colQty * cell_w_px
+            y_qty = margin_y_px + row_idx * cell_h_px
+            rect_qty = QRectF(x_qty, y_qty, cell_w_px, cell_h_px)
+            painter.drawRect(rect_qty)
+
+        painter.end()
+
+
+    def print_orders(self):
+        """
+        QPainter로 A4 한 장에 16칸×50행 표를 그려 출력.
+        폰트가 커도 셀이 안 늘어나므로, 칸보다 크면 텍스트 잘릴 수 있음.
+        """
+        from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
+        from PyQt5.QtGui import QPainter, QFont
+        from PyQt5.QtCore import QRectF
+
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPrinter.A4)
+        printer.setOrientation(QPrinter.Portrait)
+        printer.setFullPage(True)
+        printer.setResolution(300)  # 300 DPI (픽셀/인치)
+
+        dlg = QPrintDialog(printer, self)
+        if dlg.exec_() != QPrintDialog.Accepted:
+            return
+
+        # A4 = 210×297mm
+        # 여백 10mm씩 설정 → 남는 폭=190mm, 높이=277mm
+        margin_mm = 10
+        page_width_mm = 210 - margin_mm*2  # 190mm
+        page_height_mm = 297 - margin_mm*2 # 277mm
+
+        # 16열 × 50행
+        cols = 16
+        rows = 50
+
+        cell_w_mm = page_width_mm / cols   # 190/16 = 11.875mm
+        cell_h_mm = page_height_mm / rows  # 277/50 = 5.54mm
+
+        # mm → device coordinate 변환
+        # (300 dpi) 1 inch = 25.4mm, 1mm ≈ 11.81 device units
+        dpmm = printer.resolution() / 25.4
+        cell_w_px = cell_w_mm * dpmm
+        cell_h_px = cell_h_mm * dpmm
+
+        painter = QPainter()
+        painter.begin(printer)
+
+        # Font 설정 (너무 크면 글자 잘림)
+        font = QFont("Arial", 7)  # 8pt 정도
+        painter.setFont(font)
+
+        # 왼쪽/위쪽 여백
+        margin_x_px = margin_mm * dpmm
+        margin_y_px = margin_mm * dpmm
+
+        # 테이블 그리기
+        # y = margin_y_px
+        for r in range(rows):
+            # x = margin_x_px
+            for c in range(cols):
+                # 각 셀의 좌표(픽셀)
+                x = margin_x_px + c * cell_w_px
+                y = margin_y_px + r * cell_h_px
+
+                # 사각형
+                rect = QRectF(x, y, cell_w_px, cell_h_px)
+                painter.drawRect(rect)
+
+                # 예시 텍스트
+                text = f"({r+1},{c+1})"
+
+                # drawText(사각형, flag, text)
+                # 너무 긴 텍스트면 잘릴 수 있음
+                painter.drawText(rect, 
+                                int(Qt.AlignCenter|Qt.TextWordWrap), 
+                                text)
+        
+        painter.end()
+
+
     def reset_orders_to_zero(self):
         """
         주문이 없는 경우 모든 상품의 주문 수량을 0으로 초기화
@@ -681,6 +898,7 @@ class OrderRightWidget(QWidget):
     def update_orders(self, orders):
         """
         주문 데이터를 받아서 기존 테이블의 두 번째 열(수량)에 반영 (출고 차수 적용)
+        그리고 self.current_items 에 주문 데이터를 저장하여 프린트 시 품목명이 나오도록 함
         """
         print("\n🔹 [update_orders] 호출됨")
         print(f"🔹 받은 주문 데이터: {orders}")
@@ -692,6 +910,9 @@ class OrderRightWidget(QWidget):
         print(f"📌 현재 로드된 상품 목록 (self.current_products):")
         for p in self.current_products:
             print(f"   - ID: {p['id']}, 이름: {p['product_name']}")
+
+        # ✅ self.current_items 초기화 후 주문 데이터를 저장
+        self.current_items = []  # <<<<< ✅ 여기가 핵심
 
         # ✅ 테이블 위젯을 순회하며 상품 ID와 주문 ID를 비교하여 수량 업데이트
         for i in range(self.grid_layout.count()):
@@ -717,6 +938,12 @@ class OrderRightWidget(QWidget):
                                 quantity = order_quantity_map[product_id]
                                 quantity_item.setText(str(quantity))
                                 print(f"   📝 수량 업데이트: {quantity}")
+
+                                # ✅ 주문 목록을 self.current_items 에 추가
+                                self.current_items.append({
+                                    "product_name": product_name,
+                                    "quantity": quantity
+                                })
                             else:
                                 quantity_item.setText("")  # 주문이 없으면 빈 값 유지
                                 print(f"   ❌ 주문 없음 → 수량 비움")
@@ -725,6 +952,9 @@ class OrderRightWidget(QWidget):
 
                     else:
                         print(f"   ❗ row={row}에서 product_name_item 또는 quantity_item이 없음")
+
+        # ✅ self.current_items에 저장된 데이터 확인
+        print(f"\n✅ 현재 주문 목록 저장됨 (self.current_items): {self.current_items}")
 
 
     def fetch_orders_for_whole_day(self):

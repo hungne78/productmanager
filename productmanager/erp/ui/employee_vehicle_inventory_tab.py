@@ -5,8 +5,9 @@ from PyQt5.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea,
     QSizePolicy, QDialog
 )
+from PyQt5.QtGui import QTextDocument
 from PyQt5.QtCore import Qt
-
+from PyQt5.QtPrintSupport import QPrintDialog, QPrinter  # ✅ 여기서 import 해야 함
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # ✅ API 서비스 호출 함수 가져오기
@@ -25,6 +26,7 @@ class EmployeeVehicleInventoryTab(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.selected_employee_name = "선택된 직원 없음"
         self.init_ui()
 
     def init_ui(self):
@@ -55,8 +57,10 @@ class EmployeeVehicleInventoryTab(QWidget):
         right_layout = QVBoxLayout()
 
         self.inventory_table = QTableWidget()
-        self.inventory_table.setColumnCount(4)  # 상품명, 분류, 재고 수량
-        self.inventory_table.setHorizontalHeaderLabels(["상품명", "분류", "재고 수량"])
+        self.inventory_table.setColumnCount(7)  # 상품명, 분류, 박스당 개수, 상품 가격, 박스 가격, 차량 재고, 총 가격
+        self.inventory_table.setHorizontalHeaderLabels(
+            ["상품명", "분류", "박스당 개수", "상품 가격", "박스 가격", "차량 재고", "총 가격"]
+        )
 
         # 🔹 컬럼 설정: ResizeToContents + 마지막 컬럼은 확장
         self.inventory_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
@@ -73,7 +77,14 @@ class EmployeeVehicleInventoryTab(QWidget):
         right_layout.addWidget(scroll_area)
         self.right_panel.setLayout(right_layout)
 
-        # ✅ 인쇄 버튼 추가 (아래쪽)
+        # ✅ 총 박스 수 및 총 가격 합계 표시
+        self.total_boxes_label = QLabel("📦 총 박스 수: 0")
+        self.total_price_label = QLabel("💰 총 가격 합: 0 원")
+
+        right_layout.addWidget(self.total_boxes_label)
+        right_layout.addWidget(self.total_price_label)
+
+        # ✅ 인쇄 버튼 추가
         self.print_button = QPushButton("인쇄")
         self.print_button.clicked.connect(self.print_inventory)
         right_layout.addWidget(self.print_button)
@@ -82,6 +93,7 @@ class EmployeeVehicleInventoryTab(QWidget):
         main_layout.addWidget(self.left_panel)
         main_layout.addWidget(self.right_panel)
         self.setLayout(main_layout)
+
 
     def load_employees(self):
         """ 직원 목록 로드 """
@@ -101,54 +113,80 @@ class EmployeeVehicleInventoryTab(QWidget):
         token_str = token_headers.get("Authorization", "").replace("Bearer ", "")
 
         emp_id = self.employee_combo.currentData()
+        emp_name = self.employee_combo.currentText() 
         if emp_id is None:
             print("직원이 선택되지 않았습니다.")
             return
-
+        self.selected_employee_name = emp_name 
+        
         # ✅ 차량 재고 API 호출
         inventory_list = api_fetch_employee_inventory(token_str, emp_id)
         self.update_inventory_table(inventory_list)
 
     def update_inventory_table(self, inventory_list):
-        """
-        - inventory_list 예시:
-        [
-          {"product_name": "초코 아이스크림", "category": "아이스크림", "quantity": 50},
-          {"product_name": "바닐라 아이스크림", "category": "아이스크림", "quantity": 30},
-          ...
-        ]
-        """
         self.inventory_table.setRowCount(len(inventory_list))
+
+        total_boxes = 0
+        total_price = 0
 
         for row_idx, item in enumerate(inventory_list):
             product_name = item.get("product_name", "")
             category = item.get("category", "미분류")
-            quantity = item.get("quantity", 0)
+            box_quantity = item.get("box_quantity", 1)  # 박스당 개수
+            product_price = item.get("price", 0)  # 개당 가격
+            vehicle_stock = item.get("quantity", 0)  # 차량 재고
+
+            # ✅ 박스 가격 = 상품 가격 * 박스당 개수
+            box_price = product_price * box_quantity
+
+            # ✅ 총 가격 = 박스 가격 * 차량 재고
+            total_item_price = box_price * vehicle_stock
+
+            # ✅ 합계 계산
+            total_boxes += vehicle_stock
+            total_price += total_item_price
 
             # 데이터 삽입
             self.inventory_table.setItem(row_idx, 0, QTableWidgetItem(str(product_name)))
             self.inventory_table.setItem(row_idx, 1, QTableWidgetItem(str(category)))
-            self.inventory_table.setItem(row_idx, 2, QTableWidgetItem(str(quantity)))
+            self.inventory_table.setItem(row_idx, 2, QTableWidgetItem(str(box_quantity)))
+            self.inventory_table.setItem(row_idx, 3, QTableWidgetItem(f"{product_price:,} 원"))
+            self.inventory_table.setItem(row_idx, 4, QTableWidgetItem(f"{box_price:,} 원"))
+            self.inventory_table.setItem(row_idx, 5, QTableWidgetItem(str(vehicle_stock)))
+            self.inventory_table.setItem(row_idx, 6, QTableWidgetItem(f"{total_item_price:,} 원"))
+
+        # ✅ 총 박스 수 및 총 가격 갱신
+        self.total_boxes_label.setText(f"📦 총 박스 수: {total_boxes}")
+        self.total_price_label.setText(f"💰 총 가격 합: {total_price:,} 원")
 
     def print_inventory(self):
-        """ 차량 재고 인쇄 기능 (단순히 확인 다이얼로그 출력) """
-        print_data = []
-        row_count = self.inventory_table.rowCount()
-        for row in range(row_count):
-            product_name = self.inventory_table.item(row, 0).text()
-            category = self.inventory_table.item(row, 1).text()
-            quantity = self.inventory_table.item(row, 2).text()
-            print_data.append(f"{product_name} ({category}): {quantity} 개")
+        """ 직원 차량 재고 프린트 기능 """
+        printer = QPrinter(QPrinter.HighResolution)
+        print_dialog = QPrintDialog(printer, self)
 
-        inventory_text = "\n".join(print_data)
-        dialog = QDialog(self)
-        dialog.setWindowTitle("재고 출력 미리보기")
-        dialog.resize(400, 300)
-        layout = QVBoxLayout()
-        label = QLabel(f"🚗 차량 재고 목록\n\n{inventory_text}")
-        layout.addWidget(label)
-        btn_close = QPushButton("닫기")
-        btn_close.clicked.connect(dialog.close)
-        layout.addWidget(btn_close)
-        dialog.setLayout(layout)
-        dialog.exec_()
+        if print_dialog.exec_() == QPrintDialog.Accepted:
+            document = QTextDocument()
+            text = f"<h2>🚗 {self.selected_employee_name} 차량 재고 목록</h2>"
+
+            # ✅ 테이블 데이터 수집
+            row_count = self.inventory_table.rowCount()
+            text += "<table border='1' width='100%' cellpadding='5'><tr>"
+            headers = ["상품명", "분류", "박스당 개수", "상품 가격", "박스 가격", "차량 재고", "총 가격"]
+            for header in headers:
+                text += f"<th>{header}</th>"
+            text += "</tr>"
+
+            for row in range(row_count):
+                text += "<tr>"
+                for col in range(7):
+                    item = self.inventory_table.item(row, col)
+                    text += f"<td>{item.text() if item else ''}</td>"
+                text += "</tr>"
+            text += "</table>"
+
+            # ✅ 합계 정보 추가
+            text += f"<h3>{self.total_boxes_label.text()}</h3>"
+            text += f"<h3>{self.total_price_label.text()}</h3>"
+
+            document.setHtml(text)
+            document.print_(printer)

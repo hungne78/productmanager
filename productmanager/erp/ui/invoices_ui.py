@@ -436,12 +436,26 @@ class InvoicesTab(QWidget):
         layout.addWidget(self.left_panel)
         layout.addWidget(self.right_panel)
         self.setLayout(layout)
+        self.fetch_company_info()
+
+    def fetch_company_info(self):
+        """ 서버에서 회사 정보를 가져와 우측 패널에 표시 """
+        url = f"http://127.0.0.1:8000/company/"
+        headers = {"Authorization": f"Bearer {global_token}"}
+
+        try:
+            resp = requests.get(url, headers=headers)
+            resp.raise_for_status()
+            company_info = resp.json()
+
+            # ✅ 우측 패널에 회사 정보 업데이트
+            self.right_panel.set_company_info(company_info)
+
+        except Exception as e:
+            print(f"❌ 회사 정보 조회 실패: {e}")
 
     def load_invoices(self, year, month):
-        """
-        거래처별 월 매출 데이터 로드
-        """
-        global global_token
+        """ 거래처별 월 매출 데이터 로드 """
         url = f"http://127.0.0.1:8000/sales/clients/{year}/{month}"
         headers = {"Authorization": f"Bearer {global_token}"}
 
@@ -449,9 +463,14 @@ class InvoicesTab(QWidget):
             resp = requests.get(url, headers=headers)
             resp.raise_for_status()
             invoice_data = resp.json()
-            # ★ 서버로부터 받아온 모든 데이터를 self.all_invoices에 저장
+
+            # ✅ 세액 계산 방식 변경: 총 매출의 90% / 10% 분리
+            for invoice in invoice_data:
+                total = float(invoice["total_sales"])
+                invoice["total_sales"] = round(total * 0.9)  # ✅ 90% 설정
+                invoice["tax_amount"] = round(total * 0.1)  # ✅ 10% 설정
+
             self.all_invoices = invoice_data
-            # 전체 목록 표시 (필터링 없이)
             self.right_panel.update_invoice_data(self.all_invoices)
 
         except Exception as e:
@@ -460,21 +479,13 @@ class InvoicesTab(QWidget):
             self.right_panel.update_invoice_data([])
 
     def filter_invoices(self, search_text: str):
-        """
-        거래처명(search_text)이 포함된 데이터만 필터링해서 표시
-        """
+        """ 거래처명 필터링 후 표시 """
         if not search_text:
-            # 검색어가 없으면 전체 목록
             filtered = self.all_invoices
         else:
-            filtered = []
-            for item in self.all_invoices:
-                # client_name에 소문자 기준으로 search_text가 들어있는지 확인
-                if search_text.lower() in item.get("client_name", "").lower():
-                    filtered.append(item)
-
+            filtered = [item for item in self.all_invoices if search_text.lower() in item.get("client_name", "").lower()]
         self.right_panel.update_invoice_data(filtered)
-
+        
     def do_search(self, keyword: str):
         """
         메인 윈도우의 검색창과 연동되는 메서드
