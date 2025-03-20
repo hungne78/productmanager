@@ -24,6 +24,9 @@ from pathlib import Path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 파일의 절대 경로
 ICONS_DIR = os.path.join(BASE_DIR, "assets/icons")  # icons 폴더 경로 설정
 def load_dark_theme():
+    """
+    (기존) 다크 테마. user가 제공한 코드 그대로 둠
+    """
     return """
     QMainWindow {
         background-color: #2B2B2B;
@@ -69,6 +72,325 @@ def load_dark_theme():
         border: 1px solid #555;name_keyword
     }
     """
+
+def load_flat_theme():
+    """
+    1) 라이트 & 플랫 스타일 (미니멀리즘 / Flat Design)
+    """
+    return """
+    QMainWindow {
+        background-color: #FAFAFA;
+    }
+    QToolBar {
+        background-color: #FFFFFF;
+        border-bottom: 1px solid #E0E0E0;
+    }
+    QToolBar QToolButton {
+        color: #333333;
+        font-size: 14px;
+    }
+    QWidget {
+        background-color: #FAFAFA;
+        color: #222222;
+        font-family: 'Apple SD Gothic Neo', '맑은 고딕', sans-serif;
+    }
+    QLineEdit {
+        border: 1px solid #CCCCCC;
+        padding: 5px;
+        border-radius: 5px;
+        background-color: #FFFFFF;
+    }
+    QPushButton {
+        background-color: #FFFFFF;
+        color: #333333;
+        border: 1px solid #CCCCCC;
+        border-radius: 5px;
+        padding: 6px 12px;
+    }
+    QPushButton:hover {
+        background-color: #F5F5F5;
+        border: 1px solid #BBBBBB;
+    }
+    QLabel {
+        color: #333333;
+        font-size: 14px;
+    }
+    QTableWidget {
+        background-color: #FFFFFF;
+        color: #333333;
+        gridline-color: #DDDDDD;
+    }
+    QHeaderView::section {
+        background-color: #FAFAFA;
+        color: #333333;
+        border: 1px solid #E0E0E0;
+    }
+    QTabWidget::pane {
+        border: 1px solid #E0E0E0;
+        border-radius: 4px;
+        margin-top: -1px;
+    }
+    QTabBar::tab {
+        background: #FFFFFF;
+        border: 1px solid #E0E0E0;
+        padding: 8px;
+        margin-right: 2px;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+    }
+    QTabBar::tab:selected,
+    QTabBar::tab:hover {
+        background: #F5F5F5;
+        border-bottom: 1px solid #F5F5F5;
+    }
+    """
+
+def load_glasslike_theme():
+    """
+    2) 다크 & 모노톤 스타일 (세미 투명 / 유리 느낌)
+    """
+    return """
+    QMainWindow {
+        background-color: #2E2E2E; /* 다크 배경 */
+    }
+    QToolBar {
+        background-color: rgba(50, 50, 50, 0.6); /* 반투명 다크 */
+        border: none;
+    }
+    QToolBar QToolButton {
+        color: #EEEEEE;
+        font-weight: 500;
+        padding: 6px 10px;
+    }
+    QWidget {
+        background-color: rgba(40, 40, 40, 0.4);
+        color: #EEEEEE;
+        font-family: '나눔고딕', sans-serif;
+    }
+    QLineEdit {
+        background-color: rgba(80, 80, 80, 0.8);
+        color: #FFFFFF;
+        border: 1px solid #555555;
+        border-radius: 4px;
+        padding: 4px;
+    }
+    QPushButton {
+        background-color: rgba(100, 100, 100, 0.3);
+        color: #FFFFFF;
+        border: 1px solid #777777;
+        border-radius: 4px;
+        padding: 6px 12px;
+    }
+    QPushButton:hover {
+        background-color: rgba(150, 150, 150, 0.3);
+        border: 1px solid #BBBBBB;
+    }
+    QLabel {
+        color: #CCCCCC;
+        font-size: 14px;
+    }
+    QTabWidget::pane {
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background-color: rgba(40, 40, 40, 0.3);
+        border-radius: 4px;
+    }
+    QTabBar::tab {
+        background: rgba(60, 60, 60, 0.4);
+        color: #FFFFFF;
+        padding: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        margin-right: 2px;
+    }
+    QTabBar::tab:selected {
+        background: rgba(80, 80, 80, 0.6);
+        border-bottom: 1px solid rgba(80, 80, 80, 0.6);
+    }
+    """
+
+def load_material_theme():
+    """
+    3) 컬러 포인트 & 머티리얼 느낌
+    """
+    return """
+    QMainWindow {
+        background-color: #F2F2F2;
+    }
+    QToolBar {
+        background-color: #FFFFFF;
+        border-bottom: 1px solid #DDDDDD;
+    }
+    QToolBar QToolButton {
+        color: #333333;
+        font-weight: 500;
+        padding: 6px 10px;
+    }
+    QWidget {
+        background-color: #F2F2F2;
+        color: #333333;
+        font-family: 'Roboto', sans-serif;
+    }
+    QLineEdit {
+        border: 1px solid #CCCCCC;
+        border-radius: 4px;
+        padding: 6px;
+    }
+    QPushButton {
+        background-color: #4CAF50;
+        color: #FFFFFF;
+        border: none;
+        border-radius: 4px;
+        padding: 8px 12px;
+        font-weight: 500;
+    }
+    QPushButton:hover {
+        background-color: #66BB6A;
+    }
+    QPushButton:pressed {
+        background-color: #388E3C;
+    }
+    QLabel {
+        color: #333333;
+        font-size: 14px;
+    }
+    QTabWidget::pane {
+        border: 1px solid #DDDDDD;
+        padding: 5px;
+    }
+    QTabBar::tab {
+        background: #FFFFFF;
+        color: #333333;
+        padding: 8px 14px;
+        border: 1px solid #DDDDDD;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        margin-right: 4px;
+        font-weight: 500;
+    }
+    QTabBar::tab:selected {
+        background: #4CAF50;
+        color: #FFFFFF;
+        border-bottom: 2px solid #388E3C;
+    }
+    """
+
+def load_lightblue_theme():
+    return """
+QMainWindow {
+    background: #f9f9f9;  /* 전체 배경 */
+    font-family: 'Segoe UI', sans-serif;
+}
+QFrame#LeftPanel {
+    background-color: #283e5b; /* 좌측 사이드 패널 배경(진한 블루) */
+}
+QLabel {
+    color: #333333;
+    font-size: 14px;
+}
+QLabel#LeftPanelLabel {
+    color: white;
+    font-weight: bold;
+    font-size: 14px;
+}
+QPushButton#LeftPanelButton {
+    background-color: transparent;
+    color: #ffffff;
+    text-align: left;
+    padding: 8px 16px;
+    border: none;
+}
+QPushButton#LeftPanelButton:hover {
+    background-color: #3b5172;
+}
+QLineEdit#SearchEdit {
+    background-color: white;
+    border-radius: 4px;
+    padding: 5px 8px;
+    margin: 0px 8px;
+}
+QPushButton#SearchButton {
+    background-color: #4c6d9c;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    margin-right: 8px;
+}
+QPushButton#SearchButton:hover {
+    background-color: #5d7fae;
+}
+QTabBar {
+    background: #2196F3;  /* 상단 탭 바의 파란 배경 */
+}
+QTabBar::tab {
+    background: #2196F3;
+    color: white;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 8px 12px;
+    margin-right: 2px;
+}
+QTabBar::tab:selected {
+    background: #1976D2; /* 선택된 탭은 좀 더 진한 파랑 */
+}
+"""
+
+def load_pastel_purple_theme():
+    """
+    5) 추가된 예시 - 파스텔 퍼플/핑크 계열 테마
+    """
+    return """
+    QMainWindow {
+        background-color: #F6F0FA;
+    }
+    QToolBar {
+        background-color: #EDE2F4;
+        border: 1px solid #D3C2E5;
+    }
+    QToolBar QToolButton {
+        color: #4B295D;
+        font-weight: 500;
+        padding: 6px 12px;
+    }
+    QWidget {
+        background-color: #F6F0FA;
+        color: #4B295D;
+        font-family: 'Malgun Gothic', sans-serif;
+    }
+    QLineEdit {
+        background-color: #FFFFFF;
+        color: #4B295D;
+        border: 1px solid #D3C2E5;
+        padding: 5px;
+        border-radius: 4px;
+    }
+    QPushButton {
+        background-color: #DCC6EA;
+        color: #4B295D;
+        border: 1px solid #C9ACDF;
+        border-radius: 4px;
+        padding: 6px 12px;
+    }
+    QPushButton:hover {
+        background-color: #C9ACDF;
+    }
+    QLabel {
+        color: #4B295D;
+        font-size: 13px;
+        font-weight: normal;
+    }
+    QTableWidget {
+        background-color: #FFFFFF;
+        color: #4B295D;
+        gridline-color: #C9ACDF;
+    }
+    QHeaderView::section {
+        background-color: #EDE2F4;
+        color: #4B295D;
+        border: 1px solid #C9ACDF;
+    }
+    """
 class CompanyInfoDialog(QDialog):
     """
     우리 회사 정보(상호, 대표자, 사업자번호 등)를 입력받는 다이얼로그
@@ -107,7 +429,7 @@ class MainApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("Wholesale Management System")
         self.setGeometry(100, 100, 1980, 1080)
-        self.setStyleSheet(load_dark_theme())
+        self.setStyleSheet(load_lightblue_theme())
         self.company_info = self.load_company_info()
         if self.company_info:
             print("▶ 프로그램 시작 시 회사 정보 로드:", self.company_info)
