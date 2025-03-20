@@ -104,10 +104,14 @@ def get_order(order_id: int, db: Session = Depends(get_db), is_archive: bool = Q
         raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
     return order
 
+
+
+router = APIRouter()
+
 @router.post("/", response_model=OrderSchema)
 def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(get_db)):
     """
-    주문 생성 또는 업데이트 (출고 단계 고려)
+    주문 생성 또는 업데이트 (출고 단계 고려 + 창고 재고 차감)
     """
     today = date.today()
 
@@ -132,59 +136,82 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
         .first()
     )
 
-    if existing_order:
-        # ✅ 출고 확정된 주문은 수정 불가
-        if existing_order.shipment_round < last_shipment_round:
-            raise HTTPException(status_code=400, detail="이미 출고된 주문은 수정할 수 없습니다.")
+    with db.begin():  # ✅ 트랜잭션 시작
+        if existing_order:
+            # ✅ 출고 확정된 주문은 수정 불가
+            if existing_order.shipment_round < last_shipment_round:
+                raise HTTPException(status_code=400, detail="이미 출고된 주문은 수정할 수 없습니다.")
 
-        # ✅ 기존 주문이 있으면 업데이트
-        existing_order.total_amount = order_data.total_amount
-        existing_order.total_incentive = order_data.total_incentive
-        existing_order.total_boxes = order_data.total_boxes
+            # ✅ 기존 주문 업데이트 (총 금액, 인센티브, 박스 수량)
+            existing_order.total_amount = order_data.total_amount
+            existing_order.total_incentive = order_data.total_incentive
+            existing_order.total_boxes = order_data.total_boxes
 
-        # ✅ 기존 주문 항목 조회 및 매핑
-        existing_order_items = db.query(OrderItem).filter(OrderItem.order_id == existing_order.id).all()
-        existing_order_map = {item.product_id: item.quantity for item in existing_order_items}
+            # ✅ 기존 주문 항목 조회 및 매핑
+            existing_order_items = db.query(OrderItem).filter(OrderItem.order_id == existing_order.id).all()
+            existing_order_map = {item.product_id: item.quantity for item in existing_order_items}
 
-        # ✅ 기존 주문 항목 업데이트
+            # ✅ 기존 주문 항목 업데이트 + 창고 재고 차감/복구
+            for item in order_data.order_items:
+                product = db.query(Product).filter(Product.id == item.product_id).with_for_update().first()
+                if not product:
+                    raise HTTPException(status_code=404, detail=f"상품 {item.product_id}를 찾을 수 없습니다.")
+
+                new_quantity = item.quantity
+                old_quantity = existing_order_map.get(item.product_id, 0)
+                quantity_diff = new_quantity - old_quantity  # ✅ 변경된 수량 계산
+
+                if quantity_diff > 0:
+                    # ✅ 창고 재고에서 차감 (추가 주문량만큼 차감)
+                    if product.stock < quantity_diff:
+                        raise HTTPException(status_code=400, detail=f"재고 부족: {product.product_name} (남은 재고: {product.stock})")
+                    product.stock -= quantity_diff
+                elif quantity_diff < 0:
+                    # ✅ 기존보다 수량이 줄어들면 창고 재고를 복구
+                    product.stock += abs(quantity_diff)
+
+                if item.product_id in existing_order_map:
+                    db.query(OrderItem).filter(
+                        OrderItem.order_id == existing_order.id,
+                        OrderItem.product_id == item.product_id
+                    ).update({"quantity": new_quantity})
+                else:
+                    db.add(OrderItem(order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity))
+
+            db.commit()
+            db.refresh(existing_order)
+
+            print(f"✅ [디버깅] 주문 수정 완료, 창고 재고 업데이트")
+            return existing_order  # 🚀 차량 재고 업데이트 X (출고 확정 시에만 업데이트)
+
+        # ✅ 새로운 출고 차수이면 새 주문 생성
+        new_order = Order(
+            employee_id=order_data.employee_id,
+            order_date=order_data.order_date,
+            total_amount=order_data.total_amount,
+            total_incentive=order_data.total_incentive,
+            total_boxes=order_data.total_boxes,
+            shipment_round=last_shipment_round + 1  # ✅ 출고 단계 증가
+        )
+        db.add(new_order)
+        db.commit()
+        db.refresh(new_order)
+
+        # ✅ 새 주문 항목 추가 & 창고 재고 차감
         for item in order_data.order_items:
-            if item.product_id in existing_order_map:
-                db.query(OrderItem).filter(
-                    OrderItem.order_id == existing_order.id,
-                    OrderItem.product_id == item.product_id
-                ).update({"quantity": item.quantity})
-            else:
-                db.add(OrderItem(order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity))
+            product = db.query(Product).filter(Product.id == item.product_id).with_for_update().first()
+            if not product:
+                raise HTTPException(status_code=404, detail=f"상품 {item.product_id}를 찾을 수 없습니다.")
+
+            if product.stock < item.quantity:
+                raise HTTPException(status_code=400, detail=f"재고 부족: {product.product_name} (남은 재고: {product.stock})")
+
+            product.stock -= item.quantity  # 🔥 창고 재고 차감
+            db.add(OrderItem(order_id=new_order.id, product_id=item.product_id, quantity=item.quantity))
 
         db.commit()
-        db.refresh(existing_order)
-
-        print(f"✅ [디버깅] 주문 수정 완료")
-        return existing_order  # 🚀 차량 재고 업데이트 X (출고 확정 시에만 업데이트)
-
-    # ✅ 새로운 출고 차수이면 새 주문 생성
-    new_order = Order(
-        employee_id=order_data.employee_id,
-        order_date=order_data.order_date,
-        total_amount=order_data.total_amount,
-        total_incentive=order_data.total_incentive,
-        total_boxes=order_data.total_boxes,
-        # shipment_round=last_shipment_round + 1  # ✅ 출고 단계 증가
-    )
-    db.add(new_order)
-    db.commit()
-    db.refresh(new_order)
-
-    # ✅ 새 주문 항목 추가
-    for item in order_data.order_items:
-        db.add(OrderItem(order_id=new_order.id, product_id=item.product_id, quantity=item.quantity))
-
-    db.commit()
-    print(f"✅ [디버깅] 새 주문 생성 완료")
-    return new_order  # 🚀 차량 재고 업데이트 X (출고 확정 시에만 업데이트)
-
-
-
+        print(f"✅ [디버깅] 새 주문 생성 완료, 창고 재고 차감")
+        return new_order
 
 # ✅ 4️⃣ 특정 직원의 특정 날짜 주문 목록 조회
 @router.get("/orders/employee/{employee_id}/date/{order_date}", response_model=List[OrderSchema])

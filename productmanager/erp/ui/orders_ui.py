@@ -1046,15 +1046,15 @@ class OrdersTab(QWidget):
         self.right_panel = OrderRightWidget()
 
         # 왼쪽 패널 (주문 조회) - ✅ 오른쪽 패널을 인자로 전달!
-        self.left_widget = OrderLeftWidget(order_right_widget=self.right_panel)
+        self.left_panel = OrderLeftWidget(order_right_widget=self.right_panel)
 
         # ✅ 크기 정책 설정
-        self.left_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.left_panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         # ✅ 고정 크기 설정
-        self.left_widget.setFixedWidth(350)  # 1 비율
-        main_layout.addWidget(self.left_widget)
+        self.left_panel.setFixedWidth(350)  # 1 비율
+        main_layout.addWidget(self.left_panel)
         main_layout.addWidget(self.right_panel)
 
         self.setLayout(main_layout)

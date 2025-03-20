@@ -22,6 +22,7 @@ class _OrderScreenState extends State<OrderScreen> {
 
   Map<int, TextEditingController> quantityControllers = {};
   Map<int, FocusNode> focusNodes = {};
+  Map<int, int> warehouseStockMap = {};
   Map<int, int> vehicleStockMap = {}; // ✅ 차량 재고 정보 저장 (product_id → stock)
   final formatter = NumberFormat("#,###");
 

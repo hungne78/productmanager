@@ -9,8 +9,18 @@ from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from typing import Optional, List
 from datetime import datetime
+from pydantic import BaseModel
 from app.utils.time_utils import get_kst_now, convert_utc_to_kst 
 router = APIRouter()
+
+class StockUpdateRequest(BaseModel):
+    stock_change: int
+
+class ReserveRequest(BaseModel):
+    quantity: int
+
+class CancelReservationRequest(BaseModel):
+    quantity: int
 
 @router.post("/", response_model=ProductOut)
 def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
@@ -153,19 +163,36 @@ def get_product_by_barcode(barcode: str, db: Session = Depends(get_db)):
     # JSONResponse에 넣을 때 utf-8 명시
     return JSONResponse(content=product_dict, media_type="application/json; charset=utf-8")
 
-@router.patch("/{product_id}/stock")
-def update_product_stock(product_id: int, stock_increase: int, db: Session = Depends(get_db)):
+@router.get("/warehouse_stock", response_model=List[dict])
+def get_warehouse_stock(db: Session = Depends(get_db)):
     """
-    상품 재고만 증가시키는 API
+    창고 재고 목록을 반환하는 API
     """
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+    try:
+        products = db.query(Product.id, Product.product_name, Product.stock).all()
 
-    product.stock += stock_increase  # ✅ 기존 재고에 추가
-    db.commit()
-    db.refresh(product)
-    return {"detail": f"Product ID {product_id} stock updated successfully. New stock: {product.stock}"}
+        return [
+            {"product_id": p.id, "product_name": p.product_name, "quantity": p.stock} for p in products
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"🚨 창고 재고 조회 실패: {str(e)}")
+    
+@router.put("/{product_id}/reserve")
+def reserve_product_stock(product_id: int, request: ReserveRequest, db: Session = Depends(get_db)):
+    """ 🔥 사용자가 + 버튼을 눌렀을 때, 창고 재고에서 예약 """
+    with db.begin():
+        product = db.query(Product).filter(Product.id == product_id).with_for_update().first()
+        if not product:
+            raise HTTPException(status_code=404, detail="상품을 찾을 수 없음")
+
+        if product.stock < request.quantity:
+            raise HTTPException(status_code=400, detail="🚨 재고 부족!")
+
+        product.stock_reserved += request.quantity  # ✅ 예약된 재고 증가
+        product.stock -= request.quantity  # ✅ 실재고 차감
+        db.commit()
+
+    return {"message": "✅ 예약 성공", "new_stock": product.stock, "reserved_stock": product.stock_reserved}
 
 # @router.get("/products", response_model=list[ProductOut])
 # def list_products(db: Session = Depends(get_db)):
@@ -178,6 +205,63 @@ def update_product_stock(product_id: int, stock_increase: int, db: Session = Dep
 def list_all_products(db: Session = Depends(get_db)):
     products = db.query(Product).all()
     return [convert_product_to_kst(product) for product in products]  # ✅ KST 변환 적용
+
+@router.put("/{product_id}/reserve")
+def reserve_product_stock(product_id: int, quantity: int, db: Session = Depends(get_db)):
+    """ 🔥 사용자가 + 버튼을 눌렀을 때, 창고 재고에서 예약 """
+    with db.begin():
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="상품을 찾을 수 없음")
+
+        if product.stock < quantity:
+            raise HTTPException(status_code=400, detail="🚨 재고 부족!")
+
+        product.stock_reserved += quantity  # ✅ 예약된 재고 증가
+        product.stock -= quantity  # ✅ 실재고 차감
+        db.commit()
+
+    return {"message": "✅ 예약 성공", "new_stock": product.stock, "reserved_stock": product.stock_reserved}
+
+@router.put("/{product_id}/cancel_reservation")
+def cancel_product_reservation(product_id: int, request: CancelReservationRequest, db: Session = Depends(get_db)):
+    """ 🔥 사용자가 - 버튼을 눌렀거나, 주문을 취소할 때 예약 해제 """
+    with db.begin():
+        product = db.query(Product).filter(Product.id == product_id).with_for_update().first()
+        if not product:
+            raise HTTPException(status_code=404, detail="상품을 찾을 수 없음")
+
+        if product.stock_reserved < request.quantity:
+            raise HTTPException(status_code=400, detail="🚨 예약된 재고 부족!")
+
+        product.stock_reserved -= request.quantity  # ✅ 예약된 재고 감소
+        product.stock += request.quantity  # ✅ 실재고 복구
+        db.commit()
+
+    return {"message": "✅ 예약 취소 성공", "new_stock": product.stock, "reserved_stock": product.stock_reserved}
+
+
+@router.get("/stock")
+def get_warehouse_stock(db: Session = Depends(get_db)):
+    """ 🔥 모든 제품의 최신 창고 재고 가져오기 """
+    products = db.query(Product).all()
+    return [{"id": product.id, "stock": product.stock} for product in products]
+
+
+@router.put("/{product_id}/stock")
+def update_product_stock(product_id: int, request: StockUpdateRequest, db: Session = Depends(get_db)):
+    with db.begin():  # ✅ 트랜잭션 시작
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="상품을 찾을 수 없음")
+
+        if product.stock + request.stock_change < 0:
+            raise HTTPException(status_code=400, detail="🚨 재고 부족!")
+
+        product.stock += request.stock_change  # ✅ 재고 차감 또는 복구
+        db.commit()  # ✅ 트랜잭션 완료
+
+    return {"message": "✅ 재고 업데이트 성공", "new_stock": product.stock}
 
 @router.get("/", response_model=dict)
 def fetch_products(search: str = Query(None), db: Session = Depends(get_db)):

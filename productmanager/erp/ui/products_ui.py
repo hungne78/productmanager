@@ -521,18 +521,18 @@ class ProductsTab(QWidget):
         main_layout = QHBoxLayout()
 
         # 왼쪽 패널: 상품 정보 표시 (검색 후 선택된 상품 정보)
-        self.left_widget = ProductLeftPanel()
+        self.left_panel = ProductLeftPanel()
         
 
         # 오른쪽 패널: 상품 관련 데이터 (통계 및 분석)
         self.right_panel = ProductRightPanel()
         # ✅ 크기 정책 설정
-        self.left_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.left_panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         # ✅ 고정 크기 설정
-        self.left_widget.setFixedWidth(350)  # 1 비율
-        main_layout.addWidget(self.left_widget)
+        self.left_panel.setFixedWidth(350)  # 1 비율
+        main_layout.addWidget(self.left_panel)
         main_layout.addWidget(self.right_panel)
 
         self.setLayout(main_layout)
@@ -562,7 +562,7 @@ class ProductsTab(QWidget):
                         products.append(item)
 
             if not products:
-                self.left_widget.display_product(None)
+                self.left_panel.display_product(None)
                 QMessageBox.information(self, "검색 결과", "검색 결과가 없습니다.")
                 return
 
@@ -573,12 +573,12 @@ class ProductsTab(QWidget):
             ]
 
             if len(filtered_products) == 1:
-                self.left_widget.display_product(filtered_products[0])
+                self.left_panel.display_product(filtered_products[0])
             else:
                 from PyQt5.QtWidgets import QDialog
                 dialog = ProductSelectionDialog(filtered_products, parent=self)
                 if dialog.exec_() == QDialog.Accepted and dialog.selected_product:
-                    self.left_widget.display_product(dialog.selected_product)
+                    self.left_panel.display_product(dialog.selected_product)
 
         except Exception as ex:
             QMessageBox.critical(self, "오류", str(ex))

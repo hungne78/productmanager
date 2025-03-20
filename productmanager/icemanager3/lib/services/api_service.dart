@@ -34,6 +34,24 @@ class ApiService {
     }
   }
 
+  static Future<List<dynamic>> fetchWarehouseStock(String token) async {
+    final url = Uri.parse("$baseUrl/products/warehouse_stock");
+
+    final response = await http.get(
+      url,
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception("🚨 창고 재고 조회 실패: ${response.body}");
+    }
+  }
+
   static Future<Map<String, dynamic>> fetchClientDetailsById(String token, int clientId) async {
     final url = Uri.parse("$baseUrl/clients/$clientId");
     final response = await http.get(url, headers: {
