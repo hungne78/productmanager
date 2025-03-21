@@ -14,23 +14,18 @@ from app.utils.inventory_service import update_vehicle_stock
 from app.models.orders import OrderLock
 from sqlalchemy import func
 from typing import Optional
+
 import redis
-import redis
-from kafka import KafkaProducer
+
 import json
 
 router = APIRouter()
 
-# ✅ Redis & Kafka 설정
+# ✅ Redis 설정
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
-producer = KafkaProducer(
-    bootstrap_servers='localhost:9092',
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
 
 # ✅ WebSocket 연결 관리
 active_websockets = []
-router = APIRouter()
 
 @router.get("/warehouse_stock")
 def get_warehouse_stock(db: Session = Depends(get_db)):
@@ -56,8 +51,7 @@ def place_order(order_items: List[dict], db: Session = Depends(get_db)):
     트랜잭션과 락을 사용하여 동시 주문 문제 해결
     """
     try:
-        # ✅ 트랜잭션 시작
-        db.begin()
+        db.begin()  # ✅ 트랜잭션 시작
 
         for item in order_items:
             product = db.query(Product).filter(Product.id == item['product_id']).with_for_update().first()
@@ -67,15 +61,15 @@ def place_order(order_items: List[dict], db: Session = Depends(get_db)):
 
             product.stock -= item['quantity']
 
-            # ✅ Redis 캐시 업데이트
+            # ✅ Redis 개별 캐시 업데이트
             redis_client.set(f"product_{product.id}_stock", product.stock)
 
         db.commit()
 
-        # ✅ Kafka에 주문 데이터 전송 (비동기 처리)
-        producer.send('order_topic', {'order_items': order_items})
+        # ✅ Kafka 대신 Redis Pub/Sub로 주문 메시지 발행
+        redis_client.publish("order_topic", json.dumps({"order_items": order_items}))
 
-        # ✅ WebSocket을 통해 클라이언트에 재고 변경 알림
+        # ✅ WebSocket 클라이언트에게 실시간 재고 알림
         notify_clients()
 
         return {"message": "주문 성공!"}

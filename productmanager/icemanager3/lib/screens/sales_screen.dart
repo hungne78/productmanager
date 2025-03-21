@@ -14,6 +14,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart'as spp; // SPP 모드
 import 'package:flutter_blue_plus/flutter_blue_plus.dart' as BLE;// BLE 모드
 import 'package:shared_preferences/shared_preferences.dart'; // 설정 저장
+import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:async'; // ✅ 비동기 Stream 관련 클래스 포함
+
+
+AndroidDeviceInfo? androidInfo;
 
 class SalesScreen extends StatefulWidget {
   final String token;
@@ -32,10 +37,16 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   late FocusNode paymentFocusNode;
 
 
+
+  bool _isBluetoothConnected = false;
+  String? _connectedDeviceName;
+  spp.BluetoothConnection? _bluetoothConnection; // SPP 모드 블루투스 연결
+  StreamSubscription<Uint8List>? _inputSubscription;
+  bool _isConnecting = false;
+
   String _barcodeBuffer = ''; // 바코드 누적 버퍼
   final FocusNode _keyboardFocusNode = FocusNode(); // HID 모드 감지
   final MobileScannerController _cameraScanner = MobileScannerController(); // 카메라 바코드 스캔
-  spp.BluetoothConnection? _bluetoothConnection; // SPP 모드 블루투스 연결
 
   String _scannerMode = "HID"; // 기본 HID 모드
 
@@ -59,9 +70,11 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    // _tryAutoReconnect();
     _loadScannerMode();
-    _initializeSPP(); // SPP 모드 초기화
-    _initializeBLE(); // BLE 모드 초기화
+    _loadDeviceInfo();
+    // _initializeSPP(); // SPP 모드 초기화
+    // _initializeBLE(); // BLE 모드 초기화
 
     WidgetsBinding.instance.addObserver(this);
     print("✅ SalesScreen 실행됨");
@@ -71,6 +84,8 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     _selectedClient = widget.client; // 거래처 정보 설정
     // ✅ 상품 목록 확인 및 필요 시 업데이트
     _selectedClient = widget.client;
+
+
 
     // ✅ ProductProvider에서 상품 목록을 가져오도록 설정
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -96,24 +111,95 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // 여기서 _keyboardFocusNode를 실제로 포커스하도록
       FocusScope.of(context).requestFocus(_keyboardFocusNode);
+      _tryReconnectToLastDeviceOnEntry();
     });
 
   }
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _cameraScanner.dispose();
+    _inputSubscription?.cancel();
     _bluetoothConnection?.finish();
     WidgetsBinding.instance.removeObserver(this);
     paymentController.dispose();
     paymentFocusNode.dispose();
     super.dispose();
   }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      print("🔄 앱이 다시 포그라운드로 돌아옴");
+
+      // 강제로 연결 상태 초기화 (안드로이드 SPP 안전용)
+      _inputSubscription?.cancel();
+      _bluetoothConnection?.finish();
+      _bluetoothConnection = null;
+      _inputSubscription = null;
+
+      setState(() {
+        _isBluetoothConnected = false;
+        _connectedDeviceName = null;
+      });
+
+      // 자동으로 최근 장치로 재연결 시도 (선택)
+      Future.delayed(Duration(seconds: 1), () {
+        _tryReconnectToLastDevice(); // 👇 아래에서 만들자
+      });
+    }
+  }
+  Future<void> _tryReconnectToLastDeviceOnEntry() async {
+    if (_isConnecting || (_bluetoothConnection?.isConnected ?? false)) {
+      print("⏸ 이미 연결 중이거나 연결됨 → 재연결 생략");
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final address = prefs.getString('last_device_address');
+
+    if (address == null) {
+      print("⚠️ 이전 연결 기기 주소 없음");
+      return;
+    }
+
+    final dummyDevice = spp.BluetoothDevice(name: "최근기기", address: address);
+    print("🔁 최근 연결된 기기로 재연결 시도: $address");
+    await _connectToDevice(dummyDevice);
+  }
+
+  Future<void> _tryReconnectToLastDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    final address = prefs.getString('last_device_address');
+
+    if (address == null) return;
+
+    final dummyDevice = spp.BluetoothDevice(name: "최근기기", address: address);
+    await _connectToDevice(dummyDevice);
+  }
+
   /// 📌 저장된 바코드 스캔 모드 불러오기
   Future<void> _loadScannerMode() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _scannerMode = prefs.getString('scanner_mode') ?? "HID";
     });
+  }
+  Future<void> _loadDeviceInfo() async {
+    final deviceInfoPlugin = DeviceInfoPlugin();
+    androidInfo = await deviceInfoPlugin.androidInfo;
+    print("📱 기기 모델: ${androidInfo?.model}");
+  }
+  bool isGalaxyFold() {
+    const foldModels = [
+      "SM-F900", // Fold 1
+      "SM-F916", // Fold 2
+      "SM-F926", // Fold 3
+      "SM-F936", // Fold 4
+      "SM-F946", // Fold 5
+    ];
+
+    final model = androidInfo?.model ?? '';
+    return foldModels.any((m) => model.contains(m));
   }
 
   /// 📌 SPP 모드 초기화 (Bluetooth Serial)
@@ -170,28 +256,33 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       selectedIndex = index; // 선택된 상품의 인덱스를 저장
     });
   }
-  String fixLeadingDuplicates(String barcode) {
-    if (barcode.isEmpty) return barcode;
+  String preprocessBarcode(String raw) {
+    // 공백 및 특수 문자 제거 (SPP 대비)
+    String cleaned = raw
+        .replaceAll(RegExp(r'[^0-9A-Za-z]'), '') // 숫자/영문 외 제거
+        .replaceAll(RegExp(r'^[Nn]'), '') // 앞에 N 제거
+        .replaceAll(RegExp(r'[xX]$'), '') // 뒤에 x 제거
+        .trim();
 
-    // ✅ 단독 8 → 88, 단독 7 → 77 변환
-    if (barcode == "8") return "88";
-    if (barcode == "7") return "77";
+    // HID + 갤럭시 폴드일 때만 보정 로직 적용
+    if (_scannerMode == "HID" && isGalaxyFold()) {
+      if (cleaned == "8") return "88";
+      if (cleaned == "7") return "77";
 
-    // ✅ 앞부분이 8으로 시작하지만 88이 아니라면 88로 보정
-    if (barcode.startsWith("8") && !barcode.startsWith("88")) {
-      print("🔴 [보정 전] 바코드: $barcode");
-      barcode = "88" + barcode.substring(1);
-      print("🟢 [보정 후] 바코드: $barcode");
+      if (cleaned.startsWith("8") && !cleaned.startsWith("88")) {
+        print("🔴 [보정 전] 바코드: $cleaned");
+        cleaned = "88" + cleaned.substring(1);
+        print("🟢 [보정 후] 바코드: $cleaned");
+      } else if (cleaned.startsWith("7") && !cleaned.startsWith("77")) {
+        print("🔴 [보정 전] 바코드: $cleaned");
+        cleaned = "77" + cleaned.substring(1);
+        print("🟢 [보정 후] 바코드: $cleaned");
+      }
     }
-    // ✅ 앞부분이 7으로 시작하지만 77이 아니라면 77로 보정
-    else if (barcode.startsWith("7") && !barcode.startsWith("77")) {
-      print("🔴 [보정 전] 바코드: $barcode");
-      barcode = "77" + barcode.substring(1);
-      print("🟢 [보정 후] 바코드: $barcode");
-    }
 
-    return barcode;
+    return cleaned;
   }
+
 
   // 바코드 카메라 스캔
   Future<String> _scanBarcodeCamera() async {
@@ -220,6 +311,22 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       return ""; // ✅ 오류 발생 시 빈 값 반환
     }
   }
+
+  void _monitorConnection() {
+    _bluetoothConnection?.input?.listen(null)?.onDone(() {
+      print("❌ 블루투스 연결 끊김");
+      setState(() {
+        _isBluetoothConnected = false;
+      });
+
+      // 🔁 일정 시간 후 재시도 (or 버튼 눌러서 수동 시도도 가능하게)
+      Future.delayed(Duration(seconds: 2), () {
+        // _tryAutoReconnect();
+      });
+    });
+  }
+
+
   /// 📌 HID 모드 (키보드 입력)
   void _onKey(RawKeyEvent event) {
     if (event is RawKeyDownEvent) {
@@ -234,13 +341,29 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     }
   }
   Set<String> _scannedBarcodes = {};
+
+  void processBarcode(String raw) async {
+    final cleaned = preprocessBarcode(raw);
+
+    if (cleaned.isEmpty) return;
+
+    await _handleBarcode(cleaned);
+  }
+
   // 바코드 처리
   Future<void> _handleBarcode(String barcode) async {
     final authProvider = context.read<AuthProvider>();
-    if (barcode.isNotEmpty && !_scannedBarcodes.contains(barcode)) {
-      _scannedBarcodes.add(barcode);
-      Fluttertoast.showToast(msg: "스캔된 바코드: $barcode");
+
+    barcode = preprocessBarcode(barcode);
+
+    // ✅ 여기서 필터링
+    if (barcode.isEmpty || _scannedBarcodes.contains(barcode)) {
+      print("⛔️ 무시된 바코드: '$barcode'");
+      return;
     }
+
+    // Fluttertoast.showToast(msg: "스캔된 바코드: $barcode");
+
     // ✅ 로그인 상태 확인 (로그인 정보 없으면 로그인 화면으로 이동)
     if (authProvider.user == null) {
       print("⚠️ 로그인 세션 만료됨. 로그인 화면으로 이동");
@@ -252,7 +375,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       Fluttertoast.showToast(msg: "스캔된 바코드가 비어 있습니다.", gravity: ToastGravity.BOTTOM);
       return;
     }
-    barcode = fixLeadingDuplicates(barcode);
+
     setState(() => _isLoading = true);
 
     try {
@@ -450,8 +573,32 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     }
     return Scaffold(
       appBar: AppBar(
-        title: Text("판매 화면"),
+        title: Row(
+          children: [
+            Icon(
+              _isBluetoothConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+              color: _isBluetoothConnected ? Colors.lightBlueAccent : Colors.redAccent,
+              size: 20,
+            ),
+            SizedBox(width: 8),
+            Text(
+              _isBluetoothConnected
+                  ? (_connectedDeviceName ?? "연결됨")
+                  : "미연결",
+              style: TextStyle(fontSize: 14),
+            ),
+            SizedBox(width: 12),
+            Text("판매 화면"),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.bluetooth),
+            onPressed: _showBluetoothDialog,
+          )
+        ],
       ),
+
       body: RawKeyboardListener(
         focusNode: _keyboardFocusNode,
         autofocus: true,
@@ -574,6 +721,116 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       ),
     );
   }
+  void _showBluetoothDialog() async {
+    List<spp.BluetoothDevice> devices = await spp.FlutterBluetoothSerial.instance.getBondedDevices();
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text("블루투스 장치 연결"),
+          content: SingleChildScrollView(
+            child: Column(
+              children: devices.map((device) {
+                return ListTile(
+                  title: Text(device.name ?? "이름 없음"),
+                  subtitle: Text(device.address),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _connectToDevice(device);
+                  },
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              child: Text("최근 기기 다시 연결"),
+              onPressed: () {
+                Navigator.pop(context);
+                // _tryAutoReconnect();
+              },
+            ),
+            TextButton(
+              child: Text("닫기"),
+              onPressed: () {
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        );
+      },
+    );
+
+  }
+  // Future<void> _tryAutoReconnect() async {
+  //   final prefs = await SharedPreferences.getInstance();
+  //   final address = prefs.getString('last_device_address');
+  //
+  //   if (address != null) {
+  //     try {
+  //       final connection = await spp.BluetoothConnection.toAddress(address);
+  //       setState(() => _bluetoothConnection = connection);
+  //       Fluttertoast.showToast(msg: "이전 장치 자동 연결됨");
+  //     } catch (e) {
+  //       print("자동 연결 실패: $e");
+  //     }
+  //   }
+  // }
+
+  Future<void> _connectToDevice(spp.BluetoothDevice device) async {
+    if (_isConnecting) return;
+    _isConnecting = true;
+
+    try {
+      // 이전 연결 정리
+      if (_bluetoothConnection != null) {
+        await _bluetoothConnection!.finish();
+        _bluetoothConnection = null;
+      }
+
+      if (_inputSubscription != null) {
+        await _inputSubscription!.cancel();
+        _inputSubscription = null;
+      }
+
+      print("🔌 연결 시도 중: ${device.name}");
+
+      final connection = await spp.BluetoothConnection.toAddress(device.address);
+      _bluetoothConnection = connection;
+
+      _inputSubscription = connection.input?.listen(
+            (data) {
+          final raw = String.fromCharCodes(data);
+          print("📦 바코드 수신: '$raw'");
+          processBarcode(raw);
+        },
+        onDone: () {
+          print("❌ 연결 끊김");
+          setState(() => _isBluetoothConnected = false);
+        },
+        onError: (e) {
+          print("⚠️ 수신 에러: $e");
+        },
+        cancelOnError: true,
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_device_address', device.address);
+
+      setState(() {
+        _isBluetoothConnected = true;
+        _connectedDeviceName = device.name;
+      });
+
+      Fluttertoast.showToast(msg: "${device.name} 연결 성공");
+    } catch (e) {
+      print("❌ 연결 실패: $e");
+      Fluttertoast.showToast(msg: "연결 실패: $e");
+    } finally {
+      _isConnecting = false;
+    }
+  }
+
 
   void _scanReturnItems() async {
     _isReturnMode = true; // ✅ 반품 모드 활성화
