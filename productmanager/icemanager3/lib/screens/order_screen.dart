@@ -4,6 +4,12 @@ import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../product_provider.dart';
 import '../auth_provider.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/status.dart' as status;
+import 'dart:convert';
+import 'package:flutter_vibrate/flutter_vibrate.dart';
+import 'package:flutter/services.dart';
+
 
 class OrderScreen extends StatefulWidget {
   final String token;
@@ -18,7 +24,8 @@ class _OrderScreenState extends State<OrderScreen> {
   int currentShipmentRound = 0; // ✅ 현재 출고 단계 저장
   int selectedShipmentRound = 1; // ✅ 드롭다운에서 선택된 출고 단계
   List<int> shipmentRounds = List.generate(10, (index) => index + 1); // ✅ 1차 ~ 10차 출고
-
+  late WebSocketChannel channel;
+  Map<int, bool> outOfStockItems = {}; // ✅ 재고 부족 품목 추적
 
   Map<int, TextEditingController> quantityControllers = {};
   Map<int, FocusNode> focusNodes = {};
@@ -26,11 +33,35 @@ class _OrderScreenState extends State<OrderScreen> {
   Map<int, int> vehicleStockMap = {}; // ✅ 차량 재고 정보 저장 (product_id → stock)
   final formatter = NumberFormat("#,###");
 
+  void _connectWebSocket() {
+    channel = WebSocketChannel.connect(Uri.parse('ws://your-server.com/ws/stock_updates'));
+
+    channel.stream.listen((message) {
+      var data = jsonDecode(message);
+      if (data["message"] == "재고 업데이트됨") {
+        _fetchWarehouseStock(); // ✅ 실시간 재고 업데이트 반영
+      }
+    });
+  }
+
+  Future<void> _fetchWarehouseStock() async {
+    try {
+      final stockList = await ApiService.fetchWarehouseStock(widget.token);
+      setState(() {
+        warehouseStockMap = {for (var stock in stockList) stock['product_id']: stock['quantity']};
+      });
+    } catch (e) {
+      print("🚨 창고 재고 로딩 실패: $e");
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _fetchCurrentShipmentRound(); // ✅ 현재 출고 단계 가져오기
     _fetchAndSortProducts();
+    _fetchWarehouseStock();
+    _connectWebSocket(); // ✅ WebSocket 연결 추가
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _fetchEmployeeVehicleStock(authProvider.user?.id ?? 0); // 🔹 차량 재고 초기화
   }
@@ -105,34 +136,64 @@ class _OrderScreenState extends State<OrderScreen> {
     }
   }
 
+  void _showStockWarning(int productId) async {
+    setState(() {
+      quantityControllers[productId]?.text = "0"; // ✅ 부족한 경우 0으로 변경
+    });
 
+    // ✅ 입력창으로 자동 이동
+    FocusScope.of(context).requestFocus(focusNodes[productId]);
+
+    // ✅ UI에서 빨간색으로 변환하여 경고 표시
+    Future.delayed(Duration(milliseconds: 100), () {
+      setState(() {});
+    });
+  }
 
 
   // 서버에 주문을 전송하는 함수
   Future<void> _sendOrderToServer() async {
-    if (quantityControllers.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("주문할 상품을 선택하세요.")),
-      );
-      return;
-    }
-
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final int employeeId = authProvider.user?.id ?? 0; // 직원 ID
-    final String orderDate = widget.selectedDate.toIso8601String().substring(0, 10); // 주문 날짜 (YYYY-MM-DD)
+    final int employeeId = authProvider.user?.id ?? 0;
+    final String orderDate = widget.selectedDate.toIso8601String().substring(0, 10);
 
     List<Map<String, dynamic>> orderItems = [];
+    bool hasStockIssue = false;
+    int? firstProblematicProductId;
+
+    setState(() {
+      outOfStockItems.clear(); // ✅ 주문 전 부족한 품목 리스트 초기화
+    });
 
     quantityControllers.forEach((productId, controller) {
       int quantity = int.tryParse(controller.text) ?? 0;
+      int warehouseStock = warehouseStockMap[productId] ?? 0;
+
       if (quantity > 0) {
-        var product = _getProductById(productId);
-        orderItems.add({
-          'product_id': productId,
-          'quantity': quantity,
-        });
+        if (quantity > warehouseStock) {
+          hasStockIssue = true;
+          firstProblematicProductId ??= productId; // ✅ 첫 번째 부족한 상품 ID 저장
+          outOfStockItems[productId] = true; // ✅ 부족한 품목 저장
+        } else {
+          orderItems.add({'product_id': productId, 'quantity': quantity});
+        }
       }
     });
+
+    if (hasStockIssue) {
+      setState(() {}); // ✅ UI 갱신 (배경색 & 경고 아이콘 표시)
+
+      FocusScope.of(context).requestFocus(focusNodes[firstProblematicProductId!]); // ✅ 첫 번째 문제 있는 입력칸으로 이동
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("🚨 일부 품목의 재고가 부족합니다. 확인 후 다시 입력하세요."),
+          backgroundColor: Colors.red,
+        ),
+      );
+
+      await _fetchWarehouseStock(); // ✅ 최신 창고 재고 업데이트
+      return;
+    }
 
     if (orderItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -140,41 +201,37 @@ class _OrderScreenState extends State<OrderScreen> {
       );
       return;
     }
-    final adjustedRound = selectedShipmentRound - 1;
-    // 서버로 보낼 주문 데이터 구성
+
     final orderData = {
       "employee_id": employeeId,
       "order_date": orderDate,
-      "shipment_round": adjustedRound,
       "total_amount": getTotalProductPrice(),
-      "total_incentive": getTotalIncentive(),
       "total_boxes": getTotalQuantity(),
       "order_items": orderItems,
     };
-    print("[Flutter] Sending orderData => $orderData");
+
     try {
       final response = await ApiService.createOrder(widget.token, orderData);
-
       if (response.statusCode == 200 || response.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("주문이 완료되었습니다!")),
+          const SnackBar(content: Text("✅ 주문이 완료되었습니다!")),
         );
         setState(() {
-          quantityControllers.clear(); // 주문 후 입력 필드 초기화
+          quantityControllers.clear();
         });
-        // ✅ 주문 후 차량 재고 업데이트 호출
-        await _fetchEmployeeVehicleStock(employeeId);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("주문종료")),
-        );
+        await _fetchWarehouseStock(); // ✅ 주문 후 창고 재고 업데이트
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("오류 발생: $e")),
+        SnackBar(content: Text("❌ 오류 발생: $e")),
       );
     }
   }
+
+
+
+
+
 
   double getTotalProductPrice() {
     double total = 0;
@@ -216,6 +273,7 @@ class _OrderScreenState extends State<OrderScreen> {
     final productProvider = context.read<ProductProvider>();
     return productProvider.products.firstWhere((p) => p['id'] == productId, orElse: () => {});
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -334,8 +392,9 @@ class _OrderScreenState extends State<OrderScreen> {
         _buildHeaderCell("상품명"),
         _buildHeaderCell("상품가격"),
         _buildHeaderCell("인센티브"),
-        _buildHeaderCell("차량 재고"),
-        _buildHeaderCell("수량 입력"),
+        _buildHeaderCell("창고재고"),
+        _buildHeaderCell("차량재고"),
+        _buildHeaderCell("수량입력"),
       ],
     );
   }
@@ -345,27 +404,31 @@ class _OrderScreenState extends State<OrderScreen> {
     final productId = product['id'];
     final price = (product['default_price'] ?? 0).toDouble();
     final incentive = (product['incentive'] ?? 0).toDouble();
-    final vehicleStock = vehicleStockMap[productId] ?? 0; // ✅ 차량 재고 가져오기 (없으면 0)
+    final warehouseStock = warehouseStockMap[productId] ?? 0; // ✅ 창고 재고 추가
+    final vehicleStock = vehicleStockMap[productId] ?? 0; // ✅ 차량 재고 추가
 
-    quantityControllers.putIfAbsent(productId, () => TextEditingController());
+    // ✅ 수량 입력을 위한 컨트롤러 추가 (초기값 0)
+    quantityControllers.putIfAbsent(productId, () => TextEditingController(text: "0"));
 
     return Container(
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 0.5)),
       ),
-      padding: EdgeInsets.symmetric(vertical: 1),
+      padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12), // ✅ 적절한 패딩 추가
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _buildDataCell(product['product_name']),
-          _buildDataCell(formatter.format(price)),
-          _buildDataCell(formatter.format(incentive)),
+          _buildDataCell(product['product_name']), // ✅ 상품명
+          _buildDataCell(formatter.format(price)), // ✅ 가격
+          _buildDataCell(formatter.format(incentive)), // ✅ 인센티브
+          _buildDataCell(formatter.format(warehouseStock)), // ✅ 창고 재고 추가
           _buildDataCell(formatter.format(vehicleStock)), // ✅ 차량 재고 추가
-          _buildQuantityInputField(productId),
+          _buildQuantityInputField(productId), // ✅ 수량 입력 필드
         ],
       ),
     );
   }
+
 
   Widget _buildDataCell(String text) {
     return Expanded(
@@ -377,23 +440,83 @@ class _OrderScreenState extends State<OrderScreen> {
 
   Widget _buildQuantityInputField(int productId) {
     focusNodes.putIfAbsent(productId, () => FocusNode());
+    quantityControllers.putIfAbsent(productId, () => TextEditingController(text: ""));
+
+    bool isOutOfStock = outOfStockItems.containsKey(productId); // ✅ 재고 부족 여부 확인
+
     return Expanded(
-      child: TextField(
-        controller: quantityControllers[productId],
-        focusNode: focusNodes[productId],
-        keyboardType: TextInputType.number,
-        style: TextStyle(fontSize: 12),
-        decoration: InputDecoration(border: OutlineInputBorder()),
-        textInputAction: TextInputAction.next,
-        onChanged: (value) {
-          setState(() {});
-        },
-        onEditingComplete: () {
-          FocusScope.of(context).nextFocus();
-        },
+      child: Stack(
+        alignment: Alignment.centerRight,
+        children: [
+          TextField(
+            controller: quantityControllers[productId],
+            focusNode: focusNodes[productId],
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.center,
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: isOutOfStock ? Colors.red.withOpacity(0.2) : Colors.white, // ✅ 부족하면 배경색 변경
+              border: OutlineInputBorder(
+                borderSide: BorderSide(
+                  color: isOutOfStock ? Colors.red : Colors.grey, // ✅ 부족하면 빨간색 테두리
+                  width: 2,
+                ),
+              ),
+            ),
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onTap: () {
+              if (quantityControllers[productId]!.text.isEmpty) {
+                quantityControllers[productId]!.text = "0";
+              }
+              quantityControllers[productId]!.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: quantityControllers[productId]!.text.length, // ✅ 전체 선택
+              );
+            },
+            onSubmitted: (_) {
+              _moveToNextInputField(productId); // ✅ 엔터 누르면 다음 입력칸으로 이동
+            },
+          ),
+          if (isOutOfStock)
+            Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Icon(Icons.warning, color: Colors.red, size: 18), // ✅ 부족하면 경고 아이콘 표시
+            ),
+        ],
       ),
     );
   }
+
+
+
+
+  void _moveToNextInputField(int currentProductId) {
+    List<int> productIds = quantityControllers.keys.toList(); // ✅ 모든 상품 ID 리스트
+    int currentIndex = productIds.indexOf(currentProductId);
+
+    if (currentIndex != -1 && currentIndex < productIds.length - 1) {
+      int nextProductId = productIds[currentIndex + 1];
+
+      // ✅ 다음 입력칸으로 이동
+      FocusScope.of(context).requestFocus(focusNodes[nextProductId]);
+
+      // ✅ 이동한 입력칸에서 '0' 자동 입력 & 전체 선택
+      Future.delayed(Duration(milliseconds: 100), () {
+        if (quantityControllers[nextProductId]!.text.isEmpty || quantityControllers[nextProductId]!.text == "0") {
+          quantityControllers[nextProductId]!.text = "0";
+          quantityControllers[nextProductId]!.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: 1, // ✅ 전체 선택 (드래그 효과)
+          );
+        }
+      });
+    } else {
+      FocusScope.of(context).unfocus(); // ✅ 마지막 칸이면 키보드 닫기
+    }
+  }
+
+
+
 
   // 🔹 합계 행 (차량 재고 포함)
   Widget _buildSummaryRow() {

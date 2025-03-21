@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import '../services/sales_service.dart';
 import 'dart:convert'; // ✅ UTF-8 디코딩을 위해 필요
+import '../config.dart';
+
+final String baseUrl = BASE_URL;
+
 
 class SalesSummaryScreen extends StatefulWidget {
   final String token;
@@ -15,7 +19,7 @@ class SalesSummaryScreen extends StatefulWidget {
 class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
   String selectedType = "일매출";
   DateTime selectedDate = DateTime.now();
-  final SalesService salesService = SalesService("http://192.168.50.221:8000");
+  final SalesService salesService = SalesService("$baseUrl");
 
   Future<List<dynamic>>? salesData;
   Map<String, dynamic> outstandingMap = {}; // ✅ 미수금 저장할 Map 추가

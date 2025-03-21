@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, Query
+from fastapi import APIRouter, Depends, HTTPException, Body, Query, WebSocket
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.db.database import get_db
 from app.models import Order, OrderItem, OrderArchive, OrderItemArchive  # ✅ 아카이빙 테이블 추가
 from app.schemas.orders import OrderSchema, OrderCreateSchema, OrderSummarySchema
@@ -13,9 +14,91 @@ from app.utils.inventory_service import update_vehicle_stock
 from app.models.orders import OrderLock
 from sqlalchemy import func
 from typing import Optional
+import redis
+import redis
+from kafka import KafkaProducer
+import json
+
 router = APIRouter()
 
+# ✅ Redis & Kafka 설정
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+producer = KafkaProducer(
+    bootstrap_servers='localhost:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+)
 
+# ✅ WebSocket 연결 관리
+active_websockets = []
+router = APIRouter()
+
+@router.get("/warehouse_stock")
+def get_warehouse_stock(db: Session = Depends(get_db)):
+    """
+    Redis에서 창고 재고 조회 (없으면 DB에서 조회 후 캐싱)
+    """
+    cache_data = redis_client.get("warehouse_stock")
+
+    if cache_data:
+        return json.loads(cache_data)  # ✅ Redis 캐시에서 재고 반환
+
+    # ✅ Redis에 없으면 DB에서 조회 후 캐싱
+    products = db.query(Product.id, Product.product_name, Product.stock).all()
+    result = [{"product_id": p.id, "product_name": p.product_name, "quantity": p.stock} for p in products]
+
+    redis_client.setex("warehouse_stock", 60, json.dumps(result))  # ✅ 60초 캐싱
+    return result
+
+
+@router.post("/place_order")
+def place_order(order_items: List[dict], db: Session = Depends(get_db)):
+    """
+    트랜잭션과 락을 사용하여 동시 주문 문제 해결
+    """
+    try:
+        # ✅ 트랜잭션 시작
+        db.begin()
+
+        for item in order_items:
+            product = db.query(Product).filter(Product.id == item['product_id']).with_for_update().first()
+
+            if not product or product.stock < item['quantity']:
+                raise HTTPException(status_code=400, detail=f"{product.product_name} 재고 부족")
+
+            product.stock -= item['quantity']
+
+            # ✅ Redis 캐시 업데이트
+            redis_client.set(f"product_{product.id}_stock", product.stock)
+
+        db.commit()
+
+        # ✅ Kafka에 주문 데이터 전송 (비동기 처리)
+        producer.send('order_topic', {'order_items': order_items})
+
+        # ✅ WebSocket을 통해 클라이언트에 재고 변경 알림
+        notify_clients()
+
+        return {"message": "주문 성공!"}
+
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="🚨 주문 처리 중 오류 발생!")
+
+# ✅ WebSocket을 통한 실시간 재고 업데이트
+async def notify_clients():
+    data = {"message": "재고 업데이트됨"}
+    for websocket in active_websockets:
+        await websocket.send_text(json.dumps(data))
+
+@router.websocket("/ws/stock_updates")
+async def stock_websocket(websocket: WebSocket):
+    await websocket.accept()
+    active_websockets.append(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except:
+        active_websockets.remove(websocket)
 
 # ✅ 1️⃣ 주문 잠금 (관리자용)
 @router.post("/lock/{order_date}")

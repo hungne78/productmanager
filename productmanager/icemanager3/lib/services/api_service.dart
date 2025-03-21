@@ -1,11 +1,13 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import '../config.dart';
+
+final String baseUrl = BASE_URL;
 
 class ApiService {
 
-  // static const String baseUrl = "http://192.168.50.221:8000"; //개인pc
-  static const String baseUrl = "http://192.168.0.183:8000";  //맥북
+
 
   static final Dio _dio = Dio(BaseOptions(
     baseUrl: baseUrl, // `Dio`에 기본 URL 설정 (자동으로 붙음)
@@ -51,7 +53,18 @@ class ApiService {
       throw Exception("🚨 창고 재고 조회 실패: ${response.body}");
     }
   }
+  static Future<http.Response> createOrder(String token, Map<String, dynamic> orderData) async {
+    final url = Uri.parse("https://your-api.com/api/place_order");
 
+    return await http.post(
+      url,
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+      body: jsonEncode(orderData),
+    );
+  }
   static Future<Map<String, dynamic>> fetchClientDetailsById(String token, int clientId) async {
     final url = Uri.parse("$baseUrl/clients/$clientId");
     final response = await http.get(url, headers: {
@@ -182,19 +195,7 @@ class ApiService {
       body: jsonEncode(data),
     );
   }
-  static Future<http.Response> createOrder(String token, Map<String, dynamic> orderData) async {
-    final url = Uri.parse("$baseUrl/orders/");
-    final response = await http.post(
-      url,
-      headers: {
-        "Authorization": "Bearer $token",
-        "Content-Type": "application/json",
-      },
-      body: jsonEncode(orderData), // ✅ orderData 전체를 전송
-    );
 
-    return response;
-  }
 
 
 
