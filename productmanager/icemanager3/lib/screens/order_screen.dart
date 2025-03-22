@@ -9,6 +9,7 @@ import 'package:web_socket_channel/status.dart' as status;
 import 'dart:convert';
 import 'package:flutter_vibrate/flutter_vibrate.dart';
 import 'package:flutter/services.dart';
+import '../screens/home_screen.dart';
 
 
 class OrderScreen extends StatefulWidget {
@@ -278,81 +279,103 @@ class _OrderScreenState extends State<OrderScreen> {
   @override
   Widget build(BuildContext context) {
     final productProvider = context.watch<ProductProvider>();
-
-    // 🔹 List<dynamic> → List<Map<String, dynamic>> 변환
     final List<Map<String, dynamic>> products = List<Map<String, dynamic>>.from(productProvider.products);
 
     return Scaffold(
-      appBar: AppBar(title: const Text("주문 페이지")),
+      appBar: PreferredSize(
+        preferredSize: Size.fromHeight(60),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.indigo,
+            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+          ),
+          padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // ← 홈버튼
+              IconButton(
+                icon: Icon(Icons.home, color: Colors.white),
+                onPressed: () {
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => HomeScreen(token: context.read<AuthProvider>().user!.token),
+                    ),
+                  );
+                },
+              ),
+
+              // 🎯 제목
+              Text(
+                "주문 페이지",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+
+              // 출고 단계 드롭다운
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: DropdownButton<int>(
+                  dropdownColor: Colors.white,
+                  value: selectedShipmentRound,
+                  underline: SizedBox(),
+                  iconEnabledColor: Colors.white,
+                  onChanged: (int? newValue) {
+                    if (newValue != null && newValue == currentShipmentRound + 1) {
+                      setState(() {
+                        selectedShipmentRound = newValue;
+                      });
+                    }
+                  },
+                  items: shipmentRounds.map((round) {
+                    return DropdownMenuItem<int>(
+                      value: round,
+                      child: Text(
+                        "$round차 출고",
+                        style: TextStyle(
+                          color: round == currentShipmentRound + 1 ? Colors.black : Colors.grey,
+                        ),
+                      ),
+                      enabled: round == currentShipmentRound + 1,
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+
       body: Column(
         children: [
-          // ✅ 현재 출고 단계 표시
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                Text(
-                  "현재 출고 단계: ${currentShipmentRound + 1}차 출고 대기",
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(
-                  value: currentShipmentRound / 10, // ✅ 10차 출고 기준 진행률
-                  minHeight: 8,
-                  backgroundColor: Colors.grey[300],
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "출고 확정은 PC에서 진행됩니다.",
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                ),
-              ],
-            ),
-          ),
+          // ✅ 상품 테이블
+          Expanded(child: _buildProductTable(products)),
 
-          // ✅ 출고 단계 선택 드롭다운 (현재 출고 가능 단계만 활성화, 비활성 단계는 회색)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: DropdownButton<int>(
-              value: selectedShipmentRound,
-              onChanged: (int? newValue) {
-                if (newValue != null && newValue == currentShipmentRound + 1) {
-                  setState(() {
-                    selectedShipmentRound = newValue;
-                  });
-                }
-              },
-              items: shipmentRounds.map((round) {
-                return DropdownMenuItem<int>(
-                  value: round,
-                  child: Text(
-                    "$round차 출고",
-                    style: TextStyle(
-                      color: round == currentShipmentRound + 1 ? Colors.black : Colors.grey, // ✅ 가능 차수는 검정, 불가능 차수는 회색
-                    ),
-                  ),
-                  enabled: round == currentShipmentRound + 1, // ✅ 현재 가능 차수만 선택 가능
-                );
-              }).toList(),
-            ),
-          ),
-
-          Expanded(
-            child: _buildProductTable(products), // 🔹 변환된 리스트 전달
-          ),
+          // ✅ 요약 행
           _buildSummaryRow(),
 
-          // ✅ 주문 전송 버튼 (출고 확정 아님)
-          ElevatedButton.icon(
-            onPressed: _sendOrderToServer,
-            icon: const Icon(Icons.send),
-            label: const Text("주문 전송"),
+          // ✅ 주문 전송 버튼
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal,
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              onPressed: _sendOrderToServer,
+              icon: const Icon(Icons.send, color: Colors.white),
+              label: const Text("주문 전송", style: TextStyle(color: Colors.white)),
+            ),
           ),
         ],
       ),
     );
   }
+
 
   // 🔹 상품 테이블 UI
   Widget _buildProductTable(List<Map<String, dynamic>> products) {

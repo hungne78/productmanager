@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import QSpacerItem, QSizePolicy
 import json
 from PyQt5.QtGui import QIcon
 from pathlib import Path
+import requests
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 파일의 절대 경로
 ICONS_DIR = os.path.join(BASE_DIR, "assets/icons")  # icons 폴더 경로 설정
 def load_dark_theme():
@@ -392,9 +393,6 @@ def load_pastel_purple_theme():
     }
     """
 class CompanyInfoDialog(QDialog):
-    """
-    우리 회사 정보(상호, 대표자, 사업자번호 등)를 입력받는 다이얼로그
-    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("회사 정보 등록/수정")
@@ -402,12 +400,16 @@ class CompanyInfoDialog(QDialog):
         self.ceo_edit = QLineEdit()
         self.business_num_edit = QLineEdit()
         self.address_edit = QLineEdit()
+        self.phone_edit = QLineEdit()
+        self.bank_edit = QLineEdit()
 
         layout = QFormLayout()
         layout.addRow("회사명:", self.company_name_edit)
         layout.addRow("대표자명:", self.ceo_edit)
         layout.addRow("사업자번호:", self.business_num_edit)
         layout.addRow("주소:", self.address_edit)
+        layout.addRow("전화번호:", self.phone_edit)              # ✅ 추가
+        layout.addRow("입금 계좌번호:", self.bank_edit)         # ✅ 추가
 
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
         btn_box.accepted.connect(self.accept)
@@ -419,9 +421,11 @@ class CompanyInfoDialog(QDialog):
     def get_company_info(self):
         return {
             "company_name": self.company_name_edit.text(),
-            "ceo": self.ceo_edit.text(),
+            "ceo_name": self.ceo_edit.text(),
             "business_number": self.business_num_edit.text(),
             "address": self.address_edit.text(),
+            "phone": self.phone_edit.text(),             # ✅ 포함
+            "bank_account": self.bank_edit.text(),       # ✅ 포함
         }
 
 class MainApp(QMainWindow):
@@ -553,20 +557,28 @@ class MainApp(QMainWindow):
             info = dialog.get_company_info()
             self.company_info = info
             print("▶ 우리 회사 정보 등록 완료:", self.company_info)
-            self.save_company_info(self.company_info, "company_info.json")
-            # 혹시 우측 패널에 바로 반영하고 싶다면:
+
+            # ✅ 서버에 저장하도록 변경
+            self.save_company_info_to_server(self.company_info)
+
+            # ✅ UI 반영 (예: 거래명세서 오른쪽 패널)
             self.tabs["invoices"].right_panel.set_company_info(self.company_info)
+
     
-    def save_company_info(self, info: dict, filename="company_info.json"):
+    def save_company_info_to_server(self, info: dict):
         """
-        회사 정보를 JSON 파일로 저장
+        회사 정보를 FastAPI 서버에 POST로 전송
         """
         try:
-            with open(filename, "w", encoding="utf-8") as f:
-                json.dump(info, f, ensure_ascii=False, indent=2)
-            print(f"회사 정보가 '{filename}'에 저장되었습니다.")
+            url = "http://localhost:8000/company/"  # 서버 주소에 맞게 조정
+            response = requests.post(url, json=info)
+
+            if response.status_code in [200, 201]:
+                print("✅ 서버에 회사 정보 저장 성공!")
+            else:
+                print(f"❌ 서버 저장 실패: {response.status_code} / {response.text}")
         except Exception as e:
-            print(f"회사 정보 저장 실패: {e}")
+            print(f"❌ 서버 전송 오류: {e}")
         
     def load_company_info(self, filename="company_info.json") -> dict:
         """

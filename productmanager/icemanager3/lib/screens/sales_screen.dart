@@ -18,6 +18,11 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:async'; // ✅ 비동기 Stream 관련 클래스 포함
 import 'package:permission_handler/permission_handler.dart';
 import '../screens/home_screen.dart';
+import '../screens/printer.dart'; // 경로는 프로젝트에 맞게 조정
+import 'dart:ui' as ui;
+import 'package:flutter/widgets.dart' as widgets;
+import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
+import 'package:image/image.dart' as img;
 
 AndroidDeviceInfo? androidInfo;
 
@@ -64,7 +69,8 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   int? selectedIndex; // ✅ 선택된 행의 인덱스 저장
   bool _isLoading = false;
   String? _error;
-  @override
+  bool _isPrinterConnected = false; // 초기값
+
 
 
 
@@ -77,6 +83,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     _checkBluetoothPermissions(); // ✅ 필수
     // _initializeSPP(); // SPP 모드 초기화
     // _initializeBLE(); // BLE 모드 초기화
+    _checkPrinterConnection(); // 연결 여부 확인
 
     WidgetsBinding.instance.addObserver(this);
     print("✅ SalesScreen 실행됨");
@@ -150,6 +157,80 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       });
     }
   }
+  Future<void> _checkPrinterConnection() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? printerId = prefs.getString('last_printer_id');
+
+    if (printerId == null) {
+      setState(() => _isPrinterConnected = false);
+      return;
+    }
+
+    final connectedDevices = await BLE.FlutterBluePlus.connectedDevices;
+    bool found = connectedDevices.any((d) => d.id.toString() == printerId);
+    setState(() => _isPrinterConnected = found);
+  }
+
+  Future<void> debugPrintAllWriteCharacteristics() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? printerId = prefs.getString('last_printer_id');
+    if (printerId == null) {
+      print("❌ 프린터 ID 없음");
+      return;
+    }
+
+    final devices = await BLE.FlutterBluePlus.connectedDevices;
+    final device = devices.firstWhere(
+          (d) => d.id.toString() == printerId,
+      orElse: () => throw Exception("❌ 연결된 프린터를 찾을 수 없습니다."),
+    );
+
+    final services = await device.discoverServices();
+    print("🔍 전체 서비스 및 write 가능한 특성 탐색 시작");
+
+    for (var s in services) {
+      for (var c in s.characteristics) {
+        if (c.properties.write) {
+          print("✅ [WRITE] UUID: ${c.uuid.toString().toLowerCase()}");
+        }
+      }
+    }
+
+    print("🔚 탐색 완료");
+  }
+
+
+  Future<BLE.BluetoothCharacteristic?> _getConnectedPrinterWriteCharacteristic() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? printerId = prefs.getString('last_printer_id');
+    if (printerId == null) return null;
+
+    final connectedDevices = await BLE.FlutterBluePlus.connectedDevices;
+    final device = connectedDevices.firstWhere(
+          (d) => d.id.toString() == printerId,
+      orElse: () => throw Exception("연결된 프린터를 찾을 수 없습니다."),
+    );
+
+    final services = await device.discoverServices();
+    final targetUuid = '49535343-aca3-481c-91ec-d85e28a60318'; // ✅ 고정 UUID 사용
+
+    for (var service in services) {
+      for (var char in service.characteristics) {
+        if (char.properties.write &&
+            char.uuid.toString().toLowerCase() == targetUuid) {
+          print("✅ Goojprt용 WRITE characteristic 연결됨: ${char.uuid}");
+          return char;
+        }
+      }
+    }
+
+    print("❌ Goojprt 전용 UUID를 찾을 수 없습니다.");
+    return null;
+  }
+
+
+
+
   Future<void> _checkBluetoothPermissions() async {
     if (await Permission.bluetoothScan.request().isGranted &&
         await Permission.bluetoothConnect.request().isGranted &&
@@ -233,6 +314,14 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     } else {
       print("❌ 페어링된 블루투스 장치가 없습니다.");
     }
+  }
+  void _showBluetoothPrinterDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return BluetoothPrinterDialog(); // ✅ printer.dart에 정의된 다이얼로그
+      },
+    );
   }
 
 
@@ -669,6 +758,164 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       ),
     );
   }
+  Future<void> _printReceiptImage(Map<String, dynamic> companyInfo) async {
+    // 1️⃣ Flutter canvas로 영수증 이미지 그리기
+    final recorder = ui.PictureRecorder();
+    const double width = 576;
+    final canvas = Canvas(recorder);
+    final bgPaint = Paint()..color = Colors.white;
+    canvas.drawRect(Rect.fromLTWH(0, 0, width, 800), bgPaint);
+
+    final textPainter = TextPainter(
+      textDirection: widgets.TextDirection.ltr,
+      maxLines: null,
+    );
+
+    final now = DateFormat("yyyy-MM-dd HH:mm:ss").format(DateTime.now());
+    String text = '''
+[영수증]
+날짜: $now
+
+${companyInfo['company_name']} (${companyInfo['ceo_name']})
+${companyInfo['address']}
+Tel: ${companyInfo['phone']}
+사업자번호: ${companyInfo['business_number']}
+
+거래처: ${widget.client['client_name']}
+미수금: ${formatter.format(widget.client['outstanding_amount'])} 원
+주소: ${widget.client['address']}
+사업자번호: ${widget.client['business_number']}
+
+----------------------------
+''';
+
+    for (var item in _scannedItems) {
+      int total = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01).round();
+      text += "${item['name']} x${item['box_count']}박스 - ${formatter.format(total)}원\n";
+    }
+
+    for (var item in _returnedItems) {
+      double total = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price']) * -0.01;
+      text += "[반품] ${item['name']} x${item['box_count']} - ${formatter.format(total.round())}원\n";
+    }
+
+    text += '''
+----------------------------
+담당자: ${context.read<AuthProvider>().user?.name ?? ''}
+입금계좌: ${companyInfo['bank_account']}
+''';
+
+    textPainter.text = TextSpan(
+      text: text,
+      style: TextStyle(color: Colors.black, fontSize: 18),
+    );
+
+    textPainter.layout(maxWidth: width - 20);
+    textPainter.paint(canvas, Offset(10, 10));
+
+    final picture = recorder.endRecording();
+    final ui.Image image = await picture.toImage(width.toInt(), 800);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    final pngBytes = byteData!.buffer.asUint8List();
+
+    // 2️⃣ PNG를 ESC/POS용 image로 변환
+    final decodedImage = img.decodeImage(pngBytes);
+    if (decodedImage == null) {
+      Fluttertoast.showToast(msg: "❌ 이미지 디코딩 실패");
+      return;
+    }
+
+    final profile = await CapabilityProfile.load();
+    final generator = Generator(PaperSize.mm80, profile);
+    final ticket = <int>[];
+    ticket.addAll(generator.image(decodedImage));
+    ticket.addAll(generator.feed(2));
+    ticket.addAll(generator.cut());
+
+    // 3️⃣ BLE 프린터로 전송
+    final writeChar = await _getConnectedPrinterWriteCharacteristic();
+    if (writeChar == null) {
+      Fluttertoast.showToast(msg: "⚠️ 프린터 연결 안 됨");
+      return;
+    }
+
+    const chunkSize = 200;
+    for (int i = 0; i < ticket.length; i += chunkSize) {
+      int end = (i + chunkSize < ticket.length) ? i + chunkSize : ticket.length;
+      await writeChar.write(
+        ticket.sublist(i, end),
+        withoutResponse: false, // ✅ 꼭 false로
+      );
+      await Future.delayed(Duration(milliseconds: 10));
+    }
+
+
+    Fluttertoast.showToast(msg: "✅ 한글 영수증 인쇄 완료");
+  }
+
+  void _printReceipt(Map<String, dynamic> companyInfo) async {
+    final now = DateFormat("yyyy-MM-dd HH:mm:ss").format(DateTime.now());
+
+    StringBuffer buffer = StringBuffer();
+
+    buffer.writeln("=== 영수증 ===");
+    buffer.writeln("날짜: $now");
+    buffer.writeln("--------------------------");
+    buffer.writeln("${companyInfo['company_name']} (${companyInfo['ceo_name']})");
+    buffer.writeln("${companyInfo['address']}");
+    buffer.writeln("Tel: ${companyInfo['phone']}");
+    buffer.writeln("사업자번호: ${companyInfo['business_number']}");
+    buffer.writeln("");
+    buffer.writeln("거래처: ${widget.client['client_name']}");
+    buffer.writeln("미수금: ${formatter.format(widget.client['outstanding_amount'].round())} 원");
+    buffer.writeln("주소: ${widget.client['address'] ?? '정보 없음'}");
+    buffer.writeln("사업자번호: ${widget.client['business_number'] ?? '정보 없음'}");
+    buffer.writeln("--------------------------");
+
+    for (var item in _scannedItems) {
+      int totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01).round();
+      buffer.writeln(
+        "${item['name']} x${item['box_count']}박스 | ${formatter.format(totalPrice)}원",
+      );
+    }
+
+    for (var item in _returnedItems) {
+      double totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price']) * -0.01;
+      buffer.writeln(
+        "[반품] ${item['name']} x${item['box_count']} | ${formatter.format(totalPrice.round())}원",
+      );
+    }
+
+    buffer.writeln("--------------------------");
+    final auth = context.read<AuthProvider>();
+    buffer.writeln("담당자: ${auth.user?.name ?? '알 수 없음'} / ${auth.user?.phone ?? ''}");
+    buffer.writeln("입금 계좌: ${companyInfo['bank_account']}");
+    buffer.writeln("==========================");
+
+    // TODO: 프린터에 연결되어 있다면 실제 전송하기
+    print(buffer.toString()); // 개발 중엔 출력 확인용
+    // 👉 실제 BLE 프린터로 전송
+    try {
+      final writeChar = await _getConnectedPrinterWriteCharacteristic();
+      if (writeChar == null) {
+        Fluttertoast.showToast(msg: "프린터 연결 안 됨");
+        return;
+      }
+
+      List<int> bytes = utf8.encode(buffer.toString());
+      int chunkSize = 180; // BLE 최대 전송 크기
+      for (int i = 0; i < bytes.length; i += chunkSize) {
+        int end = (i + chunkSize < bytes.length) ? i + chunkSize : bytes.length;
+        await writeChar.write(bytes.sublist(i, end));
+        await Future.delayed(Duration(milliseconds: 50));
+      }
+
+      Fluttertoast.showToast(msg: "✅ 인쇄 완료");
+
+    } catch (e) {
+      Fluttertoast.showToast(msg: "❌ 인쇄 실패: $e");
+    }
+  }
 
   /// 📌 헤더 스타일 조정
   Widget _buildCustomAppBar(BuildContext context) {
@@ -714,7 +961,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
           Expanded(
             child: Center(
               child: Text(
-                "판매 화면",
+                "판 매",
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -723,7 +970,22 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
               ),
             ),
           ),
-
+          GestureDetector(
+            onTap: _showBluetoothPrinterDialog,  // 누르면 연결 팝업
+            child: Row(
+              children: [
+                Icon(
+                  _isPrinterConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+                  color: _isPrinterConnected ? Colors.lightGreen : Colors.redAccent,
+                ),
+                SizedBox(width: 6),
+                Text(
+                  _isPrinterConnected ? "프린터 연결됨" : "미연결",
+                  style: TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
           // ✅ 오른쪽: 연결 상태 (클릭 가능)
           GestureDetector(
             onTap: _showBluetoothDialog,
@@ -1004,6 +1266,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
                       _applySubsidy(amount); // ✅ 지원금으로 처리
                     } else {
                       _processPayment(amount); // ✅ 일반 입금 처리
+
                     }
 
                     Navigator.of(context).pop(); // 팝업 닫기
@@ -1040,6 +1303,19 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<Map<String, dynamic>?> _fetchCompanyInfo() async {
+    try {
+      final response = await ApiService.fetchCompanyInfo(widget.token);
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        Fluttertoast.showToast(msg: "회사 정보를 불러올 수 없습니다.");
+      }
+    } catch (e) {
+      Fluttertoast.showToast(msg: "회사 정보 오류: $e");
+    }
+    return null;
+  }
 
 
 
@@ -1117,7 +1393,10 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("입금이 성공적으로 처리되었습니다.")),
         );
-
+        final companyInfo = await _fetchCompanyInfo(); // ✅ 회사 정보 가져오기
+        if (companyInfo != null) {
+          _printReceiptImage(companyInfo); // ✅ 인쇄 실행
+        }
         setState(() {
           _scannedItems = List.from([]); // ✅ 스캔한 상품 목록 초기화
           _returnedItems.clear();

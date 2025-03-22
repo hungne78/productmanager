@@ -296,13 +296,18 @@ class InvoicesRightPanel(QWidget):
         self.init_ui()
 
     def set_company_info(self, info: dict):
-        self.company_info = info
-        # 여기서 바로 라벨을 갱신하여, 등록 직후에도 화면에 반영
-        if self.company_info and self.company_info.get("company_name"):
-            txt = f"[{self.company_info['company_name']}] 대표: {self.company_info['ceo']} / 사업자번호: {self.company_info['business_number']}"
+        self.company_info = info or {}
+
+        company_name = self.company_info.get("company_name")
+        ceo_name = self.company_info.get("ceo_name")
+        business_number = self.company_info.get("business_number")
+
+        if company_name and ceo_name and business_number:
+            txt = f"[{company_name}] 대표: {ceo_name} / 사업자번호: {business_number}"
             self.company_label.setText(txt)
         else:
             self.company_label.setText("공급자(우리 회사) 정보가 등록되지 않았습니다.")
+
 
 
     def init_ui(self):
@@ -342,7 +347,7 @@ class InvoicesRightPanel(QWidget):
         """
         # 우선 상단 라벨 갱신
         if self.company_info and self.company_info.get("company_name"):
-            txt = f"[{self.company_info['company_name']}] 대표: {self.company_info['ceo']} / 사업자번호: {self.company_info['business_number']}"
+            txt = f"[{self.company_info['company_name']}] 대표: {self.company_info['ceo_name']} / 사업자번호: {self.company_info['business_number']}"
             self.company_label.setText(txt)
         else:
             self.company_label.setText("공급자(우리 회사) 정보가 등록되지 않았습니다.")

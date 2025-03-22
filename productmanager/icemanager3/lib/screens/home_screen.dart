@@ -153,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _fetchSalesData();
     _loadWeather();
+    _updateItemList();
   }
 
   // 🔹 모든 직원의 이번 달 매출 가져오기

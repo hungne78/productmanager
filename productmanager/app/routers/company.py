@@ -6,7 +6,7 @@ from app.schemas.company import CompanySchema
 
 router = APIRouter()
 
-@router.get("/", response_model=CompanySchema)
+@router.get("", response_model=CompanySchema)
 def get_company_info(db: Session = Depends(get_db)):
     """회사 정보 조회"""
     company = db.query(CompanyInfo).first()

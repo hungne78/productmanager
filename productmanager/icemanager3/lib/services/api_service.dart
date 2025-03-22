@@ -196,7 +196,13 @@ class ApiService {
     );
   }
 
-
+  static Future<http.Response> fetchCompanyInfo(String token) async {
+    final url = Uri.parse("$baseUrl/company");
+    return await http.get(
+      url,
+      headers: {"Authorization": "Bearer $token"},
+    );
+  }
 
 
 

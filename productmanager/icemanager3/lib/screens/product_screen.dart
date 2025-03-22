@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'barcode_scanner_page.dart';
 import '../product_provider.dart';
+import '../screens/home_screen.dart';
+import '../auth_provider.dart';
 
 class ProductScreen extends StatefulWidget {
   final String token;
@@ -21,13 +23,26 @@ class _ProductScreenState extends State<ProductScreen> {
   @override
   void initState() {
     super.initState();
-    _searchController = TextEditingController();
+    // ✅ 최초 진입 시 상품 목록을 바로 보여줌
+    _searchController = TextEditingController(); // ✅ 반드시 초기화!
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final productProvider = context.read<ProductProvider>();
+      setState(() {
+        _filteredProducts = List<Map<String, dynamic>>.from(productProvider.products);
+      });
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+  void _loadAllProducts() {
+    final productProvider = context.read<ProductProvider>();
+    setState(() {
+      _filteredProducts = List<Map<String, dynamic>>.from(productProvider.products);
+    });
   }
 
   void _filterProducts() {
@@ -62,22 +77,97 @@ class _ProductScreenState extends State<ProductScreen> {
       _filterProducts();
     });
   }
+  void _showPopup(Map<String, dynamic> product) {
+    final formatter = NumberFormat("#,###");
+    final bool isFixedPrice = product['is_fixed_price'] == true;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(product['product_name'] ?? "상품 상세 정보"),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _popupLine("상품명", product['product_name']),
+                _popupLine("브랜드", product['brand_id']),
+                _popupLine("가격", "${formatter.format(product['default_price'])} 원"),
+                _popupLine("가격 유형", isFixedPrice ? "고정가" : "일반가"),
+                _popupLine("바코드", product['barcode']),
+                _popupLine("카테고리", product['category']),
+                _popupLine("박스당 수량", product['box_quantity']),
+                _popupLine("창고 재고", product['stock']),
+                const SizedBox(height: 8),
+                if (product.containsKey("description"))
+                  Text("📌 설명: ${product['description']}", style: TextStyle(color: Colors.black87)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("닫기"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  Widget _popupLine(String label, dynamic value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(fontSize: 14, color: Colors.black),
+          children: [
+            TextSpan(text: "$label: ", style: const TextStyle(fontWeight: FontWeight.bold)),
+            TextSpan(text: "${value ?? '-'}"),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.indigo,
-        elevation: 2,
-        title: const Text("상품 조회", style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.camera_alt, color: Colors.white),
-            onPressed: _scanBarcode,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(56),
+        child: AppBar(
+          backgroundColor: Colors.indigo,
+          elevation: 3,
+          centerTitle: true,
+          leading: IconButton(
+            icon: const Icon(Icons.home, color: Colors.white),
+            onPressed: () {
+              final token = context.read<AuthProvider>().user?.token;
+              if (token != null) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => HomeScreen(token: token)),
+                );
+              }
+            },
           ),
-        ],
+          title: const Text(
+            "상품 조회",
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: Colors.white,
+            ),
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.camera_alt, color: Colors.white), // ✅ 흰색 아이콘
+              onPressed: _scanBarcode,
+            ),
+          ],
+        ),
       ),
-
       body: Column(
         children: [
           Padding(
@@ -90,99 +180,119 @@ class _ProductScreenState extends State<ProductScreen> {
                 border: OutlineInputBorder(),
               ),
               onChanged: (value) {
-                setState(() {
-                  _searchQuery = value;
+                _searchQuery = value;
+                if (_searchQuery.isEmpty) {
+                  _loadAllProducts();
+                } else {
                   _filterProducts();
-                });
+                }
               },
             ),
           ),
-
-          Expanded(
-            child: _buildProductTable(),
-          ),
+          _buildHeader(),
+          const Divider(height: 1),
+          Expanded(child: _buildProductList()),
         ],
       ),
     );
   }
 
 
-  Widget _buildProductTable() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ✅ 테이블 헤더
-          Container(
-            color: Colors.indigo.shade700,
+  Widget _buildHeader() {
+    return Container(
+      color: Colors.indigo.shade600,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: const [
+          _TableHeader("상품명", flex: 3),
+          _TableHeader("브랜드", flex: 2),
+          _TableHeader("가격", flex: 2),
+          _TableHeader("바코드", flex: 3),
+          _TableHeader("카테고리", flex: 2),
+          _TableHeader("유형", flex: 2),
+        ],
+      ),
+    );
+  }
+  Widget _buildProductList() {
+    if (_filteredProducts.isEmpty) {
+      return const Center(child: Text("검색 결과가 없습니다."));
+    }
+
+    return ListView.separated(
+      itemCount: _filteredProducts.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (context, index) {
+        final product = _filteredProducts[index];
+        final isFixedPrice = product['is_fixed_price'] == true;
+
+        return GestureDetector(
+          onTap: () => _showPopup(product),
+          child: Container(
+            color: index.isEven ? Colors.grey.shade100 : Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 10),
             child: Row(
               children: [
-                _buildHeaderCell("상품명", width: 140),
-                _buildHeaderCell("브랜드", width: 80),
-                _buildHeaderCell("가격", width: 80),
-                _buildHeaderCell("바코드", width: 160),
-                _buildHeaderCell("카테고리", width: 90),
-                _buildHeaderCell("가격 유형", width: 90),
+                _TableCell(product['product_name'] ?? "-", flex: 3),
+                _TableCell(product['brand_id']?.toString() ?? "-", flex: 2),
+                _TableCell(formatter.format((product['default_price'] ?? 0).toInt()), flex: 2),
+                _TableCell(product['barcode'] ?? "-", flex: 3),
+                _TableCell(product['category'] ?? "-", flex: 2),
+                _TableCell(isFixedPrice ? "고정가" : "일반가", flex: 2, isBold: true),
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+}
 
-          // ✅ 검색 결과 있을 때: 스크롤 가능한 행 목록
-          if (_filteredProducts.isNotEmpty)
-            SizedBox(
-              height: 400, // 필요 시 높이 제한 가능
-              child: ListView.builder(
-                itemCount: _filteredProducts.length,
-                itemBuilder: (context, index) {
-                  final product = _filteredProducts[index];
-                  final isFixedPrice = product['is_fixed_price'] == true;
+class _TableHeader extends StatelessWidget {
+  final String label;
+  final int flex;
 
-                  return Row(
-                    children: [
-                      _buildFixedWidthCell(product['product_name'] ?? "-", width: 140),
-                      _buildFixedWidthCell(product['brand_id']?.toString() ?? "-", width: 80),
-                      _buildFixedWidthCell(formatter.format((product['default_price'] ?? 0).toInt()), width: 80),
-                      _buildDataCellWithPopup(product['barcode'] ?? "-", flex: 160),
-                      _buildFixedWidthCell(product['category'] ?? "-", width: 90),
-                      _buildFixedWidthCell(isFixedPrice ? "고정가" : "일반가", width: 90, isBold: true),
-                    ],
-                  );
-                },
-              ),
-            )
-          else
-          // ✅ 검색 결과 없음 메시지도 가로 너비 맞춰서 포함
-            Container(
-              width: 640, // 전체 가로 폭만큼
-              padding: const EdgeInsets.all(20),
-              child: const Center(
-                child: Text("검색 결과가 없습니다.", style: TextStyle(color: Colors.grey, fontSize: 16)),
-              ),
-            ),
-        ],
+  const _TableHeader(this.label, {required this.flex});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      flex: flex,
+      child: Center(
+        child: Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
       ),
     );
   }
+}
 
+class _TableCell extends StatelessWidget {
+  final String text;
+  final int flex;
+  final bool isBold;
 
-  Widget _buildFixedWidthCell(String text, {double width = 100, bool isBold = false}) {
-    return SizedBox(
-      width: width,
+  const _TableCell(this.text, {required this.flex, this.isBold = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      flex: flex,
       child: Center(
         child: Text(
           text,
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 12,
             fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-            color: Colors.black87,
           ),
-          textAlign: TextAlign.center,
           overflow: TextOverflow.ellipsis,
         ),
       ),
     );
   }
+
 
   Widget _buildDataCell(String text, {int flex = 1, bool isBold = false}) {
     return Expanded(
@@ -236,77 +346,5 @@ class _ProductScreenState extends State<ProductScreen> {
     );
   }
 
-  List<Widget> _buildDataRows() {
-    return List.generate(_filteredProducts.length, (index) {
-      var product = _filteredProducts[index];
-      bool isFixedPrice = product['is_fixed_price'] == true; // ✅ 가격 유형 확인
-
-      return Container(
-        decoration: BoxDecoration(
-          color: index.isEven ? Colors.grey.shade100 : Colors.white,
-          border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 0.5)),
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            _buildDataCell(product['product_name'].toString(), flex: 150),
-            _buildDataCell(product['brand_id'].toString(), flex: 100),
-            _buildDataCell(formatter.format((product['default_price'] as num).toInt()), flex: 100),
-            _buildDataCellWithPopup(product['barcode'] ?? "-", flex: 200), // ✅ 바코드 칸 넓게 조정
-            _buildDataCell(product['category'] ?? "-", flex: 100),
-            _buildDataCell(isFixedPrice ? "고정가" : "일반가", flex: 100, isBold: true),
-          ],
-        ),
-      );
-    });
-  }
-
-  Widget _buildEmptyRow() {
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      child: const Text(
-        "검색 결과가 없습니다.",
-        style: TextStyle(fontSize: 16, color: Colors.grey),
-      ),
-    );
-  }
-
-
-  void _showPopup(String fullText) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text("상세 정보"),
-          content: Text(fullText),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("닫기"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildDataCellWithPopup(String text, {int flex = 1}) {
-    bool isOverflowing = text.length > 10;
-
-    return Expanded(
-      flex: flex,
-      child: GestureDetector(
-        onTap: isOverflowing ? () => _showPopup(text) : null,
-        child: Center(
-          child: Text(
-            isOverflowing ? "${text.substring(0, 10)}..." : text,
-            style: const TextStyle(fontSize: 12, color: Colors.black87),
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ),
-    );
-  }
 
 }
