@@ -21,9 +21,7 @@ import 'dart:io';
 import '../screens/settings_screen.dart';
 import '../screens/printer.dart';
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////
-// 🔴🔴🔴 여기를 Open-Meteo로 교체합니다. 나머지 부분은 절대 삭제하거나 생략하지 않고 그대로 유지합니다. 🔴🔴🔴
-////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 class WeatherService {
   // ▷ 서울 기준 위도/경도
   static const double _lat = 37.5665;
@@ -43,7 +41,7 @@ class WeatherService {
     final url = "https://api.open-meteo.com/v1/forecast"
         "?latitude=$_lat&longitude=$_lon"
         "&start_date=$nowStr&end_date=$endStr"
-        "&daily=temperature_2m_min,temperature_2m_max,weathercode"
+        "&daily=temperature_2m_min,temperature_2m_max,weathercode,relative_humidity_2m_mean" // ✅ 습도 추가
         "&timezone=Asia%2FSeoul";
 
     try {
@@ -56,13 +54,14 @@ class WeatherService {
         final minTemps = (daily["temperature_2m_min"] as List?)?.cast<num>() ?? [];
         final maxTemps = (daily["temperature_2m_max"] as List?)?.cast<num>() ?? [];
         final codes = (daily["weathercode"] as List?)?.cast<int>() ?? [];
+        final humidities = (daily["relative_humidity_2m_mean"] as List?)?.cast<num>() ?? [];
 
         List<Map<String, dynamic>> result = [];
         for (int i = 0; i < dates.length; i++) {
           // 날짜 YYYY-MM-DD 중 day만 뽑아서 기존 코드와 맞춤
           final dt = DateTime.parse(dates[i]);
           final dayString = dt.day.toString();
-
+          final humidity = i < humidities.length ? humidities[i].toInt() : 0;
           // 최저/최고
           final tempMin = i < minTemps.length ? minTemps[i].toDouble() : 0.0;
           final tempMax = i < maxTemps.length ? maxTemps[i].toDouble() : 0.0;
@@ -79,6 +78,7 @@ class WeatherService {
             "max_temp": tempMax,
             "sky": sky,
             "rain": rain,
+            "humidity": humidity,// ✅ 습도 추가
           });
         }
 
@@ -245,51 +245,83 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        // 🔹 기존 Column 대신 Row를 사용해 "업데이트" + "버전" + "직원 정보"를 가로로 배치
+        backgroundColor: Colors.indigo,
+        elevation: 4,
+        toolbarHeight: 60,
+        automaticallyImplyLeading: false, // ← 아이콘 없애기
         title: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // 원래 있던 "업데이트" 및 버전 표시 부분
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GestureDetector(
-                  onTap: _launchStore,
-                  child: const Text(
-                    "업데이트",
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.blue,
+            // 🔹 왼쪽: 업데이트 + 버전
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: _launchStore,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.yellow.shade700,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        "업데이트",
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                Text(
-                  widget.appVersion,  // ✅ 앱 버전
-                  style: const TextStyle(fontSize: 14, color: Colors.black),
-                ),
-              ],
-            ),
-            const SizedBox(width: 16), // 간격
-
-            // 🔹 (추가) 현재 로그인한 직원의 ID/이름/전화번호 표시
-            if (user != null)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("ID: ${user.id}", style: const TextStyle(fontSize: 10, color: Colors.black)),
-                  Text("이름: ${user.name}", style: const TextStyle(fontSize: 10, color: Colors.black)),
-                  Text("전화: ${user.phone ?? '정보없음'}", style: const TextStyle(fontSize: 10, color: Colors.black)),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.appVersion,
+                    style: const TextStyle(fontSize: 12,fontWeight: FontWeight.bold, color: Colors.white70),
+                  ),
                 ],
+              ),
+            ),
+
+            // 🔹 오른쪽: 직원 정보 (정중앙 정렬)
+            if (user != null)
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.person, size: 16, color: Colors.white70),
+                        const SizedBox(width: 4),
+                        Text(" ${user.name}", style: const TextStyle(fontSize: 14,fontWeight: FontWeight.bold, color: Colors.white)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.phone_android, size: 15, color: Colors.white70),
+                        const SizedBox(width: 4),
+                        Text(user.phone ?? '정보없음', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white70)),
+                      ],
+                    ),
+                  ],
+                ),
               ),
           ],
         ),
+
         actions: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            padding: const EdgeInsets.only(right: 12),
             child: _isLoading
                 ? const SizedBox(
-              width: 24,
-              height: 24,
+              width: 26,
+              height: 26,
               child: CircularProgressIndicator(
                 strokeWidth: 3,
                 color: Colors.white,
@@ -297,22 +329,19 @@ class _HomeScreenState extends State<HomeScreen> {
             )
                 : ElevatedButton.icon(
               onPressed: _updateItemList,
-              icon: const Icon(Icons.refresh, size: 20, color: Colors.white),
-              label: const Text(
-                "상품수신",
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
-              ),
+              icon: const Icon(Icons.refresh, size: 18, color: Colors.white),
+              label: const Text("상품수신",
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.deepPurple,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               ),
             ),
           ),
         ],
       ),
+
 
       body: Column(
         children: [
@@ -455,82 +484,71 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildWeatherInfo() {
     if (_weatherData.isEmpty) {
-      return const Center(child: Text("❌ 날씨 정보를 가져오지 못했습니다."));
+      return const Padding(
+        padding: EdgeInsets.all(12.0),
+        child: Center(child: Text("❌ 날씨 정보를 불러올 수 없습니다.")),
+      );
     }
 
-    return Padding(
-      padding: const EdgeInsets.all(12.0),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            "📊 성심유통 일기예보",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12.0),
+            child: Text(
+              "📊 성심유통 날씨예보",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
           ),
-          const SizedBox(height: 12),
 
-          // 🔹 날짜 표시
+          // ✅ 한 줄에 전부 보이도록 Wrap 사용
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: _weatherData.map((day) {
               return Expanded(
-                child: Center(
-                  child: Text(
-                    "${day["date"]}일",
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center, // ✅ 가운데 정렬 추가
+                  children: [
+                    Text("${day["date"]}일",
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        )),
+                    const SizedBox(height: 4),
+                    Text(
+                      _getWeatherIcon(day["sky"]),
+                      style: const TextStyle(fontSize: 24),
                     ),
-                  ),
+                    const SizedBox(height: 4),
+                    Text(
+                      " ${day["min_temp"]}°   ${day["max_temp"]}°",
+                      style: const TextStyle(fontSize: 13),
+                      textAlign: TextAlign.center, // ✅ 혹시 몰라서 이거도 넣어줘
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "습도 ${day["humidity"]}%",
+                      style: const TextStyle(fontSize: 13, color: Colors.black87),
+                    ),
+                  ],
                 ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 8),
 
-          // 🔹 기온 (최저/최고) 표시
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: _weatherData.map((day) {
-              return Expanded(
-                child: Center(
-                  child: Text(
-                    "${day["min_temp"]}°C / ${day["max_temp"]}°C",
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 8),
-
-          // 🔹 날씨 아이콘 표시
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: _weatherData.map((day) {
-              return Expanded(
-                child: Center(
-                  child: Text(
-                    _getWeatherIcon(day["sky"]),
-                    style: const TextStyle(fontSize: 20),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 8),
-
-          // 🔹 강수 아이콘 표시
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: _weatherData.map((day) {
-              return Expanded(
-                child: Center(
-                  child: Text(
-                    _getRainIcon(day["rain"]),
-                    style: const TextStyle(fontSize: 20),
-                  ),
-                ),
               );
             }).toList(),
           ),
@@ -538,6 +556,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+
 
   void _handleNavigation(user, VoidCallback onSuccess) {
     if (user == null) {
@@ -630,7 +650,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   flex: 2,
                   child: Text(
-                    "기여도(%)",
+                    "매출 비율(%)",
                     style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                     textAlign: TextAlign.right,
                   ),
@@ -647,55 +667,64 @@ class _HomeScreenState extends State<HomeScreen> {
               child: SingleChildScrollView(
                 scrollDirection: Axis.vertical,
                 child: Column(
-                  children: _salesData.take(4).map((data) {
-                    double totalSales = (data["total_sales"] as num).toDouble();
-                    double contribution =
-                    (_totalMonthlySales > 0) ? (totalSales / _totalMonthlySales) * 100 : 0;
+                  children: (() {
+                    // ✅ 1) 매출 기준 내림차순 정렬
+                    List<Map<String, dynamic>> sorted = [..._salesData];
+                    sorted.sort((a, b) => (b["total_sales"] as num).compareTo(a["total_sales"] as num));
 
-                    print("📊 직원: ${data["employee_name"]}, 매출: $totalSales, 기여도: ${contribution.toStringAsFixed(1)}%");
+                    // ✅ 2) 전체 출력 (take 제거)
+                    return sorted.map((data) {
+                      double totalSales = (data["total_sales"] as num).toDouble();
+                      double contribution = (_totalMonthlySales > 0)
+                          ? (totalSales / _totalMonthlySales) * 100
+                          : 0;
 
-                    return Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
-                      decoration: BoxDecoration(
-                        border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: Text(
-                              data["employee_name"] ?? "이름 없음",
-                              style: const TextStyle(fontSize: 16),
-                            ),
-                          ),
-                          Expanded(
-                            flex: 3,
-                            child: Text(
-                              "${NumberFormat("#,###").format(totalSales)} 원",
-                              style: const TextStyle(fontSize: 16),
-                              textAlign: TextAlign.right,
-                            ),
-                          ),
-                          Expanded(
-                            flex: 2,
-                            child: Text(
-                              "${contribution.toStringAsFixed(1)}%",
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: totalSales >= 0 ? Colors.green : Colors.red,
+                      print("📊 직원: ${data["employee_name"]}, 매출: $totalSales, 매출비율: ${contribution.toStringAsFixed(1)}%");
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+                        decoration: BoxDecoration(
+                          border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: Text(
+                                data["employee_name"] ?? "이름 없음",
+                                style: const TextStyle(fontSize: 16),
                               ),
-                              textAlign: TextAlign.right,
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
+                            Expanded(
+                              flex: 3,
+                              child: Text(
+                                "${NumberFormat("#,###").format(totalSales)} 원",
+                                style: const TextStyle(fontSize: 16),
+                                textAlign: TextAlign.right,
+                              ),
+                            ),
+                            Expanded(
+                              flex: 2,
+                              child: Text(
+                                "${contribution.toStringAsFixed(1)}%",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: totalSales >= 0 ? Colors.green : Colors.red,
+                                ),
+                                textAlign: TextAlign.right,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList();
+                  })(),
                 ),
               ),
             ),
           ),
+
         ],
       ),
     );

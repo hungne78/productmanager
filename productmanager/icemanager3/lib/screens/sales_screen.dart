@@ -16,7 +16,8 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart' as BLE;// BLE 모드
 import 'package:shared_preferences/shared_preferences.dart'; // 설정 저장
 import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:async'; // ✅ 비동기 Stream 관련 클래스 포함
-
+import 'package:permission_handler/permission_handler.dart';
+import '../screens/home_screen.dart';
 
 AndroidDeviceInfo? androidInfo;
 
@@ -36,7 +37,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   late TextEditingController paymentController;
   late FocusNode paymentFocusNode;
 
-
+  bool _isClientInfoExpanded = false;
 
   bool _isBluetoothConnected = false;
   String? _connectedDeviceName;
@@ -73,6 +74,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     // _tryAutoReconnect();
     _loadScannerMode();
     _loadDeviceInfo();
+    _checkBluetoothPermissions(); // ✅ 필수
     // _initializeSPP(); // SPP 모드 초기화
     // _initializeBLE(); // BLE 모드 초기화
 
@@ -148,6 +150,16 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       });
     }
   }
+  Future<void> _checkBluetoothPermissions() async {
+    if (await Permission.bluetoothScan.request().isGranted &&
+        await Permission.bluetoothConnect.request().isGranted &&
+        await Permission.location.request().isGranted) {
+      print("✅ 블루투스 권한 허용됨");
+    } else {
+      Fluttertoast.showToast(msg: "⚠️ 블루투스 권한이 필요합니다.");
+    }
+  }
+
   Future<void> _tryReconnectToLastDeviceOnEntry() async {
     if (_isConnecting || (_bluetoothConnection?.isConnected ?? false)) {
       print("⏸ 이미 연결 중이거나 연결됨 → 재연결 생략");
@@ -487,31 +499,46 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     return sum;
   }
   Widget _buildClientInfoTable() {
-    return Container(
-      padding: const EdgeInsets.all(8.0),
-      decoration: BoxDecoration(
-        color: Colors.white10,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.indigo),
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _isClientInfoExpanded = !_isClientInfoExpanded;
+        });
+      },
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 250),
+        padding: const EdgeInsets.all(8.0),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100, // 연한 배경색
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.indigo),
+        ),
+        child: Table(
+          border: TableBorder.all(color: Colors.blueGrey.shade100),
+          columnWidths: const {
+            0: FractionColumnWidth(0.25),
+            1: FractionColumnWidth(0.25),
+            2: FractionColumnWidth(0.25),
+            3: FractionColumnWidth(0.25),
+          },
+          children: [
+            _buildTableRow("거래처명", widget.client['client_name'], "미수금",
+                widget.client['outstanding_amount'].round()?.toString() ?? "0"),
+            if (_isClientInfoExpanded)
+              _buildTableRow("주소", widget.client['address'] ?? "정보 없음",
+                  "전화번호", widget.client['phone'] ?? "정보 없음"),
+            if (_isClientInfoExpanded)
+              _buildTableRow("사업자 번호", widget.client['business_number'] ?? "정보 없음",
+                  "이메일", widget.client['email'] ?? "정보 없음"),
+            if (_isClientInfoExpanded)
+              _buildTableRow("일반가", widget.client['regular_price'].round()?.toString() ?? "정보 없음",
+                  "고정가", widget.client['fixed_price'].round()?.toString() ?? "정보 없음"),
+          ],
+        ),
       ),
-      child: Table(
-        border: TableBorder.all(color: Colors.blueGrey),
-        columnWidths: const {
-          0: FractionColumnWidth(0.25),
-          1: FractionColumnWidth(0.25),
-          2: FractionColumnWidth(0.25),
-          3: FractionColumnWidth(0.25),
-        },
-        children: [
-          _buildTableRow("거래처명", widget.client['client_name'], "미수금", widget.client['outstanding_amount'].round()?.toString() ?? "0"),
-          _buildTableRow("주소", widget.client['address'] ?? "정보 없음", "전화번호", widget.client['phone'] ?? "정보 없음"),
-          _buildTableRow("사업자 번호", widget.client['business_number'] ?? "정보 없음", "이메일", widget.client['email'] ?? "정보 없음"),
-          _buildTableRow("일반가", widget.client['regular_price'].round()?.toString() ?? "정보 없음", "고정가", widget.client['fixed_price'].round()?.toString() ?? "정보 없음"),
-        ],
-      ),
-
     );
   }
+
 
 
   TableRow _buildTableRow(String title1, String value1, String title2, String value2) {
@@ -523,23 +550,23 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     ]);
   }
 
-  Widget _buildTableCell(String text, {bool isHeader = false, double fontSize = 12}) {
-    bool isOverflowing = text.length > 15; // 15자 이상이면 생략 처리
-    return GestureDetector(
-      onTap: isOverflowing ? () => _showPopup(text) : null,
-      child: Padding(
-        padding: const EdgeInsets.all(6.0),
-        child: Text(
-          isOverflowing ? text.substring(0, 15) + "..." : text, // 15자 초과 시 생략
-          style: TextStyle(
-            fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
-            fontSize: fontSize, // ✅ 폰트 크기 조정
-          ),
-          overflow: TextOverflow.ellipsis, // ✅ 너무 길면 '...' 처리
+  Widget _buildTableCell(String text, {bool isHeader = false}) {
+    return Container(
+      color: isHeader ? Colors.blueGrey.shade50 : null, // 제목 칸 연한 배경
+      padding: const EdgeInsets.all(6.0),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontWeight: isHeader ? FontWeight.bold : FontWeight.normal,
+          fontSize: 12,
         ),
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }
+
+
+
 
 
 
@@ -566,161 +593,219 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     final authProvider = context.watch<AuthProvider>(); // 인증 상태 가져오기
 
     if (authProvider.user == null) {
-      // ❌ 유저 정보가 없으면 로그인 화면으로 리디렉트 방지
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pushReplacementNamed(context, '/login'); // 로그인 화면으로 이동
+        Navigator.pushReplacementNamed(context, '/login');
       });
     }
+
     return Scaffold(
+      // ✅ AppBar 완전 투명 + 상태바 유지
       appBar: AppBar(
-        title: Row(
-          children: [
-            Icon(
-              _isBluetoothConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-              color: _isBluetoothConnected ? Colors.lightBlueAccent : Colors.redAccent,
-              size: 20,
-            ),
-            SizedBox(width: 8),
-            Text(
-              _isBluetoothConnected
-                  ? (_connectedDeviceName ?? "연결됨")
-                  : "미연결",
-              style: TextStyle(fontSize: 14),
-            ),
-            SizedBox(width: 12),
-            Text("판매 화면"),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.bluetooth),
-            onPressed: _showBluetoothDialog,
-          )
-        ],
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        toolbarHeight: 0,
       ),
 
-      body: RawKeyboardListener(
-        focusNode: _keyboardFocusNode,
-        autofocus: true,
-        onKey: (RawKeyEvent event) {
-          if (event is RawKeyDownEvent) {
-            // print("🔵 HID 스캐너 키 입력 감지: ${event.logicalKey} / ${event.character}");
+      body: Column(
+        children: [
+          _buildCustomAppBar(context), // ✅ 판매 화면 헤더 (배경색 유지)
+          Expanded(
+            child: RawKeyboardListener(
+              focusNode: _keyboardFocusNode,
+              autofocus: true,
+              onKey: (RawKeyEvent event) {
+                if (event is RawKeyDownEvent) {
+                  if (event.logicalKey == LogicalKeyboardKey.power ||
+                      event.logicalKey == LogicalKeyboardKey.select) {
+                    print("⚠️ HID 스캐너 신호 감지됨 → 무시");
+                    return;
+                  }
 
-            // ✅ HID 스캐너가 다시 켜질 때 발생하는 특정 키 신호 무시
-            if (event.logicalKey == LogicalKeyboardKey.power || event.logicalKey == LogicalKeyboardKey.select) {
-              print("⚠️ HID 스캐너 신호 감지됨 → 무시");
-              return;
-            }
+                  if (event.logicalKey == LogicalKeyboardKey.enter) {
+                    if (_barcodeBuffer.isNotEmpty) {
+                      print("✅ 바코드 입력 완료: '$_barcodeBuffer'");
+                      _handleBarcode(_barcodeBuffer.trim());
+                      _barcodeBuffer = '';
+                    }
+                  } else if (event.character != null && event.character!.isNotEmpty) {
+                    _barcodeBuffer += event.character!;
+                  }
+                }
+              },
 
-            if (event.logicalKey == LogicalKeyboardKey.enter) {
-              if (_barcodeBuffer.isNotEmpty) {
-                print("✅ 바코드 입력 완료: '$_barcodeBuffer'");
-                _handleBarcode(_barcodeBuffer.trim());
-                _barcodeBuffer = ''; // 버퍼 초기화
-              }
-            } else if (event.character != null && event.character!.isNotEmpty) {
-              _barcodeBuffer += event.character!;
-            }
-          }
-        },
-        // --------------------------------------------------
-        // 4) 기존 화면 UI는 child로 둠
-        // --------------------------------------------------
-        child: Column(
-          children: [
-            // ✅ 거래처 정보 테이블
-            _buildClientInfoTable(),
+              // ✅ 롱프레스 초기화 기능 추가
+              child: GestureDetector(
+                onLongPress: _showClearConfirm,
+                child: Column(
+                  children: [
+                    _buildClientInfoTable(), // 거래처 정보
+                    Expanded(child: _buildScannedItemsTable()), // 스캔된 상품 목록
+                    _buildSummaryRow(), // 합계
 
-            // ✅ 스캔된 상품 목록
-            Expanded(
-              child: _buildScannedItemsTable(),
-            ),
-
-            // ✅ 하단 합계
-            _buildSummaryRow(),
-
-            // ✅ 버튼들
-            Container(
-              padding: EdgeInsets.symmetric(vertical: 2),
-              child: Wrap(
-                spacing: 8, // 버튼 간 가로 간격
-                runSpacing: 8, // 버튼 간 세로 간격
-                alignment: WrapAlignment.center, // 중앙 정렬
-                children: [
-                  // 첫 번째 줄: 판매, 반품, 카메라 스캔, 초기화
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _isReturnMode = false; // ✅ 판매 모드
-                      });
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _isReturnMode ? Colors.grey : Colors.blue,
-                      minimumSize: Size(90, 40), // 버튼 크기 조정
+                    // ✅ 버튼 스타일 개선
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildModernButton("판매", Icons.shopping_cart, _isReturnMode ? Colors.grey.shade300 : Colors.blue, () {
+                            setState(() => _isReturnMode = false);
+                          }),
+                          _buildModernButton("반품", Icons.replay, _isReturnMode ? Colors.red : Colors.grey.shade400, () {
+                            setState(() => _isReturnMode = true);
+                          }),
+                          _buildModernButton("스캔", Icons.camera_alt, Colors.teal, _scanBarcodeCamera),
+                          _buildModernButton("인쇄", Icons.print, Colors.indigo, _showPaymentDialog),
+                        ],
+                      ),
                     ),
-                    icon: Icon(Icons.shopping_cart, size: 20, color: Colors.white), // 🛒 판매 아이콘 추가
-                    label: Text("판매"),
-                  ),
-
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _isReturnMode = true; // ✅ 반품 모드
-                      });
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _isReturnMode ? Colors.red : Colors.grey,
-                      minimumSize: Size(90, 40),
-                    ),
-                    icon: Icon(Icons.replay, size: 20, color: Colors.white), // 🔄 반품 아이콘 추가
-                    label: Text("반품"),
-                  ),
-
-                  ElevatedButton.icon(
-                    onPressed: _scanBarcodeCamera,
-                    icon: Icon(Icons.camera_alt, size: 20),
-                    label: Text("스캔", style: TextStyle(fontSize: 14)),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: Size(110, 40),
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: _clearAllItems,
-                    icon: Icon(Icons.clear, size: 18),
-                    label: Text("초기화", style: TextStyle(fontSize: 14)),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: Size(100, 40),
-                    ),
-                  ),
-
-                  // 두 번째 줄: 수정, 삭제, 등록, 설정
-                  ElevatedButton.icon(
-                    onPressed: selectedIndex == null ? null : () => _showEditQuantityDialog(selectedIndex!),
-                    icon: Icon(Icons.edit, size: 18),
-                    label: Text("수정", style: TextStyle(fontSize: 14)),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: Size(100, 40),
-                    ),
-                  ),
-
-                  ElevatedButton.icon(
-                    onPressed: () => _showPaymentDialog(),
-                    icon: Icon(Icons.save, size: 18),
-                    label: Text("인쇄", style: TextStyle(fontSize: 14)),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: Size(100, 40),
-                    ),
-                  ),
-
-                ],
+                  ],
+                ),
               ),
-
-            )
-          ],
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  /// 📌 헤더 스타일 조정
+  Widget _buildCustomAppBar(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.indigo, // ✅ 전체 배경색 적용
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 6,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // ✅ 왼쪽: 홈 버튼 추가 (HomeScreen으로 이동)
+          GestureDetector(
+            onTap: () {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => HomeScreen(token: widget.token), // 🔹 `token` 전달 추가
+                ),
+                    (route) => false, // 🔹 뒤로 가기 스택 삭제 (홈 화면이 최상위 화면이 됨)
+              );
+            },
+            child: Row(
+              children: [
+                Icon(Icons.home_rounded, color: Colors.white, size: 22),
+                SizedBox(width: 6),
+                Text(
+                  "홈",
+                  style: TextStyle(fontSize: 16, color: Colors.white),
+                ),
+              ],
+            ),
+          ),
+
+          // ✅ 중앙: "판매 화면"
+          Expanded(
+            child: Center(
+              child: Text(
+                "판매 화면",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+
+          // ✅ 오른쪽: 연결 상태 (클릭 가능)
+          GestureDetector(
+            onTap: _showBluetoothDialog,
+            child: Row(
+              children: [
+                Icon(
+                  _isBluetoothConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+                  color: _isBluetoothConnected ? Colors.lightGreenAccent : Colors.redAccent,
+                  size: 20,
+                ),
+                SizedBox(width: 4),
+                Text(
+                  _isBluetoothConnected ? "연결됨" : "미연결",
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white,
+                    decoration: TextDecoration.underline, // 👈 클릭 강조 느낌
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
+
+
+
+
+
+  Widget _buildModernButton(String label, IconData icon, Color color, VoidCallback onPressed) {
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+        elevation: 2, // ✅ 버튼 그림자 추가
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: Colors.white, size: 22),
+          SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  void _showClearConfirm() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("판매 목록 초기화"),
+        content: Text("판매 및 반품 목록을 정말로 초기화할까요?"),
+        actions: [
+          TextButton(
+            child: Text("취소"),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          ElevatedButton(
+            child: Text("초기화"),
+            onPressed: () {
+              Navigator.of(context).pop();
+              _clearAllItems();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+
   void _showBluetoothDialog() async {
     List<spp.BluetoothDevice> devices = await spp.FlutterBluetoothSerial.instance.getBondedDevices();
     showDialog(
@@ -1187,7 +1272,10 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
         int totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price']* 0.01).round();
 
         return GestureDetector(
-          onTap: () => _selectItem(index), // 클릭 시 해당 상품 선택
+          onTap: () {
+            _selectItem(index);
+            _showEditQuantityDialog(index);
+          },  // 클릭 시 해당 상품 선택
           child: Container(
             decoration: BoxDecoration(
               color: index == selectedIndex ? Colors.blue.shade100 : (index.isEven ? Colors.grey.shade100 : Colors.white), // 선택된 행 색상 변경
@@ -1306,20 +1394,33 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     int finalTotal = totalSalesAmount + totalReturnAmount;
     totalScannedItemsPrice = finalTotal.toDouble();
     return Container(
-      color: Colors.grey.shade300, // ✅ 배경색 추가 (고정 행 강조)
-      padding: EdgeInsets.symmetric(vertical: 10),
+      padding: EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+      margin: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFFEEEEEE), Color(0xFFD6D6D6)], // ✅ 세련된 연한 그라디언트 적용
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16), // ✅ 둥근 모서리
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 6,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _buildSummaryCell("수량 합계", formatter.format(totalBoxCount + totalReturnBoxCount)), // ✅ 천단위 콤마 적용
-          _buildSummaryCell("박스수 합계", formatter.format(totalItemCount )), // ✅ 천단위 콤마 적용
-          _buildSummaryCell("반품 합계", formatter.format(totalReturnedItemsPrice)), // ✅ 천단위 콤마 적용
-          _buildSummaryCell("총 금액", formatter.format(finalTotal) + " 원", isBold: true), // ✅ 천단위 콤마 적용 & 소수점 제거
+          _buildSummaryCell("📦 박스수", formatter.format(totalItemCount), textColor: Colors.blue.shade700),
+          _buildSummaryCell("🔄 반품", formatter.format(totalReturnedItemsPrice), isRed: true),
+          _buildSummaryCell("💰 총 금액", formatter.format(totalScannedItemsPrice) + " 원", isBold: true, textColor: Colors.green.shade800),
         ],
       ),
     );
   }
-
 
 
   // ✅ 바코드로 상품 찾기 함수 추가
@@ -1333,25 +1434,34 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
 
 
 
-// ✅ 합계 행 스타일을 적용하는 함수
-  Widget _buildSummaryCell(String label, String value, {bool isBold = false}) {
+  /// 📌 합계 데이터 셀 (아이콘 추가)
+  Widget _buildSummaryCell(String label, String value, {bool isBold = false, bool isRed = false, Color textColor = Colors.black}) {
     return Expanded(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
-            "$label: $value",
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade700, // ✅ 라벨 색상 고정 (연한 회색)
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            value,
             style: TextStyle(
               fontSize: 14,
               fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-              color: isBold ? Colors.black : Colors.black87,
+              color: isRed ? Colors.red : textColor, // ✅ 기본 색상 적용
             ),
-            textAlign: TextAlign.center,
           ),
         ],
       ),
     );
   }
+
 
   //거래처 정보 갱신
   void _fetchUpdatedClientInfo() async {

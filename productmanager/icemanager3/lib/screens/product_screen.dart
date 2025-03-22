@@ -67,14 +67,17 @@ class _ProductScreenState extends State<ProductScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("상품 조회"),
+        backgroundColor: Colors.indigo,
+        elevation: 2,
+        title: const Text("상품 조회", style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.camera_alt),
+            icon: const Icon(Icons.camera_alt, color: Colors.white),
             onPressed: _scanBarcode,
           ),
         ],
       ),
+
       body: Column(
         children: [
           Padding(
@@ -103,33 +106,103 @@ class _ProductScreenState extends State<ProductScreen> {
     );
   }
 
+
   Widget _buildProductTable() {
     return SingleChildScrollView(
-      scrollDirection: Axis.horizontal, // ✅ 가로 스크롤 추가
+      scrollDirection: Axis.horizontal,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ✅ 고정된 헤더
+          // ✅ 테이블 헤더
           Container(
-            height: 35,
-            color: Colors.black45,
-            child: _buildHeaderRow(),
-          ),
-
-          // ✅ 검색된 상품 목록
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.vertical,
-              child: Column(
-                children: _filteredProducts.isNotEmpty
-                    ? _buildDataRows()
-                    : [_buildEmptyRow()], // 검색 결과 없을 경우 빈 줄 추가
-              ),
+            color: Colors.indigo.shade700,
+            child: Row(
+              children: [
+                _buildHeaderCell("상품명", width: 140),
+                _buildHeaderCell("브랜드", width: 80),
+                _buildHeaderCell("가격", width: 80),
+                _buildHeaderCell("바코드", width: 160),
+                _buildHeaderCell("카테고리", width: 90),
+                _buildHeaderCell("가격 유형", width: 90),
+              ],
             ),
           ),
+
+          // ✅ 검색 결과 있을 때: 스크롤 가능한 행 목록
+          if (_filteredProducts.isNotEmpty)
+            SizedBox(
+              height: 400, // 필요 시 높이 제한 가능
+              child: ListView.builder(
+                itemCount: _filteredProducts.length,
+                itemBuilder: (context, index) {
+                  final product = _filteredProducts[index];
+                  final isFixedPrice = product['is_fixed_price'] == true;
+
+                  return Row(
+                    children: [
+                      _buildFixedWidthCell(product['product_name'] ?? "-", width: 140),
+                      _buildFixedWidthCell(product['brand_id']?.toString() ?? "-", width: 80),
+                      _buildFixedWidthCell(formatter.format((product['default_price'] ?? 0).toInt()), width: 80),
+                      _buildDataCellWithPopup(product['barcode'] ?? "-", flex: 160),
+                      _buildFixedWidthCell(product['category'] ?? "-", width: 90),
+                      _buildFixedWidthCell(isFixedPrice ? "고정가" : "일반가", width: 90, isBold: true),
+                    ],
+                  );
+                },
+              ),
+            )
+          else
+          // ✅ 검색 결과 없음 메시지도 가로 너비 맞춰서 포함
+            Container(
+              width: 640, // 전체 가로 폭만큼
+              padding: const EdgeInsets.all(20),
+              child: const Center(
+                child: Text("검색 결과가 없습니다.", style: TextStyle(color: Colors.grey, fontSize: 16)),
+              ),
+            ),
         ],
       ),
     );
   }
+
+
+  Widget _buildFixedWidthCell(String text, {double width = 100, bool isBold = false}) {
+    return SizedBox(
+      width: width,
+      child: Center(
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: Colors.black87,
+          ),
+          textAlign: TextAlign.center,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDataCell(String text, {int flex = 1, bool isBold = false}) {
+    return Expanded(
+      flex: flex,
+      child: Center(
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: Colors.black87,
+          ),
+          textAlign: TextAlign.center,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+
+
 
   Widget _buildHeaderRow() {
     return Row(
@@ -176,12 +249,12 @@ class _ProductScreenState extends State<ProductScreen> {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           children: [
-            _buildDataCell(product['product_name'].toString(), width: 150),
-            _buildDataCell(product['brand_id'].toString(), width: 100),
-            _buildDataCell(formatter.format((product['default_price'] as num).toInt()), width: 100),
-            _buildDataCellWithPopup(product['barcode'] ?? "-", width: 200), // ✅ 바코드 칸 넓게 조정
-            _buildDataCell(product['category'] ?? "-", width: 100),
-            _buildDataCell(isFixedPrice ? "고정가" : "일반가", width: 100, isBold: true),
+            _buildDataCell(product['product_name'].toString(), flex: 150),
+            _buildDataCell(product['brand_id'].toString(), flex: 100),
+            _buildDataCell(formatter.format((product['default_price'] as num).toInt()), flex: 100),
+            _buildDataCellWithPopup(product['barcode'] ?? "-", flex: 200), // ✅ 바코드 칸 넓게 조정
+            _buildDataCell(product['category'] ?? "-", flex: 100),
+            _buildDataCell(isFixedPrice ? "고정가" : "일반가", flex: 100, isBold: true),
           ],
         ),
       );
@@ -198,23 +271,7 @@ class _ProductScreenState extends State<ProductScreen> {
     );
   }
 
-  Widget _buildDataCell(String text, {double width = 100, bool isBold = false}) {
-    return SizedBox(
-      width: width,
-      child: Center(
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-            color: Colors.black87,
-          ),
-          textAlign: TextAlign.center,
-          overflow: TextOverflow.ellipsis, // ✅ 글자가 넘칠 경우 "..." 처리
-        ),
-      ),
-    );
-  }
+
   void _showPopup(String fullText) {
     showDialog(
       context: context,
@@ -233,11 +290,11 @@ class _ProductScreenState extends State<ProductScreen> {
     );
   }
 
-  Widget _buildDataCellWithPopup(String text, {double width = 100}) {
-    bool isOverflowing = text.length > 10; // ✅ 10자 이상이면 팝업 표시
+  Widget _buildDataCellWithPopup(String text, {int flex = 1}) {
+    bool isOverflowing = text.length > 10;
 
-    return SizedBox(
-      width: width,
+    return Expanded(
+      flex: flex,
       child: GestureDetector(
         onTap: isOverflowing ? () => _showPopup(text) : null,
         child: Center(
@@ -251,4 +308,5 @@ class _ProductScreenState extends State<ProductScreen> {
       ),
     );
   }
+
 }
