@@ -70,10 +70,13 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   int? selectedIndex; // ✅ 선택된 행의 인덱스 저장
   bool _isLoading = false;
   String? _error;
+
+
+  //프린터 관련
+  String _printerPaperSize = '80mm';
+  String _printerLanguage = 'non-korean';
+
   bool _isPrinterConnected = false; // 초기값
-
-
-
 
   @override
   void initState() {
@@ -85,7 +88,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     // _initializeSPP(); // SPP 모드 초기화
     // _initializeBLE(); // BLE 모드 초기화
     _checkPrinterConnection(); // 연결 여부 확인
-
+    _loadPrinterSettings(); // ✅ 프린터 설정값 로딩
     WidgetsBinding.instance.addObserver(this);
     print("✅ SalesScreen 실행됨");
     client = Map<String, dynamic>.from(widget.client); // client 초기화
@@ -158,6 +161,15 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       });
     }
   }
+
+  Future<void> _loadPrinterSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _printerPaperSize = prefs.getString('printer_paper_size') ?? '80mm';
+      _printerLanguage = prefs.getString('printer_language') ?? 'non-korean';
+    });
+  }
+
   Future<void> _checkPrinterConnection() async {
     final prefs = await SharedPreferences.getInstance();
     String? printerId = prefs.getString('last_printer_id');
@@ -759,13 +771,32 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       ),
     );
   }
-  Future<void> _printReceiptImage(Map<String, dynamic> companyInfo) async {
-    // 1️⃣ Flutter canvas로 영수증 이미지 그리기
+  img.Image threshold(img.Image src, {int threshold = 160}) {
+    final output = img.Image.from(src);
+    for (int y = 0; y < output.height; y++) {
+      for (int x = 0; x < output.width; x++) {
+        final pixel = output.getPixel(x, y);
+        final luma = img.getLuminance(pixel);
+        if (luma < threshold) {
+          output.setPixelRgba(x, y, 0, 0, 0, 255); // 검정
+        } else {
+          output.setPixelRgba(x, y, 255, 255, 255, 255); // 흰색
+        }
+      }
+    }
+    return output;
+  }
+
+
+  Future<void> _printReceiptImage(
+      Map<String, dynamic> companyInfo, {
+        required int todayPayment,
+      }) async {
     final recorder = ui.PictureRecorder();
     const double width = 576;
     final canvas = Canvas(recorder);
     final bgPaint = Paint()..color = Colors.white;
-    canvas.drawRect(Rect.fromLTWH(0, 0, width, 800), bgPaint);
+    canvas.drawRect(Rect.fromLTWH(0, 0, width, 1500), bgPaint);
 
     final textPainter = TextPainter(
       textDirection: widgets.TextDirection.ltr,
@@ -773,67 +804,123 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     );
 
     final now = DateFormat("yyyy-MM-dd HH:mm:ss").format(DateTime.now());
+
+    int totalBoxes = 0;
+    int totalAmount = 0;
+
     String text = '''
 [영수증]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 날짜: $now
-
-${companyInfo['company_name']} (${companyInfo['ceo_name']})
+${companyInfo['company_name']}  대표: ${companyInfo['ceo_name']}
 ${companyInfo['address']}
 Tel: ${companyInfo['phone']}
 사업자번호: ${companyInfo['business_number']}
-
+────────────────────────────
 거래처: ${widget.client['client_name']}
-미수금: ${formatter.format(widget.client['outstanding_amount'])} 원
 주소: ${widget.client['address']}
 사업자번호: ${widget.client['business_number']}
-
-----------------------------
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+상품명  박스수 단 가   유 형    합 계
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ''';
-
     for (var item in _scannedItems) {
-      int total = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01).round();
-      text += "${item['name']} x${item['box_count']}박스 - ${formatter.format(total)}원\n";
+      int boxes = item['box_count'];
+      int quantityPerBox = item['box_quantity'];
+      double basePrice = (item['default_price'] ?? 0).toDouble();
+      double clientRate = (item['client_price'] ?? 100).toDouble();
+      String priceType = item['price_type'] ?? '일반가';
+
+      int unitPrice = (basePrice * clientRate * 0.01 * quantityPerBox).round(); // ✅ 박스 수량 반영
+      int total = boxes * unitPrice;
+
+      totalBoxes += boxes;
+      totalAmount += total;
+
+      text +=
+          '${item['name'].padRight(4)}' +
+              '${boxes.toString().padLeft(4)}' +
+              '${unitPrice.toString().padLeft(7)}' +
+              '  ${priceType.padRight(0)}  ' +
+              '${formatter.format(total).padLeft(3)}원\n';
     }
+
 
     for (var item in _returnedItems) {
-      double total = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price']) * -0.01;
-      text += "[반품] ${item['name']} x${item['box_count']} - ${formatter.format(total.round())}원\n";
+      int boxes = item['box_count'];
+      double basePrice = (item['default_price'] ?? 0).toDouble();
+      double clientRate = (item['client_price'] ?? 100).toDouble();
+      String priceType = item['price_type'] ?? '일반가';
+
+      int unitPrice = (basePrice * clientRate * 0.01).round();
+      int total = (item['box_quantity'] * boxes * unitPrice * -1);
+
+      totalBoxes += boxes;
+      totalAmount += total;
+
+      text +=
+          '${item['name'].padRight(3)}' +
+              '${boxes.toString().padLeft(5)}' +
+              '${unitPrice.toString().padLeft(6)}' +
+              '  ${priceType.padRight(4)}  ' +
+              '${formatter.format(total).padLeft(9)}원\n';
     }
 
+
+
+// ✔ 총합 및 입금/미수금
+    final double rawOutstanding = widget.client['outstanding_amount']?.toDouble() ?? 0.0;
+    final double finalOutstanding = rawOutstanding - todayPayment;
+
     text += '''
-----------------------------
-담당자: ${context.read<AuthProvider>().user?.name ?? ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+박스수: ${totalBoxes.toString().padLeft(0)}     
+총금액: ${formatter.format(totalAmount).padLeft(0)} 원
+전잔액: ${formatter.format(widget.client['outstanding_amount']).padLeft(0)} 원
+입 금: ${formatter.format(todayPayment).padLeft(0)} 원
+미수금: ${formatter.format(finalOutstanding.round()).padLeft(0)} 원
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+담당자: ${context.read<AuthProvider>().user?.name ?? ''}   H.P: ${context.read<AuthProvider>().user?.phone ?? ''}
 입금계좌: ${companyInfo['bank_account']}
 ''';
 
     textPainter.text = TextSpan(
       text: text,
-      style: TextStyle(color: Colors.black, fontSize: 18),
+      style: TextStyle(
+        color: Colors.black,
+        fontSize: 28,
+        fontFamily: 'Courier', // 고정폭 글꼴로 정렬 개선
+      ),
     );
 
     textPainter.layout(maxWidth: width - 20);
-    textPainter.paint(canvas, Offset(10, 10));
+    textPainter.paint(canvas, const Offset(10, 10));
 
     final picture = recorder.endRecording();
-    final ui.Image image = await picture.toImage(width.toInt(), 800);
+    final lineCount = '\n'.allMatches(text).length + 5;
+    final height = (lineCount * 34).clamp(600, 1800).toDouble();
+    final image = await picture.toImage(width.toInt(), height.toInt());
+
+
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     final pngBytes = byteData!.buffer.asUint8List();
 
-    // 2️⃣ PNG를 ESC/POS용 image로 변환
     final decodedImage = img.decodeImage(pngBytes);
     if (decodedImage == null) {
       Fluttertoast.showToast(msg: "❌ 이미지 디코딩 실패");
       return;
     }
 
+    final gray = img.grayscale(decodedImage);
+    final bwImage = threshold(gray, threshold: 160);
+
     final profile = await CapabilityProfile.load();
     final generator = Generator(PaperSize.mm80, profile);
     final ticket = <int>[];
-    ticket.addAll(generator.image(decodedImage));
+    ticket.addAll(generator.image(bwImage));
     ticket.addAll(generator.feed(2));
     ticket.addAll(generator.cut());
 
-    // 3️⃣ BLE 프린터로 전송
     final writeChar = await _getConnectedPrinterWriteCharacteristic();
     if (writeChar == null) {
       Fluttertoast.showToast(msg: "⚠️ 프린터 연결 안 됨");
@@ -842,80 +929,15 @@ Tel: ${companyInfo['phone']}
 
     const chunkSize = 200;
     for (int i = 0; i < ticket.length; i += chunkSize) {
-      int end = (i + chunkSize < ticket.length) ? i + chunkSize : ticket.length;
+      final end = (i + chunkSize < ticket.length) ? i + chunkSize : ticket.length;
       await writeChar.write(
         ticket.sublist(i, end),
-        withoutResponse: false, // ✅ 꼭 false로
+        withoutResponse: false,
       );
-      await Future.delayed(Duration(milliseconds: 10));
+      await Future.delayed(const Duration(milliseconds: 10));
     }
-
 
     Fluttertoast.showToast(msg: "✅ 한글 영수증 인쇄 완료");
-  }
-
-  void _printReceipt(Map<String, dynamic> companyInfo) async {
-    final now = DateFormat("yyyy-MM-dd HH:mm:ss").format(DateTime.now());
-
-    StringBuffer buffer = StringBuffer();
-
-    buffer.writeln("=== 영수증 ===");
-    buffer.writeln("날짜: $now");
-    buffer.writeln("--------------------------");
-    buffer.writeln("${companyInfo['company_name']} (${companyInfo['ceo_name']})");
-    buffer.writeln("${companyInfo['address']}");
-    buffer.writeln("Tel: ${companyInfo['phone']}");
-    buffer.writeln("사업자번호: ${companyInfo['business_number']}");
-    buffer.writeln("");
-    buffer.writeln("거래처: ${widget.client['client_name']}");
-    buffer.writeln("미수금: ${formatter.format(widget.client['outstanding_amount'].round())} 원");
-    buffer.writeln("주소: ${widget.client['address'] ?? '정보 없음'}");
-    buffer.writeln("사업자번호: ${widget.client['business_number'] ?? '정보 없음'}");
-    buffer.writeln("--------------------------");
-
-    for (var item in _scannedItems) {
-      int totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01).round();
-      buffer.writeln(
-        "${item['name']} x${item['box_count']}박스 | ${formatter.format(totalPrice)}원",
-      );
-    }
-
-    for (var item in _returnedItems) {
-      double totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price']) * -0.01;
-      buffer.writeln(
-        "[반품] ${item['name']} x${item['box_count']} | ${formatter.format(totalPrice.round())}원",
-      );
-    }
-
-    buffer.writeln("--------------------------");
-    final auth = context.read<AuthProvider>();
-    buffer.writeln("담당자: ${auth.user?.name ?? '알 수 없음'} / ${auth.user?.phone ?? ''}");
-    buffer.writeln("입금 계좌: ${companyInfo['bank_account']}");
-    buffer.writeln("==========================");
-
-    // TODO: 프린터에 연결되어 있다면 실제 전송하기
-    print(buffer.toString()); // 개발 중엔 출력 확인용
-    // 👉 실제 BLE 프린터로 전송
-    try {
-      final writeChar = await _getConnectedPrinterWriteCharacteristic();
-      if (writeChar == null) {
-        Fluttertoast.showToast(msg: "프린터 연결 안 됨");
-        return;
-      }
-
-      List<int> bytes = utf8.encode(buffer.toString());
-      int chunkSize = 180; // BLE 최대 전송 크기
-      for (int i = 0; i < bytes.length; i += chunkSize) {
-        int end = (i + chunkSize < bytes.length) ? i + chunkSize : bytes.length;
-        await writeChar.write(bytes.sublist(i, end));
-        await Future.delayed(Duration(milliseconds: 50));
-      }
-
-      Fluttertoast.showToast(msg: "✅ 인쇄 완료");
-
-    } catch (e) {
-      Fluttertoast.showToast(msg: "❌ 인쇄 실패: $e");
-    }
   }
 
   Future<void> _sendSms(String phoneNumber) async {
@@ -1325,19 +1347,12 @@ Tel: ${companyInfo['phone']}
   }
 
   Future<Map<String, dynamic>?> _fetchCompanyInfo() async {
-    try {
-      final response = await ApiService.fetchCompanyInfo(widget.token);
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else {
-        Fluttertoast.showToast(msg: "회사 정보를 불러올 수 없습니다.");
-      }
-    } catch (e) {
-      Fluttertoast.showToast(msg: "회사 정보 오류: $e");
+    final data = await ApiService.fetchCompanyInfo(widget.token);
+    if (data == null) {
+      Fluttertoast.showToast(msg: "회사 정보를 불러올 수 없습니다.");
     }
-    return null;
+    return data;
   }
-
 
 
 
@@ -1416,7 +1431,24 @@ Tel: ${companyInfo['phone']}
         );
         final companyInfo = await _fetchCompanyInfo(); // ✅ 회사 정보 가져오기
         if (companyInfo != null) {
-          _printReceiptImage(companyInfo); // ✅ 인쇄 실행
+          if (_printerLanguage == 'non-korean') {
+            if (_printerPaperSize == '55mm') {
+              await _printReceiptImage55mm(companyInfo);
+            } else {
+              final int safePaymentAmount = paymentAmount.toInt(); // double → int
+
+              await _printReceiptImage(
+                companyInfo,
+                todayPayment: safePaymentAmount,
+              );
+            }
+          } else {
+            if (_printerPaperSize == '55mm') {
+              _printKoreanText_55mm(companyInfo); //  55mm 한글지원
+            } else {
+              _printKoreanText_80mm(companyInfo); //  80mm 한글지원
+            }
+          }
         }
         setState(() {
           _scannedItems = List.from([]); // ✅ 스캔한 상품 목록 초기화
@@ -1431,6 +1463,153 @@ Tel: ${companyInfo['phone']}
         SnackBar(content: Text("입금 처리 중 오류 발생: $e")),
       );
     }
+  }
+
+  Future<void> _printReceiptImage55mm(Map<String, dynamic> companyInfo) async {
+    // 1️⃣ canvas 크기 조정 (55mm 용지 폭 기준)
+    final recorder = ui.PictureRecorder();
+    const double width = 384; // 보통 55mm 프린터는 약 384px
+    final canvas = Canvas(recorder);
+    final bgPaint = Paint()..color = Colors.white;
+    canvas.drawRect(Rect.fromLTWH(0, 0, width, 800), bgPaint);
+
+    final textPainter = TextPainter(
+      textDirection: widgets.TextDirection.ltr,
+      maxLines: null,
+    );
+
+    final now = DateFormat("yyyy-MM-dd HH:mm:ss").format(DateTime.now());
+
+    String text = '''
+[영수증]
+날짜: $now
+
+${companyInfo['company_name']}
+${companyInfo['address']}
+Tel: ${companyInfo['phone']}
+사업자: ${companyInfo['business_number']}
+
+거래처: ${widget.client['client_name']}
+미수금: ${formatter.format(widget.client['outstanding_amount'])} 원
+
+----------------------
+''';
+
+    for (var item in _scannedItems) {
+      int total = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01).round();
+      text += "${item['name']} x${item['box_count']} - ${formatter.format(total)}원\n";
+    }
+
+    for (var item in _returnedItems) {
+      double total = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price']) * -0.01;
+      text += "[반품] ${item['name']} x${item['box_count']} - ${formatter.format(total.round())}원\n";
+    }
+
+    text += '''
+----------------------
+입금계좌: ${companyInfo['bank_account']}
+''';
+
+    textPainter.text = TextSpan(
+      text: text,
+      style: TextStyle(color: Colors.black, fontSize: 16),
+    );
+
+    textPainter.layout(maxWidth: width - 20);
+    textPainter.paint(canvas, Offset(10, 10));
+
+    final picture = recorder.endRecording();
+    final ui.Image image = await picture.toImage(width.toInt(), 800);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    final pngBytes = byteData!.buffer.asUint8List();
+
+    final decodedImage = img.decodeImage(pngBytes);
+    if (decodedImage == null) {
+      Fluttertoast.showToast(msg: "❌ 이미지 디코딩 실패");
+      return;
+    }
+
+    final profile = await CapabilityProfile.load();
+    final generator = Generator(PaperSize.mm58, profile); // ✅ 58mm → 55mm 대체
+    final ticket = <int>[];
+    ticket.addAll(generator.image(decodedImage));
+    ticket.addAll(generator.feed(2));
+    ticket.addAll(generator.cut());
+
+    final writeChar = await _getConnectedPrinterWriteCharacteristic();
+    if (writeChar == null) {
+      Fluttertoast.showToast(msg: "⚠️ 프린터 연결 안 됨");
+      return;
+    }
+
+    const chunkSize = 200;
+    for (int i = 0; i < ticket.length; i += chunkSize) {
+      int end = (i + chunkSize < ticket.length) ? i + chunkSize : ticket.length;
+      await writeChar.write(ticket.sublist(i, end), withoutResponse: false);
+      await Future.delayed(Duration(milliseconds: 10));
+    }
+
+    Fluttertoast.showToast(msg: "✅ 55mm 한글미지원 인쇄 완료");
+  }
+
+
+  void _printKoreanText_80mm(Map<String, dynamic> companyInfo) async {
+    final buffer = StringBuffer();
+    final now = DateFormat("yyyy-MM-dd HH:mm:ss").format(DateTime.now());
+
+    buffer.writeln("영수증 (80mm)");
+    buffer.writeln("일시: $now");
+    buffer.writeln("회사: ${companyInfo['company_name']}");
+    buffer.writeln("주소: ${companyInfo['address']}");
+    buffer.writeln("거래처: ${widget.client['client_name']}");
+    buffer.writeln("------------------------------");
+
+    for (var item in _scannedItems) {
+      int total = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01).round();
+      buffer.writeln("${item['name']} x${item['box_count']} = ${formatter.format(total)}원");
+    }
+
+    buffer.writeln("------------------------------");
+    buffer.writeln("총 금액: ${formatter.format(totalScannedItemsPrice)}원");
+
+    final writeChar = await _getConnectedPrinterWriteCharacteristic();
+    if (writeChar == null) return;
+
+    List<int> bytes = utf8.encode(buffer.toString());
+    for (int i = 0; i < bytes.length; i += 180) {
+      int end = (i + 180 < bytes.length) ? i + 180 : bytes.length;
+      await writeChar.write(bytes.sublist(i, end));
+      await Future.delayed(Duration(milliseconds: 50));
+    }
+
+    Fluttertoast.showToast(msg: "✅ 80mm 한글 인쇄 완료");
+  }
+  void _printKoreanText_55mm(Map<String, dynamic> companyInfo) async {
+    final buffer = StringBuffer();
+    final now = DateFormat("MM/dd HH:mm").format(DateTime.now());
+
+    buffer.writeln("▶ 55mm 영수증 ◀");
+    buffer.writeln("[$now]");
+    buffer.writeln("${widget.client['client_name']}");
+
+    for (var item in _scannedItems) {
+      int total = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price'] * 0.01).round();
+      buffer.writeln("${item['name'].substring(0, 6)} ${item['box_count']}개 ${formatter.format(total)}");
+    }
+
+    buffer.writeln("총액: ${formatter.format(totalScannedItemsPrice)}원");
+
+    final writeChar = await _getConnectedPrinterWriteCharacteristic();
+    if (writeChar == null) return;
+
+    List<int> bytes = utf8.encode(buffer.toString());
+    for (int i = 0; i < bytes.length; i += 180) {
+      int end = (i + 180 < bytes.length) ? i + 180 : bytes.length;
+      await writeChar.write(bytes.sublist(i, end));
+      await Future.delayed(Duration(milliseconds: 50));
+    }
+
+    Fluttertoast.showToast(msg: "✅ 55mm 한글 인쇄 완료");
   }
 
   Widget _buildScannedItemsTable() {

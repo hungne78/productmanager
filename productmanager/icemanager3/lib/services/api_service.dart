@@ -196,13 +196,27 @@ class ApiService {
     );
   }
 
-  static Future<http.Response> fetchCompanyInfo(String token) async {
-    final url = Uri.parse("$baseUrl/company");
-    return await http.get(
-      url,
-      headers: {"Authorization": "Bearer $token"},
-    );
+  static Future<Map<String, dynamic>?> fetchCompanyInfo(String token) async {
+    try {
+      final url = Uri.parse("$baseUrl/company");
+      final response = await http.get(
+        url,
+        headers: {"Authorization": "Bearer $token"},
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = utf8.decode(response.bodyBytes);
+        return jsonDecode(decoded);
+      } else {
+        print("❌ 서버 오류: ${response.statusCode}");
+        return null;
+      }
+    } catch (e) {
+      print("❌ 네트워크 오류: $e");
+      return null;
+    }
   }
+
 
 
 

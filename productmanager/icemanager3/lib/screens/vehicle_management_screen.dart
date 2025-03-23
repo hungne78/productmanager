@@ -120,51 +120,74 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: Text("차량 관리", style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.indigoAccent,
-        centerTitle: true,
+        backgroundColor: Colors.indigo,
+        elevation: 2,
+        automaticallyImplyLeading: false,
+        leading: IconButton(
+          icon: Icon(Icons.home, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Center(
+          child: Text("차량 관리", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+        actions: [SizedBox(width: 48)], // 중앙 정렬 맞춤
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
-          : Padding(
-        padding: const EdgeInsets.all(20.0),
+          : SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildInputField("월 연료비 (원)", fuelCostController, Icons.local_gas_station),
-            _buildInputField("현재 주행 거리 (km)", mileageController, Icons.speed),
-
+            _buildCardField("월 연료비 (원)", fuelCostController, Icons.local_gas_station),
+            _buildCardField("현재 주행 거리 (km)", mileageController, Icons.speed),
             GestureDetector(
               onTap: () => _selectOilChangeDate(context),
               child: AbsorbPointer(
-                child: _buildInputField("최근 엔진오일 교환 날짜", oilChangeController, Icons.calendar_today),
+                child: _buildCardField("최근 엔진오일 교환 날짜", oilChangeController, Icons.calendar_today),
               ),
             ),
-
-            const SizedBox(height: 30),
+            const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               height: 50,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
                 onPressed: _updateVehicleData,
+                icon: Icon(Icons.save, color: Colors.white),
+                label: Text("차량 정보 업데이트", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.indigoAccent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text(
-                  "차량 정보 업데이트",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                  backgroundColor: Colors.indigo,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
-            ),
+            )
           ],
         ),
       ),
     );
   }
+
+  Widget _buildCardField(String label, TextEditingController controller, IconData icon) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 10),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8),
+        child: TextField(
+          controller: controller,
+          keyboardType: label.contains("거리") || label.contains("연료비") ? TextInputType.number : TextInputType.text,
+          decoration: InputDecoration(
+            labelText: label,
+            prefixIcon: Icon(icon, color: Colors.indigo),
+            border: InputBorder.none,
+          ),
+        ),
+      ),
+    );
+  }
+
 
   Widget _buildInputField(String label, TextEditingController controller, IconData icon) {
     return Padding(

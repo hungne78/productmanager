@@ -3,16 +3,21 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.company import CompanyInfo
 from app.schemas.company import CompanySchema
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 router = APIRouter()
 
 @router.get("", response_model=CompanySchema)
 def get_company_info(db: Session = Depends(get_db)):
-    """회사 정보 조회"""
     company = db.query(CompanyInfo).first()
     if not company:
         raise HTTPException(status_code=404, detail="회사 정보가 없습니다.")
-    return company
+    
+    return JSONResponse(
+        content=jsonable_encoder(company),
+        media_type="application/json; charset=utf-8"
+    )
 
 @router.post("/")
 def create_or_update_company_info(company_data: CompanySchema, db: Session = Depends(get_db)):

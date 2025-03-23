@@ -63,27 +63,47 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   }
   Widget _buildSummaryTable() {
     return Container(
-      padding: EdgeInsets.all(12),
+      padding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        border: Border(top: BorderSide(color: Colors.grey.shade400, width: 1)),
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey.shade300, width: 1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 4,
+            offset: Offset(0, -1),
+          ),
+        ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          Expanded(child: _buildSummaryCell("총 금액", "$_totalAmount 원", isBold: true)),
-          Expanded(child: _buildSummaryCell("총 인센티브", "$_totalIncentive 원")),
-          Expanded(child: _buildSummaryCell("총 주문 수량", "$_totalBoxes 개")),
+          _buildSummaryCell("총 금액", "${_totalAmount.toInt()}원", isBold: true),
+          _buildSummaryCell("인센티브", "${_totalIncentive.toInt()}원"),
+          _buildSummaryCell("수량", "$_totalBoxes개"),
         ],
       ),
     );
   }
 
+
   Widget _buildSummaryCell(String title, String value, {bool isBold = false}) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-        Text(value, style: TextStyle(fontSize: 16, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+        Text(
+          title,
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey[600]),
+        ),
+        SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: Colors.black,
+          ),
+        ),
       ],
     );
   }
@@ -145,26 +165,58 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("주문 내역 조회 (${widget.selectedDate.toLocal()}".split(' ')[0] + ")")),
+      backgroundColor: Colors.grey.shade100,
+      appBar: AppBar(
+        backgroundColor: Colors.indigo,
+        elevation: 2,
+        automaticallyImplyLeading: false,
+        leading: IconButton(
+          icon: Icon(Icons.home, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Center(
+          child: Text(
+            "주문 내역 (${widget.selectedDate.toLocal().toString().split(' ')[0]})",
+            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+        ),
+        actions: [SizedBox(width: 48)], // 타이틀 가운데 맞추기용
+      ),
       body: Stack(
         children: [
           Column(
             children: [
               Expanded(
                 child: SingleChildScrollView(
-                  child: _buildOrderHistoryTable(), // ✅ 상품 목록이 많아지면 스크롤 가능
+                  child: _orderHistory.isEmpty
+                      ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 60),
+                      child: Text(
+                        "📦 주문 내역이 없습니다.",
+                        style: TextStyle(fontSize: 16, color: Colors.grey),
+                      ),
+                    ),
+                  )
+                      : Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: _buildOrderHistoryTable(),
+                  ),
                 ),
               ),
             ],
           ),
           Positioned(
-            bottom: 0, left: 0, right: 0, // ✅ 화면 맨 아래 고정
-            child: _buildSummaryTable(), // ✅ 합계표(요약 테이블) 하단 고정
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: _buildSummaryTable(),
           ),
         ],
       ),
     );
   }
+
 
 
 
