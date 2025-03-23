@@ -23,6 +23,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/widgets.dart' as widgets;
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:image/image.dart' as img;
+import 'package:url_launcher/url_launcher.dart';
 
 AndroidDeviceInfo? androidInfo;
 
@@ -917,6 +918,15 @@ Tel: ${companyInfo['phone']}
     }
   }
 
+  Future<void> _sendSms(String phoneNumber) async {
+    final Uri uri = Uri.parse('sms:$phoneNumber');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      Fluttertoast.showToast(msg: "문자 앱을 열 수 없습니다.");
+    }
+  }
+
   /// 📌 헤더 스타일 조정
   Widget _buildCustomAppBar(BuildContext context) {
     return Container(
@@ -960,16 +970,27 @@ Tel: ${companyInfo['phone']}
           // ✅ 중앙: "판매 화면"
           Expanded(
             child: Center(
-              child: Text(
-                "판 매",
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+              child: GestureDetector(
+                onTap: () {
+                  final phone = widget.client['phone'];
+                  if (phone != null && phone.toString().isNotEmpty) {
+                    _sendSms(phone);
+                  } else {
+                    Fluttertoast.showToast(msg: "전화번호가 없습니다.");
+                  }
+                },
+                child: const Text(
+                  "     판   매",
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
           ),
+
           GestureDetector(
             onTap: _showBluetoothPrinterDialog,  // 누르면 연결 팝업
             child: Row(
@@ -980,7 +1001,7 @@ Tel: ${companyInfo['phone']}
                 ),
                 SizedBox(width: 6),
                 Text(
-                  _isPrinterConnected ? "프린터 연결됨" : "미연결",
+                  _isPrinterConnected ? "프린터" : "프린터",
                   style: TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ],
@@ -998,7 +1019,7 @@ Tel: ${companyInfo['phone']}
                 ),
                 SizedBox(width: 4),
                 Text(
-                  _isBluetoothConnected ? "연결됨" : "미연결",
+                  _isBluetoothConnected ? "스캐너" : "스캐너",
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.white,

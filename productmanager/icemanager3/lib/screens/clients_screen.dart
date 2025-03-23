@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart'; // ✅ 천 단위 콤마 포맷 추가
+import '../screens/home_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ClientsScreen extends StatefulWidget {
   final String token;
@@ -52,11 +54,88 @@ class _ClientsScreenState extends State<ClientsScreen> {
       );
     }
   }
+  Future<void> _makePhoneCall(String? phoneNumber) async {
+    if (phoneNumber == null) return;
+    final Uri url = Uri.parse('tel:$phoneNumber');
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url);
+    } else {
+      throw '전화 앱을 실행할 수 없습니다.';
+    }
+  }
+
+  void _showPhoneOptions(String? phone) {
+    if (phone == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.call),
+              title: const Text("전화 걸기"),
+              onTap: () {
+                Navigator.pop(context);
+                _makePhoneCall(phone);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.message),
+              title: const Text("문자 보내기"),
+              onTap: () {
+                Navigator.pop(context);
+                _sendSms(phone);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+  Future<void> _sendSms(String phoneNumber) async {
+    final Uri uri = Uri.parse('sms:$phoneNumber');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      throw '메시지 앱을 열 수 없습니다.';
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("담당 거래처 관리")),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(56),
+        child: AppBar(
+          backgroundColor: Colors.indigo,
+          elevation: 3,
+          centerTitle: true,
+          leading: IconButton(
+            icon: const Icon(Icons.home, color: Colors.white),
+            onPressed: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => HomeScreen(token: widget.token),
+                ),
+              );
+            },
+          ),
+          title: const Text(
+            "담당 거래처 관리",
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
       body: ListView.builder(
         itemCount: _clients.length,
         itemBuilder: (context, index) {
@@ -71,70 +150,106 @@ class _ClientsScreenState extends State<ClientsScreen> {
 
           return Column(
             children: [
-              // ✅ 기본 거래처 정보 (거래처명, 전화번호, 미수금)
-              ListTile(
-                tileColor: Colors.white,
-                contentPadding: EdgeInsets.symmetric(vertical: 5, horizontal: 15),
-                shape: RoundedRectangleBorder(
-                  side: BorderSide(color: Colors.grey.shade300, width: 1),
-                  borderRadius: BorderRadius.circular(5),
+              Card(
+                elevation: 2,
+                margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                child: ListTile(
+                  tileColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                  title: Text(
+                    client['client_name'],
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  subtitle: Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () => _showPhoneOptions(client['phone']),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.phone, size: 16, color: Colors.blue),
+                            const SizedBox(width: 4),
+                            Text(
+                              client['phone'] ?? '정보 없음',
+                              style: const TextStyle(fontSize: 13, color: Colors.blue),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(width: 10),
+                      Text("•  미수금: ${formattedAmount} 원", style: TextStyle(fontSize: 13, color: Colors.grey.shade800)),
+                    ],
+                  ),
+                  trailing: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _expandedRows[clientId] = !isExpanded;
+                      });
+                      if (!isExpanded) _fetchClientDetails(clientId);
+                    },
+                    child: Icon(
+                      isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                      color: Colors.indigo,
+                      size: 28,
+                    ),
+                  ),
+                  // 전체 onTap 제거
+                  onTap: null,
                 ),
-                title: Text(
-                  client['client_name'],
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  "대표자: ${client['representative_name'] ?? '정보 없음'}  |  전화번호: ${client['phone'] ?? '정보 없음'}  |  미수금: ${formattedAmount} 원",
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: Icon(isExpanded ? Icons.expand_less : Icons.expand_more, color: Colors.blue),
-                onTap: () {
-                  setState(() {
-                    _expandedRows[clientId] = !isExpanded;
-                  });
-                  if (!isExpanded) {
-                    _fetchClientDetails(clientId);
-                  }
-                },
               ),
 
-              // ✅ 클릭한 거래처의 확장 정보 (해당 거래처 아래에 바로 표시)
+
               if (isExpanded)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5.0, horizontal: 10.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: Container(
                     decoration: BoxDecoration(
-                      border: Border.all(color: Colors.blue.shade300, width: 2),
-                      borderRadius: BorderRadius.circular(8),
-                      color: Colors.blue.shade50,
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.indigo.shade200),
                     ),
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: details == null
-                        ? const Center(child: CircularProgressIndicator()) // 로딩 표시
-                        : Table(
-                      border: TableBorder.all(color: Colors.blue.shade200),
-                      columnWidths: const {
-                        0: FractionColumnWidth(0.3),
-                        1: FractionColumnWidth(0.7),
-                      },
+                        ? const Center(child: CircularProgressIndicator())
+                        : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildTableRow("대표자", details['representative_name'] ?? '정보 없음'),  // ✅ 대표자 추가
-                        _buildTableRow("주소", details['address'] ?? '정보 없음'),
-                        _buildTableRow("사업자 번호", details['business_number'] ?? '정보 없음'),
-                        _buildTableRow("이메일", details['email'] ?? '정보 없음'),
-                        _buildTableRow("일반가", details['regular_price']?.toString() ?? '정보 없음'),
-                        _buildTableRow("고정가", details['fixed_price']?.toString() ?? '정보 없음'),
-
+                        _infoRow("👤 대표자", details['representative_name']),
+                        _infoRow("🏢 주소", details['address']),
+                        _infoRow("🧾 사업자 번호", details['business_number']),
+                        _infoRow("📧 이메일", details['email']),
+                        _infoRow("💵 일반가", details['regular_price']?.toString()),
+                        _infoRow("📦 고정가", details['fixed_price']?.toString()),
+                        _infoRow("💰 미수금", formattedAmount.toString()),
                       ],
                     ),
                   ),
                 ),
             ],
           );
+
         },
+      ),
+    );
+  }
+  Widget _infoRow(String label, String? value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "$label: ",
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+          Expanded(
+            child: Text(
+              value ?? '정보 없음',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/sales_service.dart';
 import 'dart:convert'; // ✅ UTF-8 디코딩을 위해 필요
 import '../config.dart';
+import '../screens/home_screen.dart';
 
 final String baseUrl = BASE_URL;
 
@@ -231,32 +232,62 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("실적 종합 현황")),
+      backgroundColor: Colors.grey.shade100,
+      appBar: AppBar(
+        backgroundColor: Colors.indigo,
+        elevation: 3,
+        leading: IconButton(
+          icon: const Icon(Icons.home, color: Colors.white),
+          onPressed: () {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => HomeScreen(token: widget.token)),
+                  (route) => false,
+            );
+          },
+
+        ),
+        title: const Text(
+          "실적 현황",
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.print, color: Colors.white),
+            onPressed: () {
+              // 인쇄 기능 추가 예정
+            },
+          ),
+        ],
+      ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildSalesTypeSelector(),
           _buildDateSelector(),
+          const Divider(height: 1, thickness: 1),
           Expanded(
             child: FutureBuilder<List<dynamic>>(
               future: salesData,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(child: CircularProgressIndicator());
+                  return const Center(child: CircularProgressIndicator());
                 } else if (snapshot.hasError) {
-                  return Center(child: Text("데이터를 불러오는 중 오류 발생"));
+                  return const Center(child: Text("데이터를 불러오는 중 오류 발생"));
                 } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return Center(child: Text("데이터가 없습니다."));
+                  return const Center(child: Text("데이터가 없습니다."));
                 } else {
                   return _buildSalesTable(snapshot.data!);
                 }
               },
             ),
           ),
-          _buildPrintButton(),
         ],
       ),
     );
   }
+
   /// ✅ 미수금 값이 존재하면 표시, 없으면 0으로 기본값 설정
   /// ✅ UTF-8 디코딩 후 미수금 가져오기
   /// ✅ UTF-8 디코딩 제거

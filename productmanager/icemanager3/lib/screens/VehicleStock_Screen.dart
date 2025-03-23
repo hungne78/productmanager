@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../vehicle_stock_provider.dart';
 import 'package:intl/intl.dart'; // ✅ 숫자 포맷을 위한 패키지 추가
+import '../screens/home_screen.dart';
+
 class VehicleStockScreen extends StatefulWidget {
   final String token;
   final int employeeId;
@@ -53,19 +55,41 @@ class _VehicleStockScreenState extends State<VehicleStockScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("차량 재고 관리")),
-      body: Column(
-        children: [
-          // ✅ 차량 재고 갱신 버튼 (표 위에 배치)
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: ElevatedButton.icon(
-              onPressed: _loadVehicleStock,
-              icon: const Icon(Icons.refresh),
-              label: const Text("차량 재고 갱신"),
-            ),
-          ),
+      appBar: AppBar(
+        backgroundColor: Colors.indigo,
+        elevation: 4,
+        automaticallyImplyLeading: false, // 🔴 화살표 제거!
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.home, color: Colors.white),
+              onPressed: () {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => HomeScreen(token: widget.token)),
+                      (route) => false,
+                );
+              },
 
+            ),
+            const Text(
+              "차량 재고",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 40),
+          ],
+        ),
+      ),
+
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+        children: [
           // ✅ 차량 재고 테이블
           Expanded(
             child: Container(
@@ -80,23 +104,29 @@ class _VehicleStockScreenState extends State<VehicleStockScreen> {
                   // ✅ 고정된 헤더
                   Container(
                     height: 35,
-                    color: Colors.black45,
-                    child: _buildHeaderRow(),
+                    color: Colors.black45, // ✅ 원래 헤더 색상
+                    child: Row(
+                      children: [
+                        _buildHeaderCell("상품 ID"),
+                        _buildHeaderCell("상품명"),
+                        _buildHeaderCell("분류"),
+                        _buildHeaderCell("재고"),
+                      ],
+                    ),
                   ),
+
 
                   // ✅ 차량 재고 목록 (스크롤 가능)
                   Expanded(
                     child: SingleChildScrollView(
                       scrollDirection: Axis.vertical,
                       child: Column(
-                        children: _stockData.map((entry) {
-                          return _buildDataRow(entry);
-                        }).toList(),
+                        children: _stockData.map((entry) => _buildDataRow(entry)).toList(),
                       ),
                     ),
                   ),
 
-                  // ✅ 차량 재고 합계 (고정)
+                  // ✅ 차량 재고 합계
                   _buildSummaryRow(),
                 ],
               ),
@@ -106,6 +136,7 @@ class _VehicleStockScreenState extends State<VehicleStockScreen> {
       ),
     );
   }
+
   // ✅ 헤더 행 (상품 ID, 상품명, 상품 분류, 차량 재고)
   Widget _buildHeaderRow() {
     return Row(
@@ -146,19 +177,72 @@ class _VehicleStockScreenState extends State<VehicleStockScreen> {
     );
   }
   final NumberFormat formatter = NumberFormat("#,###");
-  // ✅ 차량 재고 합계 (고정)
+
+
   Widget _buildSummaryRow() {
+    if (_stockData.isEmpty) return const SizedBox();
+
+    int totalQuantity = 0;
+    final Map<String, int> categoryTotals = {};
+
+    for (var item in _stockData) {
+      final category = item['category']?.toString() ?? '기타';
+      final rawQty = item['quantity'];
+      int qty = 0;
+
+      if (rawQty is int) qty = rawQty;
+      else if (rawQty is double) qty = rawQty.toInt();
+      else if (rawQty is String) qty = int.tryParse(rawQty) ?? 0;
+
+      totalQuantity += qty;
+      categoryTotals[category] = (categoryTotals[category] ?? 0) + qty;
+    }
+
     return Container(
-      color: Colors.grey.shade300,
-      padding: EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        border: Border(top: BorderSide(color: Colors.grey.shade300)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildSummaryCell("총 차량 재고", formatter.format(totalStockQuantity) + " 박스", isBold: true),
+          // 🔹 전체 합계 (강조)
+          Row(
+            children: [
+              const Text(
+                "총 재고: ",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              Text(
+                "$totalQuantity 박스",
+                style: const TextStyle(fontSize: 14, color: Colors.black87),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+
+          // 🔹 분류별 합계 (타이트하게 정렬)
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            children: categoryTotals.entries.map((entry) {
+              return Text(
+                "${entry.key}: ${entry.value}",
+                style: const TextStyle(fontSize: 13, color: Colors.black87),
+              );
+            }).toList(),
+          ),
         ],
       ),
     );
   }
+
+
+
+
+
 
   // ✅ 공통 헤더 셀
   Widget _buildHeaderCell(String text) {
@@ -196,23 +280,5 @@ class _VehicleStockScreenState extends State<VehicleStockScreen> {
     );
   }
 
-  // ✅ 합계 셀 스타일 적용
-  Widget _buildSummaryCell(String label, String value, {bool isBold = false}) {
-    return Expanded(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            "$label: $value",
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-              color: isBold ? Colors.black : Colors.black87,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
+
 }
