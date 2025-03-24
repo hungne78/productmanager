@@ -4,7 +4,11 @@ import os
 # 프로젝트 루트 경로를 모듈 검색 경로에 추가
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QLineEdit, QPushButton, QLabel, QWidget, QHBoxLayout, QMenuBar, QMenu, QAction, QDialog, QFormLayout,QLineEdit, QDialogButtonBox
+from PyQt5.QtWidgets import (
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
+    QLabel, QLineEdit, QStackedWidget, QFrame, QAction, QDialog,
+    QFormLayout, QDialogButtonBox, QMenuBar, QMenu\
+)
 from employee_ui import EmployeesTab
 from clients_ui import ClientsTab
 from products_ui import ProductsTab
@@ -16,7 +20,7 @@ from payments_ui import PaymentsTab
 from invoices_ui import InvoicesTab
 from employee_sales_ui import EmployeeSalesTab
 from employee_vehicle_inventory_tab import EmployeeVehicleInventoryTab
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QDateTime, QTimer, QPoint
 from PyQt5.QtWidgets import QSpacerItem, QSizePolicy
 import json
 from PyQt5.QtGui import QIcon
@@ -24,6 +28,84 @@ from pathlib import Path
 import requests
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 파일의 절대 경로
 ICONS_DIR = os.path.join(BASE_DIR, "assets/icons")  # icons 폴더 경로 설정
+
+def load_erp_style():
+    return """
+    QMainWindow {
+        background-color: #f4f6f5;
+        font-family: 'Segoe UI', sans-serif;
+    }
+
+    #LeftPanel {
+        background-color: #1e3932;
+    }
+
+    #LeftPanelButton {
+        background-color: transparent;
+        color: white;
+        font-size: 15px;
+        padding: 12px 20px;
+        border: none;
+        text-align: left;
+    }
+
+    #LeftPanelButton:hover {
+        background-color: #274c41;
+    }
+
+    #InfoPanel {
+        background-color: #ffffff;
+        border: 1px solid #cccccc;
+        border-radius: 8px;
+    }
+
+    #ContentPanel {
+        background-color: #ffffff;
+        border: 1px solid #dddddd;
+        border-radius: 6px;
+        padding: 12px;
+    }
+
+    QTableWidget {
+        border: 1px solid #dddddd;
+        background-color: #ffffff;
+        alternate-background-color: #f9f9f9;
+        gridline-color: #e0e0e0;
+        font-size: 13px;
+        selection-background-color: #cce5ff;
+        selection-color: #000000;
+    }
+
+    QTableWidget::item {
+        padding: 6px;
+        height: 32px;
+    }
+
+    QHeaderView::section {
+        background-color: #f0f0f0;
+        padding: 6px;
+        font-weight: bold;
+        border: 1px solid #d0d0d0;
+        font-size: 13px;
+    }
+
+    QPushButton {
+        background-color: #ffffff;
+        border: 1px solid #bbbbbb;
+        border-radius: 4px;
+        padding: 6px 12px;
+    }
+
+    QPushButton:hover {
+        background-color: #e8e8e8;
+    }
+
+    QLabel {
+        color: #333333;
+        font-size: 14px;
+    }
+    """
+
 def load_dark_theme():
     """
     (기존) 다크 테마. user가 제공한 코드 그대로 둠
@@ -431,77 +513,169 @@ class CompanyInfoDialog(QDialog):
 class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Wholesale Management System")
-        self.setGeometry(100, 100, 1980, 1080)
-        self.setStyleSheet(load_lightblue_theme())
+        self.setWindowFlags(Qt.FramelessWindowHint)  # 🔷 제목 표시줄 제거
+        self.setGeometry(100, 100, 1800, 1080)
+        self.setStyleSheet(load_erp_style())
         self.company_info = self.load_company_info()
-        if self.company_info:
-            print("▶ 프로그램 시작 시 회사 정보 로드:", self.company_info)
-        else:
-            print("▶ 회사 정보 파일이 없거나 비어 있습니다.")
-                
-        self.toolbar = self.addToolBar("Main Toolbar")
-        self.toolbar_icons = [
-            ("직원관리", os.path.join(ICONS_DIR, "employee.png"), self.show_employees_tab),
-            ("거래처관리", os.path.join(ICONS_DIR, "client.png"), self.show_clients_tab),
-            ("제품관리", os.path.join(ICONS_DIR, "product.png"), self.show_products_tab),
-            ("주문관리", os.path.join(ICONS_DIR, "order.png"), self.show_orders_tab),
-            ("매입관리", os.path.join(ICONS_DIR, "purchase.png"), self.show_purchase_tab),
-            ("직원 지도", os.path.join(ICONS_DIR, "map.png"), self.show_employee_map_tab),
-            ("총매출", os.path.join(ICONS_DIR, "sales.png"), self.show_sales_tab),
-            ("방문주기", os.path.join(ICONS_DIR, "sales.png"), self.show_employee_sales_tab),
-            ("월급여", os.path.join(ICONS_DIR, "payments.png"), self.show_payments_tab),
-            ("세금계산서", os.path.join(ICONS_DIR, "invoices.png"), self.show_invoices_tab),
-            ("차량재고", os.path.join(ICONS_DIR, "inventory.png"), self.show_inventory_tab)
+        
+        self.old_pos = self.pos()  # 드래그 시작 위치 저장용
 
+        main_widget = QWidget()
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)  
+        self.setCentralWidget(main_widget)
+
+        # ▶ 커스텀 타이틀 바
+        self.header = QFrame()
+        self.header.setFixedHeight(42)
+        self.header.setStyleSheet("background-color: #2d3147;")
+
+        header_layout = QHBoxLayout(self.header)
+        header_layout.setContentsMargins(10, 0, 10, 0)
+
+        title_label = QLabel("성심유통 ERP")
+        title_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+
+        user_label = QLabel("로그인: 관리자")
+        user_label.setStyleSheet("color: white; font-size: 13px;")
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(32, 28)
+        close_btn.setStyleSheet(""
+            "QPushButton { color: white; background-color: transparent; border: none; }"
+            "QPushButton:hover { background-color: #e63946; border-radius: 4px; }"
+        )
+        close_btn.clicked.connect(self.close)
+
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        header_layout.addWidget(user_label)
+        header_layout.addSpacing(12)
+        header_layout.addWidget(close_btn)
+
+        # ▶ 아래쪽 UI (기존 레이아웃)
+        content_widget = QWidget()
+        content_layout = QHBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+
+        # ... 이하 기존 self.left_panel, self.right_panel 설정 유지 ...
+
+        
+
+        
+        main_widget = QWidget()
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0) 
+        self.setCentralWidget(main_widget)
+
+        # ▶ 좌측 메뉴 패널
+        self.left_panel = QFrame()
+        self.left_panel.setObjectName("LeftPanel")
+        self.left_panel.setFixedWidth(180)
+        left_layout = QVBoxLayout(self.left_panel)
+        left_layout.setContentsMargins(0, 20, 0, 0)
+
+        # 🔷 상단 로고 텍스트
+        title_label = QLabel("성심유통")
+        title_label.setObjectName("LeftPanelLabel")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("color: white; font-size: 24px; font-weight: bold;")
+        left_layout.addWidget(title_label)
+        left_layout.addSpacing(20)
+
+        self.toolbar_icons = [
+            ("직원관리", "employee", self.show_employees_tab),
+            ("거래처관리", "client", self.show_clients_tab),
+            ("제품관리", "product", self.show_products_tab),
+            ("주문관리", "order", self.show_orders_tab),
+            ("매입관리", "purchase", self.show_purchase_tab),
+            ("직원 지도", "map", self.show_employee_map_tab),
+            ("총매출", "sales", self.show_sales_tab),
+            ("방문주기", "sales", self.show_employee_sales_tab),
+            ("월급여", "payments", self.show_payments_tab),
+            ("세금계산서", "invoices", self.show_invoices_tab),
+            ("차량재고", "inventory", self.show_inventory_tab)
         ]
 
-        # 툴바 스타일 설정 추가
-        self.toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)  # ✅ 아이콘 아래 텍스트 표시
+        for name, icon, handler in self.toolbar_icons:
+            btn = QPushButton(name)
+            btn.setObjectName("LeftPanelButton")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(handler)
+            left_layout.addWidget(btn)
 
-        for name, icon_path, handler in self.toolbar_icons:
-            if os.path.exists(icon_path):  # 아이콘 파일이 존재하는지 확인
-                action = QAction(QIcon(icon_path), name, self)  # ✅ 아이콘과 텍스트 함께 추가
-            else:
-                print(f"⚠️ 아이콘 파일 없음: {icon_path}")
-                action = QAction(name, self)  # 아이콘 없이 액션 추가
-            
-            action.triggered.connect(handler)
-            self.toolbar.addAction(action)
+        left_layout.addStretch()
 
-        self.search_toolbar = QToolBar("검색창")
-        self.addToolBar(self.search_toolbar)
-        self.addToolBar(Qt.TopToolBarArea, self.search_toolbar)
-        self.custom_button = QPushButton("")
+        # 🔷 검색창 하단 배치
         self.search_label = QLabel("검색:")
+        self.search_label.setStyleSheet("color: white; padding-left: 8px;")
         self.search_edit = QLineEdit()
         self.search_button = QPushButton("검색")
-          
-        # ✅ 검색창 크기 조정
-        self.search_edit.setFixedWidth(250)
-        self.custom_button.setFixedWidth(250) 
+        self.custom_button = QPushButton("모든 검색")
 
-        # ✅ 가로 레이아웃 생성 (오른쪽 정렬)
-        search_layout = QHBoxLayout()
-        search_layout.addStretch(1)  # 왼쪽 빈 공간 추가
-        search_layout.addWidget(self.custom_button) 
-        search_layout.addWidget(self.search_label)
-        search_layout.addWidget(self.search_edit)
-        search_layout.addWidget(self.search_button)
-        
+        self.search_edit.setPlaceholderText("검색")
+        self.search_edit.setFixedWidth(140)
+        self.search_button.setFixedWidth(60)
+        self.custom_button.setFixedWidth(140)
 
-        # ✅ 빈 위젯을 만들어 툴바에 추가
-        search_widget = QWidget()
-        search_widget.setLayout(search_layout)
-        self.search_toolbar.addWidget(search_widget)
+        left_layout.addWidget(self.search_label)
+        left_layout.addWidget(self.search_edit)
+        left_layout.addWidget(self.search_button)
+        left_layout.addWidget(self.custom_button)
 
-        self.search_button.clicked.connect(self.on_search_clicked)
-        self.search_edit.returnPressed.connect(self.on_search_clicked)
-        
+        # ▶ 오른쪽 전체 패널
+        self.right_panel = QWidget()
+        right_layout = QVBoxLayout(self.right_panel)
+        right_layout.setContentsMargins(16, 16, 16, 16)
+        right_layout.setSpacing(0)
 
+        # 🔷 상단 날짜 및 시간 (디자인 + 업데이트)
+        self.datetime_label = QLabel()
+        self.datetime_label.setStyleSheet("font-size: 18px; color: #333; font-weight: bold;")
+        self.datetime_label.setContentsMargins(0, 0, 0, 0)
+        self.update_datetime()
+        timer = QTimer(self)
+        timer.timeout.connect(self.update_datetime)
+        timer.start(1000)  # 매 초마다 업데이트
+        right_layout.addWidget(self.datetime_label, alignment=Qt.AlignLeft)
+
+        # ▶ 버튼 영역
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        for label in ["저장", "조회", "삭제"]:
+            btn = QPushButton(label)
+            btn.setFixedWidth(80)
+            button_row.addWidget(btn)
+        right_layout.addLayout(button_row)
+
+        # ▶ 정보 패널
+        self.info_panel = QFrame()
+        self.info_panel.setObjectName("InfoPanel")
+        self.info_panel.setFixedHeight(1)
+        right_layout.addWidget(self.info_panel)
+
+        # ▶ 콘텐츠 영역
         self.stacked = QStackedWidget()
-        self.setCentralWidget(self.stacked)
+        self.stacked.setObjectName("ContentPanel")
+        right_layout.addWidget(self.stacked)
 
+        # ▶ 전체 배치
+        # ▶ 좌우 본문 UI
+        content_widget = QWidget()
+        content_layout = QHBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 좌우 패널은 여기에 추가하면 됨
+        content_layout.addWidget(self.left_panel)
+        content_layout.addWidget(self.right_panel)
+
+        # ▶ 전체 배치
+        main_layout.addWidget(self.header)
+        main_layout.addWidget(content_widget)
+
+        # ▶ 탭 등록
         self.tabs = {
             "employees": EmployeesTab(),
             "clients": ClientsTab(),
@@ -510,27 +684,35 @@ class MainApp(QMainWindow):
             "purchase": PurchaseTab(),
             "employee_map": EmployeeMapTab(),
             "sales": SalesTab(),
-            "employee_sales" : EmployeeSalesTab(),
+            "employee_sales": EmployeeSalesTab(),
             "payments": PaymentsTab(),
             "invoices": InvoicesTab(),
             "inventory": EmployeeVehicleInventoryTab()
         }
-        
-        self.tabs["invoices"].right_panel.set_company_info(self.company_info)
+
         for tab in self.tabs.values():
             self.stacked.addWidget(tab)
 
+        self.tabs["invoices"].right_panel.set_company_info(self.company_info)
+
         self.stacked.setCurrentWidget(self.tabs["employees"])
         self.update_search_placeholder("employees")
-        self.company_info = {}  # 우리 회사 정보 저장할 dict
-        self.show_employees_tab()
-        # ── 메뉴바 생성 ─────────────────
-        menubar = self.menuBar()
-        settings_menu = menubar.addMenu("설정(&S)")
+        self.update_custom_button("employees")
 
-        register_action = QAction("회사 정보 등록", self)
-        register_action.triggered.connect(self.open_company_info_dialog)
-        settings_menu.addAction(register_action)
+    def update_datetime(self):
+        current = QDateTime.currentDateTime()
+        self.datetime_label.setText(current.toString("yyyy-MM-dd hh:mm:ss"))
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.old_pos = event.globalPos()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton:
+            delta = QPoint(event.globalPos() - self.old_pos)
+            self.move(self.x() + delta.x(), self.y() + delta.y())
+            self.old_pos = event.globalPos()
+
         
     def update_custom_button(self, tab_name):
         """ 현재 UI에 따라 버튼 기능을 변경 """
