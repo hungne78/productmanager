@@ -6,6 +6,7 @@ from app.db.base import Base
 
 KST = pytz.timezone("Asia/Seoul")
 
+
 def get_kst_today():
     """ 현재 날짜를 한국 시간(KST) 기준으로 반환 """
     return datetime.now(KST).date()

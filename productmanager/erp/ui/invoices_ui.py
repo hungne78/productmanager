@@ -299,7 +299,7 @@ class InvoicesRightPanel(QWidget):
         self.company_info = info or {}
 
         company_name = self.company_info.get("company_name")
-        ceo_name = self.company_info.get("ceo_name")
+        ceo_name = self.company_info.get("ceo_name") or self.company_info.get("ceo", "")
         business_number = self.company_info.get("business_number")
 
         if company_name and ceo_name and business_number:
@@ -347,7 +347,7 @@ class InvoicesRightPanel(QWidget):
         """
         # 우선 상단 라벨 갱신
         if self.company_info and self.company_info.get("company_name"):
-            txt = f"[{self.company_info['company_name']}] 대표: {self.company_info['ceo_name']} / 사업자번호: {self.company_info['business_number']}"
+            txt = f"[{self.company_info['company_name']}] 대표: {self.company_info.get("ceo_name") or self.company_info.get("ceo", "대표자 없음")} / 사업자번호: {self.company_info['business_number']}"
             self.company_label.setText(txt)
         else:
             self.company_label.setText("공급자(우리 회사) 정보가 등록되지 않았습니다.")
@@ -360,13 +360,13 @@ class InvoicesRightPanel(QWidget):
             # 공급자(our company) 정보
             supplier_reg = self.company_info.get("business_number", "")
             supplier_name = self.company_info.get("company_name", "")
-            supplier_ceo = self.company_info.get("ceo", "")
+            supplier_ceo = self.company_info.get("ceo_name") or self.company_info.get("ceo", "")
 
             # 공급받는자(거래처) 정보
-            client_reg = invoice["client_id"]  # DB에서 가져온 사업자번호/등록번호
+            client_reg = invoice.get("business_number")  # DB에서 가져온 사업자번호/등록번호
             client_name = invoice["client_name"]
             client_ceo = invoice["client_ceo"]
-
+            
             self.invoice_table.setItem(row, 0, QTableWidgetItem("01"))  # 전자세금계산서 종류 (일반)
             self.invoice_table.setItem(row, 1, QTableWidgetItem(datetime.today().strftime("%Y-%m-%d")))  # 작성일자
             self.invoice_table.setItem(row, 2, QTableWidgetItem(supplier_reg))    # 공급자 등록번호(=우리 회사 사업자번호)

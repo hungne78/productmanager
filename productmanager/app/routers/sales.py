@@ -840,6 +840,7 @@ def get_clients_invoices(year: int, month: int, db: Session = Depends(get_db)):
             SalesRecord.client_id,
             Client.client_name,
             Client.address.label("client_ceo"),
+            Client.business_number,
             func.sum(Product.default_price * SalesRecord.quantity).label("total_sales"),
         )
         .join(Client, SalesRecord.client_id == Client.id)
@@ -861,6 +862,7 @@ def get_clients_invoices(year: int, month: int, db: Session = Depends(get_db)):
             "client_id": str(row.client_id),
             "client_name": row.client_name,
             "client_ceo": row.client_ceo,
+            "business_number": row.business_number,
             "total_sales": total,
             "tax_amount": vat
         })

@@ -216,8 +216,41 @@ class ApiService {
       return null;
     }
   }
+  static Future<DateTime> fetchServerTime(String token) async {
+    final url = Uri.parse("$baseUrl/orders/server-time");
 
+    final response = await http.get(
+      url,
+      headers: {
+        "Authorization": "Bearer $token",
+      },
+    );
 
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return DateTime.parse(data['server_time']).toLocal(); // KST → Flutter local time
+    } else {
+      throw Exception("서버 시간 조회 실패");
+    }
+  }
+  static Future<dynamic> checkOrderExists(String token, DateTime date) async {
+    final formattedDate = date.toIso8601String().substring(0, 10);
+    final url = Uri.parse("$baseUrl/orders/exists/$formattedDate");
+
+    final response = await http.get(
+      url,
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception("주문 존재 여부 확인 실패: ${response.statusCode} ${response.body}");
+    }
+  }
 
 
   static double _calculateTotalAmount(List<Map<String, dynamic>> orderItems) {

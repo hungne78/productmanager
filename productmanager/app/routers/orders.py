@@ -14,7 +14,8 @@ from app.utils.inventory_service import update_vehicle_stock
 from app.models.orders import OrderLock
 from sqlalchemy import func
 from typing import Optional
-
+from datetime import datetime
+import pytz
 import redis
 
 import json
@@ -26,6 +27,15 @@ redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
 # ✅ WebSocket 연결 관리
 active_websockets = []
+
+
+@router.get("/server-time")
+def get_server_time():
+    kst = pytz.timezone("Asia/Seoul")
+    now = datetime.now(kst)
+    return {
+        "server_time": now.isoformat()
+    }
 
 @router.get("/warehouse_stock")
 def get_warehouse_stock(db: Session = Depends(get_db)):
@@ -44,6 +54,10 @@ def get_warehouse_stock(db: Session = Depends(get_db)):
     redis_client.setex("warehouse_stock", 60, json.dumps(result))  # ✅ 60초 캐싱
     return result
 
+@router.get("/exists/{order_date}")
+def check_order_exists(order_date: date, db: Session = Depends(get_db)):
+    count = db.query(Order).filter(Order.order_date == order_date).count()
+    return {"exists": count > 0}
 
 @router.post("/place_order")
 def place_order(order_items: List[dict], db: Session = Depends(get_db)):

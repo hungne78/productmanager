@@ -33,6 +33,8 @@ class _OrderScreenState extends State<OrderScreen> {
   Map<int, int> warehouseStockMap = {};
   Map<int, int> vehicleStockMap = {}; // ✅ 차량 재고 정보 저장 (product_id → stock)
   final formatter = NumberFormat("#,###");
+  bool _isFirstOrder = false;
+  bool _isOrderTimeAllowed = true;
 
   void _connectWebSocket() {
     channel = WebSocketChannel.connect(Uri.parse('ws://your-server.com/ws/stock_updates'));
@@ -65,6 +67,39 @@ class _OrderScreenState extends State<OrderScreen> {
     _connectWebSocket(); // ✅ WebSocket 연결 추가
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _fetchEmployeeVehicleStock(authProvider.user?.id ?? 0); // 🔹 차량 재고 초기화
+
+    _checkFirstOrderAndTimeRestriction();
+  }
+  Future<void> _checkFirstOrderAndTimeRestriction() async {    //서버의 시간을 가져와 오후 8시부터 오전 7시까지만 주문가능, 첫주문만 가능
+    final today = widget.selectedDate;
+
+    final existsResponse = await ApiService.checkOrderExists(widget.token, today);
+    final exists = existsResponse['exists'] ?? false;
+
+    setState(() {
+      _isFirstOrder = !exists;
+    });
+
+    if (_isFirstOrder) {
+      try {
+        final serverNow = await ApiService.fetchServerTime(widget.token);
+        final allowedStart = DateTime(today.year, today.month, today.day).subtract(Duration(hours: 4)); // 전날 20:00
+        final allowedEnd = DateTime(today.year, today.month, today.day, 7, 0); // 당일 07:00
+        print("📡 서버 시간: $serverNow");
+        print("✅ 허용 범위: $allowedStart ~ $allowedEnd");
+        if (!(serverNow.isAfter(allowedStart) && serverNow.isBefore(allowedEnd))) {
+          setState(() {
+            _isOrderTimeAllowed = false;
+          });
+        }
+      } catch (e) {
+        print("🚨 서버 시간 확인 실패: $e");
+        // 서버 시간 오류 시 일단 막는 방향으로
+        setState(() {
+          _isOrderTimeAllowed = false;
+        });
+      }
+    }
   }
 
 
@@ -307,6 +342,8 @@ class _OrderScreenState extends State<OrderScreen> {
               ),
 
               // 🎯 제목
+              Text("🕒 서버시간 허용 여부: $_isOrderTimeAllowed, 첫 주문 여부: $_isFirstOrder"),
+
               Text(
                 "주문 페이지",
                 style: TextStyle(
@@ -357,7 +394,15 @@ class _OrderScreenState extends State<OrderScreen> {
 
           // ✅ 요약 행
           _buildSummaryRow(),
-
+          if (!_isOrderTimeAllowed && _isFirstOrder)
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Text(
+                "⚠️ 첫 주문은 전날 20시 ~ 당일 07시 사이에만 가능합니다.",
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+            ),
           // ✅ 주문 전송 버튼
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -366,7 +411,9 @@ class _OrderScreenState extends State<OrderScreen> {
                 backgroundColor: Colors.teal,
                 padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
-              onPressed: _sendOrderToServer,
+              onPressed: (!_isOrderTimeAllowed && _isFirstOrder)
+                  ? null
+                  : _sendOrderToServer,
               icon: const Icon(Icons.send, color: Colors.white),
               label: const Text("주문 전송", style: TextStyle(color: Colors.white)),
             ),

@@ -8,6 +8,7 @@ from PyQt5.QtGui import QColor
 from datetime import datetime
 import json
 from PyQt5.QtWidgets import QSizePolicy
+from PyQt5.QtGui import QFont
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -573,8 +574,8 @@ class EmployeeRightPanel(QWidget):
             self.tbl_box4_footer.horizontalScrollBar().setValue
         )
         item = QTableWidgetItem("합계")
-        item.setBackground(QColor("#333333"))
-        item.setForeground(QColor("white"))
+        # item.setBackground(QColor("#333333"))
+        # item.setForeground(QColor("white"))
         self.tbl_box4_footer.setItem(0, 0, item)
         # box4_layout = QVBoxLayout()
         # box4_layout.addWidget(self.tbl_box4)
@@ -697,10 +698,7 @@ class EmployeeRightPanel(QWidget):
         self.tbl_box4_main.setItem(last_row_index, 2, QTableWidgetItem(f"{total_outstanding:,} 원"))
         self.tbl_box4_main.setItem(last_row_index, 3, QTableWidgetItem(""))  # 방문시간 칸 비움
         self.tbl_box4_main.setItem(last_row_index, 4, QTableWidgetItem(""))  # 방문 횟수 칸 비움
-
         
-
-
 
 class EmployeesTab(QWidget):
     """ 직원 관리 메인 탭 """
@@ -711,7 +709,8 @@ class EmployeesTab(QWidget):
 
     def init_ui(self):
         main_layout = QHBoxLayout()
-
+        
+        self.setFont(QFont("Malgun Gothic", 15))  # 혹은 Windows/기본폰
         self.left_panel = EmployeeLeftWidget()
         self.right_panel = EmployeeRightPanel()
 
@@ -724,6 +723,72 @@ class EmployeesTab(QWidget):
         main_layout.addWidget(self.right_panel)
 
         self.setLayout(main_layout)
+                # 📌 ERP 스타일 QSS 테마 적용
+        self.setStyleSheet("""
+QWidget {
+    background-color: qlineargradient(
+        x1: 0, y1: 0, x2: 1, y2: 1,
+        stop: 0 #eef3fb, stop: 1 #dbeafe
+    );
+    font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
+    font-size: 14px;
+    color: #1f2937;
+}
+
+QGroupBox {
+    background-color: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(200, 200, 200, 0.4);
+    border-radius: 20px;
+    padding: 16px;
+    margin-top: 12px;
+}
+
+QGroupBox::title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #3b82f6;
+    padding: 4px 12px;
+}
+
+QPushButton {
+    background-color: #e0e7ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-weight: 500;
+    color: #1e3a8a;
+}
+QPushButton:hover {
+    background-color: #c7d2fe;
+}
+
+QTableWidget {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    gridline-color: #d1d5db;
+    font-size: 14px;
+    color: #1f2937;
+    alternate-background-color: #f1f5f9;
+    selection-background-color: #dbeafe;
+}
+
+QHeaderView::section {
+    background-color: #e2e8f0;
+    color: #1f2937;
+    font-weight: bold;
+    padding: 8px;
+    border: 1px solid #cbd5e1;
+    font-size: 14px;
+}
+
+QTableWidget::item {
+    border-bottom: 1px solid #e5e7eb;
+    padding: 6px;
+}
+""")
+
+
 
     def update_employee_ui(self, employee_id: int):
         """ 매출 발생 후 직원 데이터 업데이트 """

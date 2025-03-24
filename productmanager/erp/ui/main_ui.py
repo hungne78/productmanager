@@ -514,7 +514,7 @@ class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint)  # 🔷 제목 표시줄 제거
-        self.setGeometry(100, 100, 1800, 1080)
+        self.setGeometry(0, 0, 1900, 1200)
         self.setStyleSheet(load_erp_style())
         self.company_info = self.load_company_info()
         
@@ -752,7 +752,7 @@ class MainApp(QMainWindow):
         회사 정보를 FastAPI 서버에 POST로 전송
         """
         try:
-            url = "http://localhost:8000/company/"  # 서버 주소에 맞게 조정
+            url = "http://localhost:8000/company"  # 서버 주소에 맞게 조정
             response = requests.post(url, json=info)
 
             if response.status_code in [200, 201]:
