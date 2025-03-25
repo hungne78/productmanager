@@ -54,7 +54,7 @@ class ApiService {
     }
   }
   static Future<http.Response> createOrder(String token, Map<String, dynamic> orderData) async {
-    final url = Uri.parse("https://your-api.com/api/place_order");
+    final url = Uri.parse("$baseUrl/orders/");
 
     return await http.post(
       url,

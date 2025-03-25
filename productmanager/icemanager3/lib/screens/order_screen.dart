@@ -35,6 +35,7 @@ class _OrderScreenState extends State<OrderScreen> {
   final formatter = NumberFormat("#,###");
   bool _isFirstOrder = false;
   bool _isOrderTimeAllowed = true;
+  bool _orderLocked = false;
 
   void _connectWebSocket() {
     channel = WebSocketChannel.connect(Uri.parse('ws://your-server.com/ws/stock_updates'));
@@ -69,6 +70,7 @@ class _OrderScreenState extends State<OrderScreen> {
     _fetchEmployeeVehicleStock(authProvider.user?.id ?? 0); // 🔹 차량 재고 초기화
 
     _checkFirstOrderAndTimeRestriction();
+
   }
   Future<void> _checkFirstOrderAndTimeRestriction() async {    //서버의 시간을 가져와 오후 8시부터 오전 7시까지만 주문가능, 첫주문만 가능
     final today = widget.selectedDate;
@@ -87,6 +89,7 @@ class _OrderScreenState extends State<OrderScreen> {
         final allowedEnd = DateTime(today.year, today.month, today.day, 7, 0); // 당일 07:00
         print("📡 서버 시간: $serverNow");
         print("✅ 허용 범위: $allowedStart ~ $allowedEnd");
+
         if (!(serverNow.isAfter(allowedStart) && serverNow.isBefore(allowedEnd))) {
           setState(() {
             _isOrderTimeAllowed = false;
@@ -189,6 +192,7 @@ class _OrderScreenState extends State<OrderScreen> {
 
   // 서버에 주문을 전송하는 함수
   Future<void> _sendOrderToServer() async {
+
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final int employeeId = authProvider.user?.id ?? 0;
     final String orderDate = widget.selectedDate.toIso8601String().substring(0, 10);
@@ -200,7 +204,27 @@ class _OrderScreenState extends State<OrderScreen> {
     setState(() {
       outOfStockItems.clear(); // ✅ 주문 전 부족한 품목 리스트 초기화
     });
+    if (_isFirstOrder) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text("⚠️ 주문 주의"),
+          content: Text("주문은 이후 수정이 불가능합니다.\n정확히 입력했는지 다시 한번 확인해주세요."),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text("취소"),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text("주문 진행"),
+            ),
+          ],
+        ),
+      );
 
+      if (confirmed != true) return; // 사용자가 '취소' 선택 시 중단
+    }
     quantityControllers.forEach((productId, controller) {
       int quantity = int.tryParse(controller.text) ?? 0;
       int warehouseStock = warehouseStockMap[productId] ?? 0;
@@ -215,7 +239,7 @@ class _OrderScreenState extends State<OrderScreen> {
         }
       }
     });
-
+    print("📦 수량 입력된 아이템 개수: ${orderItems.length}");
     if (hasStockIssue) {
       setState(() {}); // ✅ UI 갱신 (배경색 & 경고 아이콘 표시)
 
@@ -241,11 +265,13 @@ class _OrderScreenState extends State<OrderScreen> {
     final orderData = {
       "employee_id": employeeId,
       "order_date": orderDate,
+      "shipment_round": selectedShipmentRound,
       "total_amount": getTotalProductPrice(),
       "total_boxes": getTotalQuantity(),
+      "total_incentive": getTotalIncentive(),
       "order_items": orderItems,
     };
-
+    print("📡 createOrder 전송: $orderData");
     try {
       final response = await ApiService.createOrder(widget.token, orderData);
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -256,10 +282,55 @@ class _OrderScreenState extends State<OrderScreen> {
           quantityControllers.clear();
         });
         await _fetchWarehouseStock(); // ✅ 주문 후 창고 재고 업데이트
+      }else if (response.statusCode == 403) {
+        setState(() {
+          _orderLocked = true;
+        });
+
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text("🚫 주문 불가"),
+            content: Text("이미 해당 차수에 대한 주문이 존재합니다.\n다시 주문할 수 없습니다."),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text("확인"),
+              ),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("❌ 오류 발생: ${response.statusCode}")),
+        );
       }
+      print("✅ createOrder 응답 code: ${response.statusCode}");
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("❌ 오류 발생: $e")),
+      print("❌ 예외 발생: $e");
+
+      // 예외 안에 statusCode가 들어 있는지 확인
+      String errorMessage = "❌ 주문 처리 중 오류가 발생했습니다.";
+
+      if (e.toString().contains("403")) {
+        setState(() {
+          _orderLocked = true;
+        });
+        errorMessage = "🚫 이미 주문이 전송된 차수입니다.\n다시 주문할 수 없습니다.";
+      }
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text("주문 불가"),
+          content: Text(errorMessage),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text("확인"),
+            ),
+          ],
+        ),
       );
     }
   }
@@ -315,6 +386,7 @@ class _OrderScreenState extends State<OrderScreen> {
   Widget build(BuildContext context) {
     final productProvider = context.watch<ProductProvider>();
     final List<Map<String, dynamic>> products = List<Map<String, dynamic>>.from(productProvider.products);
+    final bool isOrderBlocked = !_isOrderTimeAllowed && _isFirstOrder;
 
     return Scaffold(
       appBar: PreferredSize(
@@ -342,7 +414,7 @@ class _OrderScreenState extends State<OrderScreen> {
               ),
 
               // 🎯 제목
-              Text("🕒 서버시간 허용 여부: $_isOrderTimeAllowed, 첫 주문 여부: $_isFirstOrder"),
+              // Text("🕒 서버시간 허용 여부: $_isOrderTimeAllowed, 첫 주문 여부: $_isFirstOrder"),
 
               Text(
                 "주문 페이지",
@@ -408,10 +480,12 @@ class _OrderScreenState extends State<OrderScreen> {
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal,
+                backgroundColor: (_orderLocked || isOrderBlocked)
+                    ? Colors.grey
+                    : Colors.teal,
                 padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
-              onPressed: (!_isOrderTimeAllowed && _isFirstOrder)
+              onPressed: (_orderLocked || isOrderBlocked)
                   ? null
                   : _sendOrderToServer,
               icon: const Icon(Icons.send, color: Colors.white),
