@@ -95,7 +95,8 @@ class _ProductScreenState extends State<ProductScreen> {
                 _popupLine("브랜드", product['brand_id']),
                 _popupLine("가격", "${formatter.format(product['default_price'])} 원"),
                 _popupLine("가격 유형", isFixedPrice ? "고정가" : "일반가"),
-                _popupLine("바코드", product['barcode']),
+                _popupLine("바코드", (product['barcodes'] as List<dynamic>?)?.join('\n') ?? "-"),
+
                 _popupLine("카테고리", product['category']),
                 _popupLine("박스당 수량", product['box_quantity']),
                 _popupLine("창고 재고", product['stock']),
@@ -236,7 +237,12 @@ class _ProductScreenState extends State<ProductScreen> {
                 _TableCell(product['product_name'] ?? "-", flex: 3),
                 _TableCell(product['brand_id']?.toString() ?? "-", flex: 2),
                 _TableCell(formatter.format((product['default_price'] ?? 0).toInt()), flex: 2),
-                _TableCell(product['barcode'] ?? "-", flex: 3),
+                _TableCell(
+                    (product['barcodes'] != null && product['barcodes'].isNotEmpty)
+                        ? product['barcodes'][0]
+                        : "-",
+                    flex: 3
+                ),
                 _TableCell(product['category'] ?? "-", flex: 2),
                 _TableCell(isFixedPrice ? "고정가" : "일반가", flex: 2, isBold: true),
               ],

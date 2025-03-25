@@ -1,6 +1,6 @@
 # app/schemas/products.py
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from app.utils.time_utils import get_kst_now, convert_utc_to_kst  # ✅ KST 변환 함수 추가
 
@@ -11,7 +11,7 @@ class ProductBase(BaseModel):
 class ProductCreate(BaseModel):
     brand_id: int
     product_name: str
-    barcode: Optional[str] = None
+    barcodes: List[str] = []
     default_price: float = 0
     incentive: float = 0   
     stock: int = 0
@@ -24,7 +24,7 @@ class ProductOut(BaseModel):
     id: int
     brand_id: int
     product_name: str
-    barcode: Optional[str]
+    barcodes: List[str] = []
     default_price: float
     incentive: float
     stock: int

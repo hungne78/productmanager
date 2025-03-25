@@ -291,6 +291,109 @@ def load_glasslike_theme():
         border-bottom: 1px solid rgba(80, 80, 80, 0.6);
     }
     """
+def load_modern_light_theme():
+    """
+    새로운 QSS: 밝고 모던한 테마 (둥근 모서리, 약간의 그림자, 파스텔포인트)
+    """
+    return """
+    QMainWindow {
+        background-color: #F7F9FC; /* 전체 배경 */
+        font-family: 'Segoe UI', sans-serif;
+    }
+    /* 커스텀 타이틀바 */
+    QFrame#TitleBar {
+        background-color: rgba(255, 255, 255, 0.7);
+        border-bottom: 1px solid #d2d6dc;
+    }
+    QLabel#TitleLabel {
+        color: #333333;
+        font-size: 16px;
+        font-weight: 600;
+    }
+    QPushButton#CloseButton {
+        color: #333333;
+        background-color: transparent;
+        border: none;
+        font-size: 14px;
+        margin-right: 4px;
+    }
+    QPushButton#CloseButton:hover {
+        background-color: #FF5C5C;
+        color: white;
+        border-radius: 4px;
+    }
+
+    /* 좌측 패널 */
+    QFrame#LeftPanel {
+        background: #2F3A66; /* 좀 더 진한 블루/퍼플 톤 */
+    }
+    QLabel#LeftPanelLabel {
+        color: #ffffff;
+        font-weight: bold;
+        font-size: 20px; 
+    }
+    QPushButton#NavButton {
+        background-color: transparent;
+        color: #ffffff;
+        text-align: left;
+        padding: 10px 20px;
+        border: none;
+        font-size: 14px;
+    }
+    QPushButton#NavButton:hover {
+        background-color: #3f4b7b;
+        border-radius: 6px;
+    }
+
+    /* 우측 패널 */
+    QWidget#RightPanel {
+        background: #F7F9FC; 
+    }
+    QLabel#TopInfoLabel {
+        font-size: 18px;
+        font-weight: bold;
+        color: #2F3A66;
+    }
+    QFrame#InfoPanel {
+        background-color: white;
+        border: 1px solid #DDDDDD;
+        border-radius: 10px;
+    }
+    QLineEdit {
+        border: 1px solid #cccccc;
+        border-radius: 6px;
+        padding: 6px 10px;
+    }
+    QPushButton {
+        background-color: #E2E8F0;
+        color: #2F3A66;
+        border: 1px solid #CBD5E0;
+        border-radius: 6px;
+        padding: 8px 14px;
+        font-weight: 500;
+    }
+    QPushButton:hover {
+        background-color: #CBD5E0;
+    }
+    QTableWidget {
+        background-color: #ffffff;
+        border: 1px solid #d2d6dc;
+        border-radius: 8px;
+        gridline-color: #e2e2e2;
+        font-size: 13px;
+        color: #333;
+        alternate-background-color: #fdfdfd;
+        selection-background-color: #c8dafc;
+        selection-color: #000000;
+    }
+    QHeaderView::section {
+        background-color: #EEF1F5;
+        color: #333333;
+        font-weight: bold;
+        padding: 8px;
+        border: none;
+    }
+    """
 
 def load_material_theme():
     """
@@ -513,78 +616,82 @@ class CompanyInfoDialog(QDialog):
 class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint)  # 🔷 제목 표시줄 제거
-        self.setGeometry(0, 0, 1900, 1200)
-        self.setStyleSheet(load_erp_style())
-        self.company_info = self.load_company_info()
-        
-        self.old_pos = self.pos()  # 드래그 시작 위치 저장용
 
+        # ◆ 프레임 없애서 커스텀 타이틀바 사용
+        self.setWindowFlags(Qt.FramelessWindowHint)  
+        self.setGeometry(0, 0, 1900, 1200)
+
+        # ◆ 새로운 모던 라이트 테마(QSS) 적용
+        self.setStyleSheet(load_modern_light_theme())
+
+        # ◆ 회사 정보 JSON 로드 (기능 유지)
+        self.company_info = self.load_company_info()
+
+        # ◆ 드래그 이동용
+        self.old_pos = self.pos()
+
+        # ◆ 메인 위젯 + 레이아웃
         main_widget = QWidget()
         main_layout = QVBoxLayout(main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)  
+        main_layout.setSpacing(0)
         self.setCentralWidget(main_widget)
 
-        # ▶ 커스텀 타이틀 바
+        # ─────────────────────────────────────────────────────────────────
+        # 1) 커스텀 타이틀 바 (header)
+        # ─────────────────────────────────────────────────────────────────
         self.header = QFrame()
+        self.header.setObjectName("TitleBar")  # QSS에서 #TitleBar 로 스타일 지정
         self.header.setFixedHeight(42)
-        self.header.setStyleSheet("background-color: #2d3147;")
 
         header_layout = QHBoxLayout(self.header)
         header_layout.setContentsMargins(10, 0, 10, 0)
 
+        # 타이틀 라벨
         title_label = QLabel("성심유통 ERP")
-        title_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
-
+        title_label.setObjectName("TitleLabel")  # QSS: #TitleLabel
+        # 우측에 관리자 표기
         user_label = QLabel("로그인: 관리자")
         user_label.setStyleSheet("color: white; font-size: 13px;")
 
+        # 닫기버튼
         close_btn = QPushButton("✕")
+        close_btn.setObjectName("CloseButton")  # QSS: #CloseButton
         close_btn.setFixedSize(32, 28)
-        close_btn.setStyleSheet(""
-            "QPushButton { color: white; background-color: transparent; border: none; }"
-            "QPushButton:hover { background-color: #e63946; border-radius: 4px; }"
-        )
         close_btn.clicked.connect(self.close)
 
+        # 헤더 레이아웃 배치
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         header_layout.addWidget(user_label)
         header_layout.addSpacing(12)
         header_layout.addWidget(close_btn)
 
-        # ▶ 아래쪽 UI (기존 레이아웃)
+        # ─────────────────────────────────────────────────────────────────
+        # 2) 본문 레이아웃: 좌측 패널 + 우측 컨텐츠
+        # ─────────────────────────────────────────────────────────────────
         content_widget = QWidget()
         content_layout = QHBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
 
-        # ... 이하 기존 self.left_panel, self.right_panel 설정 유지 ...
-
-        
-
-        
-        main_widget = QWidget()
-        main_layout = QVBoxLayout(main_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0) 
-        self.setCentralWidget(main_widget)
-
-        # ▶ 좌측 메뉴 패널
+        # 2-1) 왼쪽 패널
         self.left_panel = QFrame()
-        self.left_panel.setObjectName("LeftPanel")
+        self.left_panel.setObjectName("LeftPanel")  # QSS: #LeftPanel
         self.left_panel.setFixedWidth(180)
+
         left_layout = QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(0, 20, 0, 0)
+        left_layout.setSpacing(10)
 
-        # 🔷 상단 로고 텍스트
-        title_label = QLabel("성심유통")
-        title_label.setObjectName("LeftPanelLabel")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("color: white; font-size: 24px; font-weight: bold;")
-        left_layout.addWidget(title_label)
+        # 좌측 상단 로고
+        title_label_left = QLabel("성심유통")
+        title_label_left.setObjectName("LeftPanelLabel")  # QSS: #LeftPanelLabel
+        title_label_left.setAlignment(Qt.AlignCenter)
+        left_layout.addWidget(title_label_left)
         left_layout.addSpacing(20)
 
+        # 메뉴 버튼 목록
         self.toolbar_icons = [
             ("직원관리", "employee", self.show_employees_tab),
             ("거래처관리", "client", self.show_clients_tab),
@@ -601,14 +708,15 @@ class MainApp(QMainWindow):
 
         for name, icon, handler in self.toolbar_icons:
             btn = QPushButton(name)
-            btn.setObjectName("LeftPanelButton")
+            btn.setObjectName("LeftPanelButton")  # QSS: #LeftPanelButton
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(handler)
             left_layout.addWidget(btn)
 
         left_layout.addStretch()
 
-        # 🔷 검색창 하단 배치
+        # 하단에 검색창
+        
         self.search_label = QLabel("검색:")
         self.search_label.setStyleSheet("color: white; padding-left: 8px;")
         self.search_edit = QLineEdit()
@@ -616,32 +724,33 @@ class MainApp(QMainWindow):
         self.custom_button = QPushButton("모든 검색")
 
         self.search_edit.setPlaceholderText("검색")
-        self.search_edit.setFixedWidth(140)
-        self.search_button.setFixedWidth(60)
-        self.custom_button.setFixedWidth(140)
-
+        self.search_edit.setFixedWidth(180)
+        self.search_button.setFixedWidth(180)
+        self.custom_button.setFixedWidth(180)
+        self.search_button.clicked.connect(self.on_search_clicked)
+        self.search_edit.returnPressed.connect(self.on_search_clicked)
         left_layout.addWidget(self.search_label)
         left_layout.addWidget(self.search_edit)
         left_layout.addWidget(self.search_button)
         left_layout.addWidget(self.custom_button)
 
-        # ▶ 오른쪽 전체 패널
+        # 2-2) 오른쪽 패널
         self.right_panel = QWidget()
         right_layout = QVBoxLayout(self.right_panel)
         right_layout.setContentsMargins(16, 16, 16, 16)
         right_layout.setSpacing(0)
 
-        # 🔷 상단 날짜 및 시간 (디자인 + 업데이트)
+        # 상단 날짜/시간
         self.datetime_label = QLabel()
-        self.datetime_label.setStyleSheet("font-size: 18px; color: #333; font-weight: bold;")
-        self.datetime_label.setContentsMargins(0, 0, 0, 0)
+        self.datetime_label.setObjectName("DateTimeLabel")  # QSS: #DateTimeLabel
         self.update_datetime()
         timer = QTimer(self)
         timer.timeout.connect(self.update_datetime)
-        timer.start(1000)  # 매 초마다 업데이트
+        timer.start(1000)  # 1초마다 갱신
+
         right_layout.addWidget(self.datetime_label, alignment=Qt.AlignLeft)
 
-        # ▶ 버튼 영역
+        # 버튼 영역
         button_row = QHBoxLayout()
         button_row.addStretch()
         for label in ["저장", "조회", "삭제"]:
@@ -650,32 +759,42 @@ class MainApp(QMainWindow):
             button_row.addWidget(btn)
         right_layout.addLayout(button_row)
 
-        # ▶ 정보 패널
+        # 정보 패널(얇은 구분선 등)
         self.info_panel = QFrame()
         self.info_panel.setObjectName("InfoPanel")
         self.info_panel.setFixedHeight(1)
         right_layout.addWidget(self.info_panel)
 
-        # ▶ 콘텐츠 영역
+        # QStackedWidget (탭 컨텐츠)
         self.stacked = QStackedWidget()
-        self.stacked.setObjectName("ContentPanel")
+        self.stacked.setObjectName("ContentPanel")  # QSS: #ContentPanel
         right_layout.addWidget(self.stacked)
 
-        # ▶ 전체 배치
-        # ▶ 좌우 본문 UI
-        content_widget = QWidget()
-        content_layout = QHBoxLayout(content_widget)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-
-        # 좌우 패널은 여기에 추가하면 됨
+        # 본문 레이아웃에 좌우 패널 배치
         content_layout.addWidget(self.left_panel)
         content_layout.addWidget(self.right_panel)
 
-        # ▶ 전체 배치
+        # ─────────────────────────────────────────────────────────────────
+        # 3) 전체 메인 레이아웃 배치
+        # ─────────────────────────────────────────────────────────────────
         main_layout.addWidget(self.header)
         main_layout.addWidget(content_widget)
 
-        # ▶ 탭 등록
+        # ─────────────────────────────────────────────────────────────────
+        # 4) 탭 등록 (기존 코드 그대로)
+        # ─────────────────────────────────────────────────────────────────
+        from employee_ui import EmployeesTab
+        from clients_ui import ClientsTab
+        from products_ui import ProductsTab
+        from orders_ui import OrdersTab
+        from purchase_ui import PurchaseTab
+        from employee_map_ui import EmployeeMapTab
+        from sales_ui import SalesTab
+        from payments_ui import PaymentsTab
+        from invoices_ui import InvoicesTab
+        from employee_sales_ui import EmployeeSalesTab
+        from employee_vehicle_inventory_tab import EmployeeVehicleInventoryTab
+
         self.tabs = {
             "employees": EmployeesTab(),
             "clients": ClientsTab(),
@@ -693,17 +812,27 @@ class MainApp(QMainWindow):
         for tab in self.tabs.values():
             self.stacked.addWidget(tab)
 
-        self.tabs["invoices"].right_panel.set_company_info(self.company_info)
+        # 만약 세금계산서(invoices) 탭에서 회사 정보 필요하다면:
+        if "invoices" in self.tabs:
+            if hasattr(self.tabs["invoices"], "right_panel"):
+                self.tabs["invoices"].right_panel.set_company_info(self.company_info)
 
+        # 첫 화면 employees
         self.stacked.setCurrentWidget(self.tabs["employees"])
         self.update_search_placeholder("employees")
         self.update_custom_button("employees")
 
+    # ─────────────────────────────────────────────────────────────────
+    # 5) 시그널/슬롯 & 기존 기능들
+    # ─────────────────────────────────────────────────────────────────
     def update_datetime(self):
         current = QDateTime.currentDateTime()
         self.datetime_label.setText(current.toString("yyyy-MM-dd hh:mm:ss"))
 
     def mousePressEvent(self, event):
+        """
+        마우스로 타이틀바를 드래그하여 창 이동
+        """
         if event.button() == Qt.LeftButton:
             self.old_pos = event.globalPos()
 
@@ -713,59 +842,49 @@ class MainApp(QMainWindow):
             self.move(self.x() + delta.x(), self.y() + delta.y())
             self.old_pos = event.globalPos()
 
-        
     def update_custom_button(self, tab_name):
-        """ 현재 UI에 따라 버튼 기능을 변경 """
-        current_tab = self.stacked.currentWidget()  # 현재 선택된 UI 가져오기
+        """ 현재 탭에 따라 '모든 검색' 버튼 기능을 다르게 연결 """
+        current_tab = self.stacked.currentWidget()
 
-        # ✅ 기존 이벤트 해제 (예외 방지)
         try:
             self.custom_button.clicked.disconnect()
         except TypeError:
-            pass  # 연결된 슬롯이 없으면 무시
+            pass  # 이미 연결된 슬롯이 없으면 무시
 
-        # ✅ `do_custom_action()`이 존재하면 실행하도록 설정
+        # do_custom_action()이 있으면 연결
         if hasattr(current_tab, "do_custom_action"):
             self.custom_button.clicked.connect(current_tab.do_custom_action)
-            self.custom_button.setText(f"모든 검색")
+            self.custom_button.setText("모든 검색")
         else:
             self.custom_button.setText("기능 없음")
             self.custom_button.clicked.connect(lambda: print("❌ 이 UI에서는 기능이 없습니다."))
 
-                
     def open_company_info_dialog(self):
+        
         dialog = CompanyInfoDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             info = dialog.get_company_info()
             self.company_info = info
             print("▶ 우리 회사 정보 등록 완료:", self.company_info)
-
-            # ✅ 서버에 저장하도록 변경
+            # 서버에 저장:
             self.save_company_info_to_server(self.company_info)
+            # 탭 갱신 (예: 세금계산서 패널 등)
+            if "invoices" in self.tabs:
+                if hasattr(self.tabs["invoices"], "right_panel"):
+                    self.tabs["invoices"].right_panel.set_company_info(self.company_info)
 
-            # ✅ UI 반영 (예: 거래명세서 오른쪽 패널)
-            self.tabs["invoices"].right_panel.set_company_info(self.company_info)
-
-    
     def save_company_info_to_server(self, info: dict):
-        """
-        회사 정보를 FastAPI 서버에 POST로 전송
-        """
         try:
-            url = "http://localhost:8000/company"  # 서버 주소에 맞게 조정
+            url = "http://localhost:8000/company"
             response = requests.post(url, json=info)
-
             if response.status_code in [200, 201]:
                 print("✅ 서버에 회사 정보 저장 성공!")
             else:
                 print(f"❌ 서버 저장 실패: {response.status_code} / {response.text}")
         except Exception as e:
             print(f"❌ 서버 전송 오류: {e}")
-        
+
     def load_company_info(self, filename="company_info.json") -> dict:
-        """
-        JSON 파일에서 회사 정보를 로드 (없으면 빈 딕셔너리 반환)
-        """
         if not os.path.exists(filename):
             return {}
         try:
@@ -779,6 +898,9 @@ class MainApp(QMainWindow):
             print(f"회사 정보 로드 실패: {e}")
             return {}
 
+    # ─────────────────────────────────────────────────────────────────
+    # 6) 사이드바 탭 전환 함수 (기존 기능 그대로)
+    # ─────────────────────────────────────────────────────────────────
     def show_employees_tab(self):
         self.stacked.setCurrentWidget(self.tabs["employees"])
         self.update_search_placeholder("employees")
@@ -835,37 +957,20 @@ class MainApp(QMainWindow):
         self.update_custom_button("inventory")
 
     def on_search_clicked(self):
+        """
+        검색 버튼 클릭 시 현재 탭에 맞춰 검색 수행
+        """
         keyword = self.search_edit.text().strip()
-        current_tab = self.stacked.currentWidget()
-
         if not keyword:
             return
 
-        if isinstance(current_tab, EmployeesTab):
+        current_tab = self.stacked.currentWidget()
+        # 각 탭 클래스에 'do_search' 메서드가 있다면 호출
+        if hasattr(current_tab, "do_search"):
             current_tab.do_search(keyword)
-        elif isinstance(current_tab, ClientsTab):
-            current_tab.do_search(keyword)
-        elif isinstance(current_tab, ProductsTab):
-            current_tab.do_search(keyword)
-        elif isinstance(current_tab, OrdersTab):
-            current_tab.do_search(keyword)
-        elif isinstance(current_tab, PurchaseTab):
-            current_tab.do_search(keyword)
-        elif isinstance(current_tab, EmployeeMapTab):
-            current_tab.do_search(keyword)
-        elif isinstance(current_tab, SalesTab):
-            current_tab.do_search(keyword)
-        elif isinstance(current_tab, EmployeeSalesTab):
-            current_tab.do_search(keyword)
-        elif isinstance(current_tab, PaymentsTab):
-            current_tab.do_search(keyword) 
-        elif isinstance(current_tab, InvoicesTab):
-            current_tab.do_search(keyword)
-        elif isinstance(current_tab, EmployeeVehicleInventoryTab):
-            current_tab.do_search(keyword)
-    
-        
-
+        else:
+            print(f"❌ 현재 탭에 do_search 메서드가 없습니다: {type(current_tab)}")
+            
     def update_search_placeholder(self, tab_name):
         placeholders = {
             "employees": "직원이름 검색",
@@ -876,8 +981,8 @@ class MainApp(QMainWindow):
             "employee_map": "직원 ID 입력",
             "sales": "매출날짜입력",
             "employee_sales": "직원이름 검색",
-            "payments" : "직원이름 검색",
-            "invoices" : "거래처명 검색",
-            "inventory" : "직원이름 검색"
+            "payments": "직원이름 검색",
+            "invoices": "거래처명 검색",
+            "inventory": "직원이름 검색"
         }
         self.search_edit.setPlaceholderText(placeholders.get(tab_name, "검색"))

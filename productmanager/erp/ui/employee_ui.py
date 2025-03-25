@@ -726,68 +726,54 @@ class EmployeesTab(QWidget):
                 # 📌 ERP 스타일 QSS 테마 적용
         self.setStyleSheet("""
 QWidget {
-    background-color: qlineargradient(
-        x1: 0, y1: 0, x2: 1, y2: 1,
-        stop: 0 #eef3fb, stop: 1 #dbeafe
-    );
+    background-color: #F7F9FC; /* 좀 더 밝은 배경 */
     font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
-    font-size: 14px;
-    color: #1f2937;
+    color: #2F3A66;
 }
-
 QGroupBox {
-    background-color: rgba(255, 255, 255, 0.85);
-    border: 1px solid rgba(200, 200, 200, 0.4);
-    border-radius: 20px;
+    background-color: rgba(255,255,255, 0.8);
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
     padding: 16px;
     margin-top: 12px;
 }
-
 QGroupBox::title {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
-    color: #3b82f6;
-    padding: 4px 12px;
+    color: #4B5D88;
+    padding: 6px 12px;
 }
-
 QPushButton {
-    background-color: #e0e7ff;
-    border: 1px solid #c7d2fe;
-    border-radius: 8px;
-    padding: 6px 14px;
+    background-color: #E2E8F0;
+    border: 2px solid #CBD5E0;
+    border-radius: 6px;
+    padding: 8px 14px;
     font-weight: 500;
-    color: #1e3a8a;
+    color: #2F3A66;
 }
 QPushButton:hover {
-    background-color: #c7d2fe;
+    background-color: #CBD5E0;
 }
-
 QTableWidget {
-    background-color: #ffffff;
-    border: 1px solid #cbd5e1;
-    border-radius: 12px;
-    gridline-color: #d1d5db;
-    font-size: 14px;
-    color: #1f2937;
-    alternate-background-color: #f1f5f9;
-    selection-background-color: #dbeafe;
+    background-color: #FFFFFF;
+    border: 3px solid #D2D6DC;
+    border-radius: 8px;
+    gridline-color: #E2E2E2;
+    font-size: 15px;
+    color: #333333;
+    alternate-background-color: #fafafa;
+    selection-background-color: #c8dafc;
 }
-
 QHeaderView::section {
-    background-color: #e2e8f0;
-    color: #1f2937;
-    font-weight: bold;
-    padding: 8px;
-    border: 1px solid #cbd5e1;
-    font-size: 14px;
-}
-
-QTableWidget::item {
-    border-bottom: 1px solid #e5e7eb;
+    background-color: #EEF1F5;
+    color: #333333;
+    font-weight: 600;
     padding: 6px;
+    border: 1px solid #D2D6DC;
+    border-radius: 0;
+    border-bottom: 2px solid #ddd;
 }
 """)
-
 
 
     def update_employee_ui(self, employee_id: int):

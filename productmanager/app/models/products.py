@@ -43,3 +43,4 @@ class Product(Base):
     sales_records = relationship("SalesRecord", back_populates="product", cascade="all, delete-orphan")
     order_items_archive = relationship("OrderItemArchive", back_populates="product")
     inventory = relationship("EmployeeInventory", back_populates="product")
+    barcodes = relationship("ProductBarcode", back_populates="product", cascade="all, delete-orphan")

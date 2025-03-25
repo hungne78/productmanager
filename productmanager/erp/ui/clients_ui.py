@@ -780,7 +780,56 @@ class ClientsTab(QWidget):
         main_layout.addWidget(self.right_panel)
 
         self.setLayout(main_layout)
-
+        self.setStyleSheet("""
+QWidget {
+    background-color: #F7F9FC; /* 좀 더 밝은 배경 */
+    font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
+    color: #2F3A66;
+}
+QGroupBox {
+    background-color: rgba(255,255,255, 0.8);
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 12px;
+}
+QGroupBox::title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #4B5D88;
+    padding: 6px 12px;
+}
+QPushButton {
+    background-color: #E2E8F0;
+    border: 1px solid #CBD5E0;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: 500;
+    color: #2F3A66;
+}
+QPushButton:hover {
+    background-color: #CBD5E0;
+}
+QTableWidget {
+    background-color: #FFFFFF;
+    border: 1px solid #D2D6DC;
+    border-radius: 8px;
+    gridline-color: #E2E2E2;
+    font-size: 13px;
+    color: #333333;
+    alternate-background-color: #fafafa;
+    selection-background-color: #c8dafc;
+}
+QHeaderView::section {
+    background-color: #EEF1F5;
+    color: #333333;
+    font-weight: 600;
+    padding: 6px;
+    border: none;
+    border-radius: 0;
+    border-bottom: 1px solid #ddd;
+}
+""")
     def do_custom_action(self):
         """ '기능 버튼' 클릭 시 실행되는 동작 (모든 거래처 보기) """
         self.show_all_clients()

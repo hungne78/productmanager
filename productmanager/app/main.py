@@ -31,6 +31,40 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import logging
 from fastapi.routing import APIRoute
+from app.db.database import get_db
+from apscheduler.schedulers.background import BackgroundScheduler
+from app.models.products import Product
+from app.models.sales_records import SalesRecord
+from app.utils.time_utils import get_kst_now
+from dateutil.relativedelta import relativedelta
+
+def cleanup_unused_products_task():
+    db = get_db()  # 직접 세션 획득
+    try:
+        six_months_ago = get_kst_now() - relativedelta(months=6)
+        recent_sold_subq = (
+            db.query(SalesRecord.product_id)
+            .filter(SalesRecord.sale_datetime >= six_months_ago)
+            .distinct()
+            .subquery()
+        )
+        unused_products = (
+            db.query(Product)
+            .filter(Product.stock == 0)
+            .filter(~Product.id.in_(recent_sold_subq))
+            .all()
+        )
+        count = len(unused_products)
+        for p in unused_products:
+            db.delete(p)
+        db.commit()
+        print(f"[⏰ 자동삭제] {count}개 상품 삭제 완료")
+    except Exception as e:
+        print(f"❌ 자동삭제 오류: {e}")
+    finally:
+        db.close()
+
+scheduler = BackgroundScheduler()
 
 
 logging.basicConfig(level=logging.DEBUG)  # DEBUG 레벨로 설정하여 모든 로그 출력
@@ -55,8 +89,8 @@ async def lifespan(app: FastAPI):
             hashed_pw = get_password_hash("admin123")
             admin = Employee(
                 password_hash=hashed_pw,
-                name="심형섭",
-                phone="01029683796",
+                name="김두한",
+                phone="01036649876",
                 role="admin"
             )
             db.add(admin)
@@ -65,6 +99,11 @@ async def lifespan(app: FastAPI):
             print("Default admin created")
     finally:
         db.close()
+
+    scheduler.add_job(cleanup_unused_products_task, "cron", hour=3, minute=0)
+    scheduler.start()
+    print("✅ 스케줄러 시작됨 (매일 03:00 자동 삭제)")
+       
     yield
     print("Shutdown: Cleaning up...")
 

@@ -24,6 +24,7 @@ import 'package:flutter/widgets.dart' as widgets;
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:image/image.dart' as img;
 import 'package:url_launcher/url_launcher.dart';
+import '../bluetooth_printer_provider.dart';
 
 AndroidDeviceInfo? androidInfo;
 
@@ -86,18 +87,30 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     _loadDeviceInfo();
     _checkBluetoothPermissions(); // ✅ 필수
     // _initializeSPP(); // SPP 모드 초기화
-    // _initializeBLE(); // BLE 모드 초기화
+    _initializeBLE(); // BLE 모드 초기화
     _checkPrinterConnection(); // 연결 여부 확인
     _loadPrinterSettings(); // ✅ 프린터 설정값 로딩
     WidgetsBinding.instance.addObserver(this);
-    print("✅ SalesScreen 실행됨");
+
     client = Map<String, dynamic>.from(widget.client); // client 초기화
     paymentController = TextEditingController(text: ""); // 입금 금액 기본값 빈 문자열로 설정
     paymentFocusNode = FocusNode(); // 포커스 노드 초기화
     _selectedClient = widget.client; // 거래처 정보 설정
     // ✅ 상품 목록 확인 및 필요 시 업데이트
     _selectedClient = widget.client;
+    // ...
+    final printerProvider = context.read<BluetoothPrinterProvider>();
+    printerProvider.loadLastDevice(); // 자동 재연결 시도
 
+    // 프린터 연결 상태 반영
+    printerProvider.addListener(() {
+      final isConnected = printerProvider.isConnected;
+      if (mounted) {
+        setState(() {
+          _isPrinterConnected = isConnected;
+        });
+      }
+    });
 
 
     // ✅ ProductProvider에서 상품 목록을 가져오도록 설정
@@ -123,6 +136,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // 여기서 _keyboardFocusNode를 실제로 포커스하도록
+      _tryReconnectToPrinter();
       FocusScope.of(context).requestFocus(_keyboardFocusNode);
       _tryReconnectToLastDeviceOnEntry();
     });
@@ -159,6 +173,34 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       Future.delayed(Duration(seconds: 1), () {
         _tryReconnectToLastDevice(); // 👇 아래에서 만들자
       });
+    }
+  }
+  Future<void> _tryReconnectToPrinter() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastPrinterId = prefs.getString('last_printer_id');
+    if (lastPrinterId == null) return;
+
+    try {
+      final devices = await BLE.FlutterBluePlus.connectedDevices;
+      final target = devices.firstWhere(
+            (d) => d.id.toString() == lastPrinterId,
+        orElse: () => throw Exception("최근 프린터를 찾을 수 없습니다."),
+      );
+
+      await target.connect(); // 이미 연결되었더라도 예외 없이 처리됨
+      final services = await target.discoverServices();
+      final hasWriteCharacteristic = services.any((s) =>
+          s.characteristics.any((c) => c.properties.write));
+
+      if (hasWriteCharacteristic) {
+        print("✅ 프린터 자동 재연결 완료");
+        setState(() => _isPrinterConnected = true);
+      } else {
+        setState(() => _isPrinterConnected = false);
+      }
+    } catch (e) {
+      print("❌ 프린터 자동 재연결 실패: $e");
+      setState(() => _isPrinterConnected = false);
     }
   }
 
@@ -211,34 +253,78 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
 
     print("🔚 탐색 완료");
   }
+  //  BLE 스캐너 자동 탐색 (UUID 자동)
+  Future<void> autoDetectScanner(BLE.BluetoothDevice device) async {
+    print("🔍 [autoDetectScanner] BLE 스캐너 자동 탐색 시작: ${device.name}");
+    // 이미 연결되었다면 중복 connect 에러가 안나도록 예외처리
+    if (device.state != BLE.BluetoothDeviceState.connected) {
+      await device.connect(autoConnect: false);
+    }
 
+    final services = await device.discoverServices();
+
+    bool foundScanner = false;
+
+    // notify Characteristic 찾아 시도
+    for (var service in services) {
+      for (var characteristic in service.characteristics) {
+        if (characteristic.properties.notify) {
+          print("✅ 후보 Notify Characteristic: ${characteristic.uuid}");
+
+          // notify 활성화
+          await characteristic.setNotifyValue(true);
+
+          bool gotBarcode = false;
+          StreamSubscription? subscription;
+
+          subscription = characteristic.value.listen((value) {
+            try {
+              final data = utf8.decode(value);
+              print("📦 스캐너 UTF-8 데이터: $data");
+            } catch (e) {
+              final asciiData = value.map((b) => String.fromCharCode(b)).join();
+              print("⚠️ UTF-8 실패, ASCII로 해석: $asciiData");
+            }
+          });
+          // 3초 대기 -> 바코드 들어오면 성공 처리
+          await Future.delayed(Duration(seconds: 3));
+
+          // Notify 해제
+          await characteristic.setNotifyValue(false);
+          await subscription?.cancel();
+
+          if (gotBarcode) {
+            print("🎉 유효 스캐너 UUID 감지: ${characteristic.uuid}");
+            // 필요시 SharedPreferences 등에 저장 가능
+            break;
+          }
+        }
+
+        if (foundScanner) break; // 스캐너 찾으면 반복 중단
+      }
+      if (foundScanner) break;
+    }
+
+    if (!foundScanner) {
+      print("❌ 스캐너로 쓸 만한 Notify Characteristic을 찾지 못했습니다.");
+    }
+  }
 
   Future<BLE.BluetoothCharacteristic?> _getConnectedPrinterWriteCharacteristic() async {
     final prefs = await SharedPreferences.getInstance();
     String? printerId = prefs.getString('last_printer_id');
     if (printerId == null) return null;
 
+    // 이미 연결된 디바이스 중 찾아보기
     final connectedDevices = await BLE.FlutterBluePlus.connectedDevices;
     final device = connectedDevices.firstWhere(
           (d) => d.id.toString() == printerId,
       orElse: () => throw Exception("연결된 프린터를 찾을 수 없습니다."),
     );
 
-    final services = await device.discoverServices();
-    final targetUuid = '49535343-aca3-481c-91ec-d85e28a60318'; // ✅ 고정 UUID 사용
-
-    for (var service in services) {
-      for (var char in service.characteristics) {
-        if (char.properties.write &&
-            char.uuid.toString().toLowerCase() == targetUuid) {
-          print("✅ Goojprt용 WRITE characteristic 연결됨: ${char.uuid}");
-          return char;
-        }
-      }
-    }
-
-    print("❌ Goojprt 전용 UUID를 찾을 수 없습니다.");
-    return null;
+    // [신규 로직] 자동 탐색
+    final writeChar = await autoDetectPrinter(device);
+    return writeChar; // 못 찾으면 null
   }
 
 
@@ -307,7 +393,41 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     final model = androidInfo?.model ?? '';
     return foldModels.any((m) => model.contains(m));
   }
+  // [신규] BLE 프린터 자동 탐색 예시
+  Future<BLE.BluetoothCharacteristic?> autoDetectPrinter(BLE.BluetoothDevice device) async {
+    print("🔍 [autoDetectPrinter] BLE 프린터 자동 탐색 시작: ${device.name}");
+    if (device.state != BLE.BluetoothDeviceState.connected) {
+      await device.connect();
+    }
 
+    final services = await device.discoverServices();
+    BLE.BluetoothCharacteristic? foundWriteChar;
+
+    for (var s in services) {
+      for (var c in s.characteristics) {
+        if (c.properties.write) {
+          print("✅ 후보 WRITE Characteristic: ${c.uuid}");
+
+          // [테스트] "Hello Printer" 데이터를 써보고 에러 없으면 성공으로 간주
+          try {
+            await c.write(utf8.encode("Hello Printer Test\n"));
+            print("🎉 프린터 WRITE 성공 -> Characteristic: ${c.uuid}");
+            foundWriteChar = c;
+            // 여기서 SharedPreferences 등에 c.uuid 저장 가능
+            break;
+          } catch (e) {
+            print("⚠️ 쓰기 실패: $e");
+          }
+        }
+      }
+      if (foundWriteChar != null) break;
+    }
+
+    if (foundWriteChar == null) {
+      print("❌ 프린터로 쓸 만한 WRITE Characteristic을 찾지 못함");
+    }
+    return foundWriteChar;
+  }
   /// 📌 SPP 모드 초기화 (Bluetooth Serial)
   Future<void> _initializeSPP() async {
     List<spp.BluetoothDevice> devices = await spp.FlutterBluetoothSerial.instance.getBondedDevices();
@@ -342,24 +462,20 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   void _initializeBLE() {
     BLE.FlutterBluePlus.startScan(timeout: Duration(seconds: 5));
 
-    BLE.FlutterBluePlus.scanResults.listen((results) {
-      for (BLE.ScanResult result in results) {
-        if (result.device.name.contains("BarcodeScanner") && !result.device.isConnected) {
-          result.device.connect();
-          result.device.discoverServices().then((services) {
-            for (BLE.BluetoothService service in services) {
-              for (BLE.BluetoothCharacteristic characteristic in service.characteristics) {
-                if (characteristic.properties.notify) {
-                  characteristic.setNotifyValue(true);
-                  characteristic.value.listen((List<int> value) {
-                    String barcode = utf8.decode(value.where((byte) => byte != 0x00).toList());
-                    _handleBarcode(barcode);
-                  });
-                }
-              }
-            }
-          });
+    // [수정] 모든 ScanResult에 대해 스캐너 후보로 시도
+    BLE.FlutterBluePlus.scanResults.listen((results) async {
+      for (BLE.ScanResult r in results) {
+        final device = r.device;
+        // 예: 원하면 이름이나 RSSI 필터를 걸 수도 있음
+        // if (device.name.isEmpty) continue;
+        try {
+          await device.connect(autoConnect: false);
+        } catch (e) {
+          print("❌ 연결 실패: $e");
+          await device.disconnect(); // 실패하더라도 disconnect 시도
         }
+        // 스캐너 자동탐색 시도
+        await autoDetectScanner(device);
       }
     });
   }
@@ -378,7 +494,18 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
         .replaceAll(RegExp(r'[xX]$'), '') // 뒤에 x 제거
         .trim();
 
-    // HID + 갤럭시 폴드일 때만 보정 로직 적용
+    // 🔍 SPP 모드일 경우: 비정상적으로 붙는 '8888' 제거 (예: 8888801077384305 → 8801077384305)
+    if (_scannerMode == "SPP") {
+      if (cleaned.length > 13 && cleaned.startsWith("8888")) {
+        cleaned = cleaned.substring(cleaned.length - 13);
+        print("🔧 SPP 모드 프리픽스 제거 후: $cleaned");
+      }
+    }
+
+    // 🔧 현재 스캐너 모드 출력
+    print("🔧 현재 스캐너 모드: $_scannerMode");
+
+    // ✅ HID + 갤럭시 폴드일 때만 보정 로직 적용
     if (_scannerMode == "HID" && isGalaxyFold()) {
       if (cleaned == "8") return "88";
       if (cleaned == "7") return "77";
@@ -396,6 +523,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
 
     return cleaned;
   }
+
 
 
   // 바코드 카메라 스캔
@@ -457,6 +585,11 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   Set<String> _scannedBarcodes = {};
 
   void processBarcode(String raw) async {
+    if (_scannerMode != "HID" || !isGalaxyFold()) {
+      print("🚫 보정 비활성화 → 원본 사용");
+      await _handleBarcode(raw.trim());
+      return;
+    }
     final cleaned = preprocessBarcode(raw);
 
     if (cleaned.isEmpty) return;
@@ -467,26 +600,15 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   // 바코드 처리
   Future<void> _handleBarcode(String barcode) async {
     final authProvider = context.read<AuthProvider>();
-
     barcode = preprocessBarcode(barcode);
 
-    // ✅ 여기서 필터링
     if (barcode.isEmpty || _scannedBarcodes.contains(barcode)) {
       print("⛔️ 무시된 바코드: '$barcode'");
       return;
     }
 
-    // Fluttertoast.showToast(msg: "스캔된 바코드: $barcode");
-
-    // ✅ 로그인 상태 확인 (로그인 정보 없으면 로그인 화면으로 이동)
     if (authProvider.user == null) {
-      print("⚠️ 로그인 세션 만료됨. 로그인 화면으로 이동");
       Navigator.pushReplacementNamed(context, '/login');
-      return;
-    }
-
-    if (barcode.isEmpty) {
-      Fluttertoast.showToast(msg: "스캔된 바코드가 비어 있습니다.", gravity: ToastGravity.BOTTOM);
       return;
     }
 
@@ -496,49 +618,35 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       final productProvider = context.read<ProductProvider>();
 
       if (productProvider.products.isEmpty) {
-        Fluttertoast.showToast(msg: "상품 목록이 비어 있습니다. 먼저 상품을 다운로드하세요.", gravity: ToastGravity.BOTTOM);
+        Fluttertoast.showToast(msg: "상품 목록이 비어 있습니다.", gravity: ToastGravity.BOTTOM);
         return;
       }
 
-      final productList = productProvider.products.where((p) => p['barcode'] == barcode).toList();
-      if (productList.isEmpty) {
+      // ✅ 바코드 리스트 포함 여부로 상품 찾기
+      final matchedProduct = productProvider.products.firstWhere(
+            (p) {
+          final barcodes = p['barcodes'] as List<dynamic>? ?? [];
+          return barcodes.contains(barcode);
+        },
+        orElse: () => null,
+      );
+
+      if (matchedProduct == null) {
         Fluttertoast.showToast(msg: "조회된 상품이 없습니다.", gravity: ToastGravity.BOTTOM);
         return;
       }
 
-      final product = productList.first;
-
-      if (product == null || product.isEmpty) {
-        Fluttertoast.showToast(msg: "상품 정보가 유효하지 않습니다.", gravity: ToastGravity.BOTTOM);
-        return;
-      }
-
-
-      // ✅ UTF-8 디코딩 예외 처리
-      String productName;
-      try {
-        productName = utf8.decode(product['product_name'].toString().codeUnits);
-      } catch (e) {
-        print("❌ 상품명 UTF-8 디코딩 오류: $e");
-        productName = product['product_name'].toString(); // 오류 발생 시 원본 그대로 사용
-      }
-
-      // ✅ 상품의 원래 가격 (기본 가격)
-      double defaultPrice = (product['default_price'] ?? 0).toDouble();
-
-      // ✅ 상품이 고정가인지 일반가인지 판별
-      bool isProductFixedPrice = product['is_fixed_price'] == true; // 상품 자체의 가격 유형 확인
-
-      // ✅ 거래처 단가 적용
-      double clientRegularPrice = (widget.client['regular_price'] ?? 0).toDouble();
-      double clientFixedPrice = (widget.client['fixed_price'] ?? 0).toDouble();
-      double appliedPrice = isProductFixedPrice ? clientFixedPrice : clientRegularPrice; // ✅ 상품 가격 유형에 따라 거래처 가격 적용
-      String priceType = isProductFixedPrice ? "고정가" : "일반가";
+      final product = matchedProduct;
+      final productName = product['product_name'] ?? "상품명 없음";
+      final defaultPrice = (product['default_price'] ?? 0).toDouble();
+      final isProductFixedPrice = product['is_fixed_price'] == true;
+      final clientRegularPrice = (widget.client['regular_price'] ?? 0).toDouble();
+      final clientFixedPrice = (widget.client['fixed_price'] ?? 0).toDouble();
+      final appliedPrice = isProductFixedPrice ? clientFixedPrice : clientRegularPrice;
+      final priceType = isProductFixedPrice ? "고정가" : "일반가";
 
       if (_isReturnMode) {
-        // ✅ 반품 모드
-        int existingIndex = _returnedItems.indexWhere((item) => item['product_id'] == product['id']);
-
+        final existingIndex = _returnedItems.indexWhere((item) => item['product_id'] == product['id']);
         if (existingIndex >= 0) {
           setState(() {
             _returnedItems[existingIndex]['box_quantity']++;
@@ -548,19 +656,17 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
             _returnedItems.add({
               'product_id': product['id'],
               'name': productName,
-              'box_quantity': 1, // ✅ 박스수 1 고정
-              'box_count': 0, // ✅ 개수 기본 1
-              'default_price': defaultPrice, // ✅ 상품의 원래 가격 (기본 가격)
-              'client_price': appliedPrice, // ✅ 거래처 적용 단가
-              'price_type': priceType, // ✅ 가격 유형 (일반가 / 고정가)
+              'box_quantity': 1,
+              'box_count': 0,
+              'default_price': defaultPrice,
+              'client_price': appliedPrice,
+              'price_type': priceType,
               'category': product['category'] ?? '',
             });
           });
         }
       } else {
-        // ✅ 일반 판매 모드
-        int existingIndex = _scannedItems.indexWhere((item) => item['product_id'] == product['id']);
-
+        final existingIndex = _scannedItems.indexWhere((item) => item['product_id'] == product['id']);
         if (existingIndex >= 0) {
           setState(() {
             _scannedItems[existingIndex]['box_count']++;
@@ -569,12 +675,12 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
           setState(() {
             _scannedItems.add({
               'product_id': product['id'],
-              'name': product['product_name'],
+              'name': productName,
               'box_quantity': product['box_quantity'] ?? 0,
               'box_count': 1,
-              'default_price': defaultPrice, // ✅ 상품의 원래 가격 (기본 가격)
-              'client_price': appliedPrice, // ✅ 거래처 적용 단가
-              'price_type': priceType, // ✅ 가격 유형 (일반가 / 고정가)
+              'default_price': defaultPrice,
+              'client_price': appliedPrice,
+              'price_type': priceType,
               'category': product['category'] ?? '',
             });
           });
@@ -582,7 +688,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       }
 
       Fluttertoast.showToast(
-        msg: "${_isReturnMode ? '반품' : '상품'} 추가됨: ${product['product_name']}",
+        msg: "${_isReturnMode ? '반품' : '상품'} 추가됨: $productName",
         gravity: ToastGravity.BOTTOM,
       );
     } catch (e) {
@@ -591,6 +697,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       setState(() => _isLoading = false);
     }
   }
+
 
 //거래처정보테이블
   double get totalAmount {
@@ -951,6 +1058,8 @@ Tel: ${companyInfo['phone']}
 
   /// 📌 헤더 스타일 조정
   Widget _buildCustomAppBar(BuildContext context) {
+    final printerProvider = context.watch<BluetoothPrinterProvider>();
+    final isPrinterConnected = printerProvider.isConnected;
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
@@ -1209,6 +1318,7 @@ Tel: ${companyInfo['phone']}
 
       setState(() {
         _isBluetoothConnected = true;
+        _isPrinterConnected = true;
         _connectedDeviceName = device.name;
       });
 

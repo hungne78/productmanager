@@ -19,11 +19,6 @@ global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 class ProductDialog(QDialog):
     def __init__(self, title, product=None, parent=None):
-        """
-        상품 등록 및 수정 다이얼로그
-        :param title: 다이얼로그 제목 ("신규 상품 등록" or "상품 수정")
-        :param product: 기존 상품 정보 (수정 시)
-        """
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setFixedSize(500, 600)
@@ -31,7 +26,7 @@ class ProductDialog(QDialog):
         layout = QVBoxLayout()
         form_layout = QFormLayout()
 
-        # ✅ 브랜드 ID (숫자 입력)
+        # ✅ 브랜드 ID
         self.brand_id_edit = QLineEdit()
         form_layout.addRow("브랜드 ID:", self.brand_id_edit)
 
@@ -39,9 +34,12 @@ class ProductDialog(QDialog):
         self.name_edit = QLineEdit()
         form_layout.addRow("상품명:", self.name_edit)
 
-        # ✅ 바코드
-        self.barcode_edit = QLineEdit()
-        form_layout.addRow("바코드:", self.barcode_edit)
+        # ✅ 여러 바코드 입력 (QPlainTextEdit)
+        # 기존: self.barcode_edit = QLineEdit()
+        # 바꿈: 여러 줄로 바코드를 입력할 수 있게
+        self.barcodes_edit = QPlainTextEdit()
+        self.barcodes_edit.setPlaceholderText("바코드를 여러 줄로 입력하세요.\n예:\n12345\n67890\n...")
+        form_layout.addRow("바코드 목록:", self.barcodes_edit)
 
         # ✅ 기본 가격
         self.price_edit = QLineEdit()
@@ -70,9 +68,8 @@ class ProductDialog(QDialog):
 
         # ✅ 일반가 / 고정가 여부 (Bool → 드롭다운)
         self.price_type_edit = QComboBox()
-        self.price_type_edit.addItems(["일반가", "고정가"])  # ✅ 0: 일반가 (False), 1: 고정가 (True)
+        self.price_type_edit.addItems(["일반가", "고정가"]) 
         form_layout.addRow("가격 유형:", self.price_type_edit)
-
 
         layout.addLayout(form_layout)
 
@@ -94,14 +91,45 @@ class ProductDialog(QDialog):
         if product:
             self.brand_id_edit.setText(str(product.get("brand_id", "")))
             self.name_edit.setText(product.get("product_name", ""))
-            self.barcode_edit.setText(product.get("barcode", ""))
+            # 바코드는 여러 개일 수 있으므로, 줄바꿈으로 join
+            # product["barcodes"] = ["12345","67890"] 라고 가정
+            barcodes_list = product.get("barcodes", [])
+            barcodes_text = "\n".join(barcodes_list)
+            self.barcodes_edit.setPlainText(barcodes_text)
+
             self.price_edit.setText(str(product.get("default_price", "0")))
             self.incentive_edit.setText(str(product.get("incentive", "0")))
             self.stock_edit.setText(str(product.get("stock", "0")))
             self.box_quantity_edit.setText(str(product.get("box_quantity", "1")))
             self.active_edit.setCurrentIndex(0 if product.get("is_active", 1) == 1 else 1)
             self.category_edit.setText(product.get("category", ""))
-            self.price_type_edit.setCurrentIndex(1 if product.get("is_fixed_price", False) else 0)  # ✅ bool → index 변환
+            self.price_type_edit.setCurrentIndex(1 if product.get("is_fixed_price", False) else 0)
+
+    def get_product_data(self):
+        """
+        다이얼로그에서 입력한 데이터를 dict로 만들어 반환
+        """
+        brand_id_text = self.brand_id_edit.text().strip()
+        brand_id = int(brand_id_text) if brand_id_text.isdigit() else 0
+
+        barcodes_text = self.barcodes_edit.toPlainText().strip()
+        # 여러 줄을 리스트로 분리
+        # 공백 줄은 제거하도록 filter 처리
+        barcode_lines = [line.strip() for line in barcodes_text.splitlines() if line.strip()]
+
+        data = {
+            "brand_id": brand_id,
+            "product_name": self.name_edit.text().strip(),
+            "barcodes": barcode_lines,  # ← 여러 개 바코드를 리스트로
+            "default_price": float(self.price_edit.text().strip() or 0),
+            "stock": int(self.stock_edit.text().strip() or 0),
+            "is_active": 1 if "1" in self.active_edit.currentText() else 0,
+            "incentive": float(self.incentive_edit.text().strip() or 0),
+            "box_quantity": int(self.box_quantity_edit.text().strip() or 1),
+            "category": self.category_edit.text().strip(),
+            "is_fixed_price": True if self.price_type_edit.currentIndex() == 1 else False
+        }
+        return data
 
 class ProductSelectionDialog(QDialog):
     def __init__(self, products, parent=None):
@@ -220,38 +248,17 @@ class ProductLeftPanel(BaseLeftTableWidget):
 
 
     def create_product(self):
-        """
-        상품 신규 등록 (직원별 차량 재고도 자동 추가)
-        """
         global global_token
         if not global_token:
             QMessageBox.warning(self, "경고", "로그인이 필요합니다.")
             return
 
-        dialog = ProductDialog("신규 상품 등록")  # ✅ `ProductDialog` 사용
+        dialog = ProductDialog("신규 상품 등록")
         if dialog.exec_() == QDialog.Accepted:
-            data = {
-                "brand_id": int(dialog.brand_id_edit.text() or 0),
-                "product_name": dialog.name_edit.text(),
-                "barcode": dialog.barcode_edit.text(),
-                "default_price": float(dialog.price_edit.text() or 0),
-                "stock": int(dialog.stock_edit.text() or 0),
-                "is_active": 1 if "1" in dialog.active_edit.currentText() else 0,
-                "incentive": float(dialog.incentive_edit.text() or 0),
-                "box_quantity": int(dialog.box_quantity_edit.text() or 1),
-                "category": dialog.category_edit.text(),
-                "is_fixed_price": True if dialog.price_type_edit.currentIndex() == 1 else False
-            }
-
+            data = dialog.get_product_data()  # ← 여기서 barcodes 리스트도 함께 옴
             resp = api_create_product(global_token, data)
             if resp and resp.status_code in (200, 201):
                 QMessageBox.information(self, "성공", "상품 등록 완료!")
-
-                # ✅ 직원별 차량 재고 업데이트 상태 확인
-                product_id = resp.json().get("id")
-                if product_id:
-                    QMessageBox.information(self, "성공", "직원 차량 재고도 정상적으로 추가되었습니다.")
-
             else:
                 QMessageBox.critical(self, "실패", f"상품 등록 실패: {resp.status_code}\n{resp.text}")
 
@@ -536,7 +543,56 @@ class ProductsTab(QWidget):
         main_layout.addWidget(self.right_panel)
 
         self.setLayout(main_layout)
-
+        self.setStyleSheet("""
+QWidget {
+    background-color: #F7F9FC; /* 좀 더 밝은 배경 */
+    font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
+    color: #2F3A66;
+}
+QGroupBox {
+    background-color: rgba(255,255,255, 0.8);
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 12px;
+}
+QGroupBox::title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #4B5D88;
+    padding: 6px 12px;
+}
+QPushButton {
+    background-color: #E2E8F0;
+    border: 2px solid #CBD5E0;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: 500;
+    color: #2F3A66;
+}
+QPushButton:hover {
+    background-color: #CBD5E0;
+}
+QTableWidget {
+    background-color: #FFFFFF;
+    border: 3px solid #D2D6DC;
+    border-radius: 8px;
+    gridline-color: #E2E2E2;
+    font-size: 15px;
+    color: #333333;
+    alternate-background-color: #fafafa;
+    selection-background-color: #c8dafc;
+}
+QHeaderView::section {
+    background-color: #EEF1F5;
+    color: #333333;
+    font-weight: 600;
+    padding: 6px;
+    border: 1px solid #D2D6DC;
+    border-radius: 0;
+    border-bottom: 2px solid #ddd;
+}
+""")
     
     def do_search(self, search_text):
         """

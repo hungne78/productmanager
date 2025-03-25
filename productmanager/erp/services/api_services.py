@@ -329,7 +329,7 @@ def api_update_product_by_name(token, product_name, data):
 
 def api_fetch_products(token, search_name=None):
     """ 상품 목록을 가져오는 API 요청 함수 (이름 검색 가능) """
-    url = f"{BASE_URL}/products/"
+    url = f"{BASE_URL}/products/manage"
     
     # ✅ 검색어가 있으면 URL에 `?search=이름` 추가
     if search_name:

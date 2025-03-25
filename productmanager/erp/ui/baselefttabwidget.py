@@ -4,7 +4,19 @@ from PyQt5.QtWidgets import (
      QHeaderView
     
 )
+from PyQt5.QtWidgets import QStyledItemDelegate
+from PyQt5.QtGui import QPen
 from PyQt5.QtCore import Qt
+
+class ThickLineDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        painter.save()
+        pen = QPen(Qt.gray, 2)  # ✅ 원하는 색과 두께로 선 설정 (여기선 2px 회색)
+        painter.setPen(pen)
+        painter.drawRect(option.rect)  # ✅ 셀 테두리 그리기
+        painter.restore()
+
 class BaseLeftTableWidget(QWidget):
     def __init__(self, row_count, labels, parent=None):
         super().__init__(parent)
@@ -34,7 +46,7 @@ class BaseLeftTableWidget(QWidget):
             self.table_info.setItem(r, 0, item_label)
             # 값은 비워둠 (나중에 setItem(r,1,...) 혹은 setText)
             self.table_info.setItem(r, 1, QTableWidgetItem(""))
-
+        self.table_info.setItemDelegate(ThickLineDelegate(self.table_info))
         main_layout.addWidget(self.table_info)
 
         # 버튼 (신규등록, 수정)

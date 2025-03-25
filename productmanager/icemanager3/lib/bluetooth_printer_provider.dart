@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+import 'dart:convert';
 class BluetoothPrinterProvider with ChangeNotifier {
   BluetoothDevice? _selectedDevice;
   BluetoothCharacteristic? _writeCharacteristic;
@@ -37,6 +37,45 @@ class BluetoothPrinterProvider with ChangeNotifier {
     });
   }
 
+  Future<BluetoothCharacteristic?> autoDetectPrinter(BluetoothDevice device) async {
+    print("🔍 [autoDetectPrinter] BLE 프린터 자동 탐색 시작: ${device.name}");
+
+    // 이미 연결 안 된 상태라면 먼저 연결
+    if (device.state != BluetoothDeviceState.connected) {
+      await device.connect();
+    }
+
+    // 서비스/캐릭터리스틱 검색
+    final services = await device.discoverServices();
+    BluetoothCharacteristic? foundWriteChar;
+
+    // 모든 Characteristic 중에서 write 가능(프린터 전송용)인지 확인
+    for (var s in services) {
+      for (var c in s.characteristics) {
+        if (c.properties.write) {
+          print("✅ 후보 WRITE Characteristic: ${c.uuid}");
+
+          // 간단 테스트: 프린터에 임의 문구 전송
+          try {
+            await c.write(utf8.encode("Hello Printer\n"));
+            print("🎉 프린터 WRITE 성공 → Characteristic: ${c.uuid}");
+            foundWriteChar = c;
+            break; // 찾았으면 탈출
+          } catch (e) {
+            print("⚠️ 쓰기 실패: $e");
+          }
+        }
+      }
+      if (foundWriteChar != null) break;
+    }
+
+    if (foundWriteChar == null) {
+      print("❌ 프린터로 쓸 만한 WRITE Characteristic을 찾지 못함");
+    }
+    return foundWriteChar;
+  }
+
+
   /// 🔹 마지막으로 연결한 프린터 정보 로드
   Future<void> loadLastDevice() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -63,21 +102,19 @@ class BluetoothPrinterProvider with ChangeNotifier {
 
     try {
       await device.connect();
-      List<BluetoothService> services = await device.discoverServices();
-      for (BluetoothService service in services) {
-        for (BluetoothCharacteristic characteristic in service.characteristics) {
-          if (characteristic.properties.write) {
-            _writeCharacteristic = characteristic;
-            break;
-          }
-        }
+      // [수정] 여기서 자동 탐색
+      final foundWriteChar = await autoDetectPrinter(device);
+
+      if (foundWriteChar == null) {
+        print("❌ writeCharacteristic을 찾지 못해 프린터 연결 실패");
+        return;
       }
 
+      _writeCharacteristic = foundWriteChar;
       _selectedDevice = device;
       _isConnected = true;
       notifyListeners();
 
-      // ✅ 연결된 프린터 정보 저장
       SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString('last_printer_id', device.id.toString());
     } catch (e) {
