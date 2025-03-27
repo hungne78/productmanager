@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
-    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QDialog, QVBoxLayout, QListWidget, QComboBox, QGroupBox
+    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QDialog, QVBoxLayout, QListWidget, QComboBox, QGroupBox,QPlainTextEdit,QFileDialog
 import sys
 import os
 
@@ -14,7 +14,11 @@ from PyQt5.QtWidgets import QSizePolicy
 from PyQt5.QtChart import QChart, QChartView, QBarSet, QBarSeries, QBarCategoryAxis, QLineSeries
 from PyQt5.QtWidgets import QHeaderView  # 추가 필요
 import requests
+import json
+import pandas as pd
 from datetime import datetime
+from PyQt5.QtWidgets import QProgressDialog
+
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 class ProductDialog(QDialog):
@@ -27,8 +31,9 @@ class ProductDialog(QDialog):
         form_layout = QFormLayout()
 
         # ✅ 브랜드 ID
-        self.brand_id_edit = QLineEdit()
-        form_layout.addRow("브랜드 ID:", self.brand_id_edit)
+        self.brand_name_combo = QComboBox()
+        self.refresh_brand_names()  # 서버에서 브랜드명 리스트 불러오기
+        form_layout.addRow("브랜드명:", self.brand_name_combo)
 
         # ✅ 상품명
         self.name_edit = QLineEdit()
@@ -89,7 +94,10 @@ class ProductDialog(QDialog):
 
         # ✅ 기존 상품 정보가 있으면 값 채우기 (수정 모드)
         if product:
-            self.brand_id_edit.setText(str(product.get("brand_id", "")))
+            brand_name = product.get("brand_name", "")
+            index = self.brand_name_combo.findText(brand_name)
+            if index >= 0:
+                self.brand_name_combo.setCurrentIndex(index)
             self.name_edit.setText(product.get("product_name", ""))
             # 바코드는 여러 개일 수 있으므로, 줄바꿈으로 join
             # product["barcodes"] = ["12345","67890"] 라고 가정
@@ -105,6 +113,23 @@ class ProductDialog(QDialog):
             self.category_edit.setText(product.get("category", ""))
             self.price_type_edit.setCurrentIndex(1 if product.get("is_fixed_price", False) else 0)
 
+    def refresh_brand_names(self):
+        try:
+            resp = requests.get(
+                "http://127.0.0.1:8000/brands/",
+                headers={"Authorization": f"Bearer {global_token}"}
+            )
+            if resp.status_code == 200:
+                brand_list = resp.json()
+                self.brand_name_combo.clear()
+                if not brand_list:
+                    QMessageBox.warning(self, "경고", "등록된 브랜드가 없습니다.")
+                    return
+                for brand in brand_list:
+                    self.brand_name_combo.addItem(brand["name"])
+        except Exception as e:
+            print("❌ 브랜드 목록 불러오기 실패:", e)
+
     def get_product_data(self):
         """
         다이얼로그에서 입력한 데이터를 dict로 만들어 반환
@@ -118,7 +143,7 @@ class ProductDialog(QDialog):
         barcode_lines = [line.strip() for line in barcodes_text.splitlines() if line.strip()]
 
         data = {
-            "brand_id": brand_id,
+            "brand_name": self.brand_name_combo.currentText().strip(),
             "product_name": self.name_edit.text().strip(),
             "barcodes": barcode_lines,  # ← 여러 개 바코드를 리스트로
             "default_price": float(self.price_edit.text().strip() or 0),
@@ -208,11 +233,173 @@ class ProductLeftPanel(BaseLeftTableWidget):
          # ✅ "삭제" 버튼 추가 (BaseLeftTableWidget의 btn_layout에 추가)
         self.btn_delete = QPushButton("삭제")
         self.layout().itemAt(1).layout().addWidget(self.btn_delete)
+        self.btn_import_excel = QPushButton("엑셀 업로드")
+        self.layout().itemAt(1).layout().addWidget(self.btn_import_excel)
 
+        # 버튼 클릭 이벤트 연결
+        self.btn_import_excel.clicked.connect(self.import_from_excel)
         # ✅ 버튼 클릭 이벤트 연결
         self.btn_new.clicked.connect(self.create_product)
         self.btn_edit.clicked.connect(self.update_product)
         self.btn_delete.clicked.connect(self.delete_product)
+        self.btn_add_brand = QPushButton("브랜드 등록")
+        self.layout().itemAt(1).layout().addWidget(self.btn_add_brand)
+        self.btn_add_brand.clicked.connect(self.add_brand_dialog)
+        self.current_product_id = None
+
+    def add_brand_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("브랜드 등록")
+        dialog.setFixedSize(300, 150)
+        layout = QVBoxLayout(dialog)
+
+        form = QFormLayout()
+        brand_name_edit = QLineEdit()
+        form.addRow("브랜드명:", brand_name_edit)
+        layout.addLayout(form)
+
+        btn_layout = QHBoxLayout()
+        btn_ok = QPushButton("등록")
+        btn_cancel = QPushButton("취소")
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+        def on_register():
+            name = brand_name_edit.text().strip()
+            if not name:
+                QMessageBox.warning(dialog, "경고", "브랜드명을 입력하세요.")
+                return
+            try:
+                resp = requests.post(
+                    "http://127.0.0.1:8000/brands/",
+                    headers={"Authorization": f"Bearer {global_token}"},
+                    json={"name": name}
+                )
+                if resp.status_code == 201:
+                    QMessageBox.information(dialog, "성공", "브랜드가 등록되었습니다.")
+                    dialog.accept()
+                else:
+                    # QMessageBox.critical(dialog, "실패", f"등록 실패: {resp.status_code}\n{resp.text}")
+                    pass
+            except Exception as e:
+                QMessageBox.critical(dialog, "에러", str(e))
+
+        btn_ok.clicked.connect(on_register)
+        btn_cancel.clicked.connect(dialog.reject)
+        dialog.exec_()
+
+    def import_from_excel(self):
+        global global_token
+        if not global_token:
+            QMessageBox.warning(self, "경고", "로그인이 필요합니다.")
+            return
+
+        file_dialog = QFileDialog(self)
+        file_dialog.setNameFilter("Excel Files (*.xlsx *.xls)")
+        file_dialog.setFileMode(QFileDialog.ExistingFile)
+
+        if file_dialog.exec_():
+            file_path = file_dialog.selectedFiles()[0]
+            if not file_path:
+                return
+
+            try:
+                df = pd.read_excel(file_path)
+            except Exception as e:
+                QMessageBox.critical(self, "에러", f"엑셀 파일을 읽는 중 오류가 발생했습니다.\n{str(e)}")
+                return
+
+            total_rows = len(df)
+            if total_rows == 0:
+                QMessageBox.information(self, "정보", "엑셀에 등록할 상품이 없습니다.")
+                return
+
+            # ✅ 진행바
+            progress = QProgressDialog("상품을 업로드 중입니다...", "취소", 0, total_rows, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+
+            created_count = 0
+            error_count = 0
+
+            for idx, (_, row) in enumerate(df.iterrows()):
+                if progress.wasCanceled():
+                    QMessageBox.information(self, "중단", "업로드가 사용자에 의해 중단되었습니다.")
+                    return
+
+                try:
+                    # ✅ 필수값 추출 및 유효성 검사
+                    brand_name = str(row.get("brand_name", "")).strip()
+                    product_name = str(row.get("상품명", "")).strip()
+
+                    if not brand_name or not product_name:
+                        print(f"❌ {idx+1}행: brand_name 또는 상품명이 비어 있어 건너뜀")
+                        error_count += 1
+                        continue
+
+                    # ✅ 바코드 처리 (여러 줄 또는 JSON 배열 가능)
+                    raw_barcode = row.get("바코드", "")
+                    barcodes = []
+                    if isinstance(raw_barcode, str):
+                        raw_barcode = raw_barcode.strip()
+                        if raw_barcode.startswith("["):
+                            try:
+                                barcodes = [b.strip() for b in json.loads(raw_barcode) if b.strip()]
+                            except:
+                                barcodes = [raw_barcode] if raw_barcode else []
+                        elif "\n" in raw_barcode:
+                            barcodes = [line.strip() for line in raw_barcode.splitlines() if line.strip()]
+                        elif "," in raw_barcode:
+                            barcodes = [b.strip() for b in raw_barcode.split(",") if b.strip()]
+                        else:
+                            if raw_barcode:
+                                barcodes = [raw_barcode]
+                    elif pd.notna(raw_barcode):
+                        barcodes = [str(raw_barcode).strip()]
+
+                    # ✅ 나머지 필드
+                    default_price = float(row.get("기본가격", 0))
+                    incentive = float(row.get("인센티브", 0))
+                    stock = int(row.get("재고수량", 0))
+                    box_qty = int(row.get("박스당수량", 1))
+                    category = str(row.get("카테고리", "")).strip()
+                    is_active = 1 if str(row.get("활성화여부", "1")).strip() == "1" else 0
+                    is_fixed_price = str(row.get("가격유형", "")).strip() == "고정가"
+
+                    data = {
+                        "brand_name": brand_name,
+                        "product_name": product_name,
+                        "barcodes": barcodes,
+                        "default_price": default_price,
+                        "incentive": incentive,
+                        "stock": stock,
+                        "box_quantity": box_qty,
+                        "category": category,
+                        "is_active": is_active,
+                        "is_fixed_price": is_fixed_price
+                    }
+
+                    resp = api_create_product(global_token, data)
+                    if resp and resp.status_code in (200, 201):
+                        created_count += 1
+                    else:
+                        print(f"❌ {idx+1}행 업로드 실패: {resp.status_code} {resp.text}")
+                        error_count += 1
+                except Exception as e:
+                    print(f"❌ {idx+1}행 처리 중 예외 발생:", e)
+                    error_count += 1
+
+                progress.setValue(idx + 1)
+
+            progress.close()
+            QMessageBox.information(
+                self,
+                "엑셀 업로드 결과",
+                f"총 {total_rows}건 중 {created_count}건 등록 성공, {error_count}건 실패"
+            )
+
 
     def display_product(self, product: dict):
         """
@@ -225,9 +412,11 @@ class ProductLeftPanel(BaseLeftTableWidget):
             return
 
         self.current_product_id = product.get("id")
-        self.set_value(0, str(product.get("brand_id", "")))
+        self.set_value(0, product.get("brand_name", ""))
         self.set_value(1, product.get("product_name", ""))
-        self.set_value(2, product.get("barcode", ""))
+        barcodes = product.get("barcodes", [])
+        first_barcode = barcodes[0] if isinstance(barcodes, list) and barcodes else ""
+        self.set_value(2, first_barcode)
         self.set_value(3, str(product.get("default_price", 0)))
         self.set_value(4, str(product.get("incentive", 0)))
         self.set_value(5, str(product.get("stock", 0)))
@@ -265,58 +454,65 @@ class ProductLeftPanel(BaseLeftTableWidget):
         
     def update_product(self):
         """
-        상품 ID를 기준으로 수정
+        현재 테이블에 표시된 상품 하나를 수정
         """
         global global_token
-        if not hasattr(self, "current_product_id") or not self.current_product_id:
-            QMessageBox.warning(self, "주의", "수정할 상품이 선택되지 않았습니다.")
+
+        # ✅ 현재 표시된 상품의 ID가 있는지 확인
+        if not getattr(self, "current_product_id", None):
+            QMessageBox.warning(self, "주의", "표시된 상품이 없습니다.")
             return
 
-        product_id = self.current_product_id  # ✅ 저장된 상품 ID 사용
+        product_id = self.current_product_id
 
-        # ✅ 기존 상품 정보 불러오기
+        # ✅ 테이블에 표시된 정보를 기반으로 기존 값 구성
         current_product = {
-            "brand_id": self.get_value(0),  # ✅ 기존 브랜드 ID 가져오기
+            "brand_name": self.get_value(0),  # 브랜드 이름
             "product_name": self.get_value(1),
-            "barcode": self.get_value(2),
-            "default_price": self.get_value(3) or "0",
-            "incentive": self.get_value(4) or "0",
-            "stock": self.get_value(5) or "0",
-            "box_quantity": self.get_value(6) or "1",
+            "barcodes": [self.get_value(2)] if self.get_value(2) else [],
+            "default_price": float(self.get_value(3) or 0),
+            "incentive": float(self.get_value(4) or 0),
+            "stock": int(self.get_value(5) or 0),
+            "box_quantity": int(self.get_value(6) or 1),
             "category": self.get_value(7) or "",
-            "is_active": 1 if self.get_value(8) == "활성" else 0,  # ✅ 리스트 값 가져오기
+            "is_active": 1 if self.get_value(8) == "활성" else 0,
             "is_fixed_price": True if self.get_value(9) == "고정가" else False
         }
 
-        # ✅ 상품 수정 다이얼로그 실행
         dialog = ProductDialog("상품 수정", product=current_product)
         if dialog.exec_() == QDialog.Accepted:
             try:
-                brand_id_text = dialog.brand_id_edit.text().strip()
-                brand_id = int(brand_id_text) if brand_id_text.isdigit() else None  # ✅ 브랜드 ID가 숫자인지 확인
+                brand_name = dialog.brand_name_combo.currentText().strip()
+                product_name = dialog.name_edit.text().strip()
+                barcodes_raw = dialog.barcode_edit.toPlainText().strip()
+                barcodes = [
+                    line.strip() for line in barcodes_raw.splitlines() if line.strip()
+                ]
 
                 data = {
-                    "brand_id": brand_id,
-                    "product_name": dialog.name_edit.text().strip(),
-                    "barcode": dialog.barcode_edit.text().strip(),
+                    "brand_name": brand_name,
+                    "product_name": product_name,
+                    "barcodes": barcodes,
                     "default_price": float(dialog.price_edit.text().strip() or 0),
                     "stock": int(dialog.stock_edit.text().strip() or 0),
-                    "is_active": 1 if "1" in dialog.active_edit.currentText() else 0,  # ✅ 수정 다이얼로그에서 가져오기
                     "incentive": float(dialog.incentive_edit.text().strip() or 0),
                     "box_quantity": int(dialog.box_quantity_edit.text().strip() or 1),
                     "category": dialog.category_edit.text().strip(),
-                    "is_fixed_price": True if dialog.price_type_edit.currentIndex() == 1 else False
+                    "is_active": 1 if "1" in dialog.active_edit.currentText() else 0,
+                    "is_fixed_price": dialog.price_type_edit.currentIndex() == 1
                 }
-            except ValueError as e:
-                QMessageBox.critical(self, "오류", f"잘못된 입력값: {e}")
-                return
 
-            # ✅ 상품 ID로 업데이트 요청
-            resp = api_update_product_by_id(global_token, product_id, data)
-            if resp and resp.status_code == 200:
-                QMessageBox.information(self, "성공", "상품 수정 완료!")
-            else:
-                QMessageBox.critical(self, "실패", f"상품 수정 실패: {resp.status_code}\n{resp.text}")
+                resp = api_update_product_by_id(global_token, product_id, data)
+                if resp and resp.status_code == 200:
+                    QMessageBox.information(self, "성공", "상품 수정 완료!")
+                    self.refresh_callback()
+                else:
+                    QMessageBox.critical(self, "실패", f"상품 수정 실패: {resp.status_code}\n{resp.text}")
+
+            except Exception as e:
+                QMessageBox.critical(self, "에러", f"수정 중 오류 발생: {e}")
+
+
 
 
     def delete_product(self):

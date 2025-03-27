@@ -457,7 +457,13 @@ class OrderRightWidget(QWidget):
         # ✅ 상품 목록을 배치할 컨테이너 및 레이아웃 (grid_layout 추가)
         self.container = QWidget()
         self.grid_layout = QGridLayout(self.container)  # ✅ 창 크기에 따라 동적 정렬
-        self.layout.addWidget(self.container)
+        # ✅ 스크롤 영역 추가
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidget(self.container)
+
+
+        self.layout.addWidget(self.scroll_area)
         self.total_items_label = QLabel("📦 총 주문 품목 수: 0")
         self.total_quantity_label = QLabel("💰 총 주문 수량: 0")
         self.layout.addWidget(self.total_items_label)
@@ -830,7 +836,10 @@ class OrderRightWidget(QWidget):
         col = 0  
 
         # ✅ 상품을 `카테고리 -> 품명` 순으로 정리
-        sorted_products = sorted(self.current_products, key=lambda p: (p["category"], p["brand_id"], p["product_name"]))
+        sorted_products = sorted(
+            self.current_products,
+            key=lambda p: (p.get("category", ""), p.get("brand_name", ""), p.get("product_name", ""))
+        )
 
         table = None
         row_index = 0
@@ -838,7 +847,9 @@ class OrderRightWidget(QWidget):
         current_brand = None
 
         for product in sorted_products:
-            category, brand, product_name = product["category"], product["brand_id"], product["product_name"]
+            category = product.get("category", "")
+            brand = product.get("brand_name", "")
+            product_name = product.get("product_name", "")
 
             if row_index == 0 or table is None:
                 table = QTableWidget()
@@ -987,24 +998,36 @@ class OrderRightWidget(QWidget):
 
 
     def load_products(self):
-        """
-        서버에서 상품 목록을 가져와 `카테고리`별로 정리 후 표시
-        """
+        print("[DEBUG] 상품 불러오기 시작")
         global global_token
-        url = f"{BASE_URL}/products/all"
+        url = f"{BASE_URL}/products/grouped"
         headers = {"Authorization": f"Bearer {global_token}"}
 
         try:
             resp = requests.get(url, headers=headers)
+            print(f"[DEBUG] 응답 코드: {resp.status_code}")
             if resp.status_code == 200:
-                self.current_products = [p for p in resp.json() if p["is_active"] == 1]  # ✅ 상품 목록 저장
-            else:
+                result = resp.json()
                 self.current_products = []
+
+                for category, brands in result.items():
+                    for brand, products in brands.items():
+                        for product in products:
+                            product["category"] = category
+                            product["brand_name"] = brand
+                            self.current_products.append(product)
+            else:
+                print(f"❌ 상품 목록 응답 실패: {resp.status_code}")
+                self.current_products = []
+
         except Exception as e:
             print(f"❌ 상품 목록 가져오기 실패: {e}")
             self.current_products = []
 
+        print("[DEBUG] 상품 개수:", len(self.current_products))
+        print("[DEBUG] populate_table 호출 시작")
         self.populate_table()
+
 
     
     def create_resized_text(self, text, table):
