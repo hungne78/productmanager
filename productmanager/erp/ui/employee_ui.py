@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,QScrollArea, \
     QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QInputDialog,QVBoxLayout, QListWidget, QDialog, QGroupBox, QDateEdit, QPushButton
 import sys
 import os
@@ -222,13 +222,49 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
             "차량_주유비", "현재_주행거리", "엔진오일교체일"
         ]
         super().__init__(row_count=len(labels), labels=labels, parent=parent)
+        # -------------------------------------------
+        # 1) "담당 거래처 / 이번달 매출" 테이블 추가
+        # -------------------------------------------
+        # 📌 1) 테이블 설정
+        self.client_sales_table = QTableWidget()
+        self.client_sales_table.setColumnCount(3)
+        self.client_sales_table.setHorizontalHeaderLabels(["순번", "거래처명", "이번달 매출"])
+        self.client_sales_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.client_sales_table.verticalHeader().setVisible(False)
 
+        # 👉 열 너비 설정
+        header = self.client_sales_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+
+        # 📌 2) 스크롤 영역으로 감싸기
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(self.client_sales_table)
+        scroll_area.setFixedHeight(510)
+
+        # 📌 3) 합계 라벨 추가
+        self.client_sales_total_label = QLabel("합계: 0 원")
+        self.client_sales_total_label.setAlignment(Qt.AlignRight)
+        self.client_sales_total_label.setFont(QFont("Arial", 10, QFont.Bold))
+
+        # 📌 4) 레이아웃에 추가
+        self.client_sales_label = QLabel("담당 거래처 + 이번달 매출")
+        self.layout().addWidget(self.client_sales_label)
+        self.layout().addWidget(scroll_area)
+        self.layout().addWidget(self.client_sales_total_label)
+        # 테이블 하단에 여유 공간 확보 (예: stretch)
+        # spacer = QWidget()
+        # spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # self.layout().addWidget(spacer)
+        
         # 상위 BaseLeftTableWidget에서 table_info + "신규등록/수정" 버튼 생성
         self.btn_new.clicked.connect(self.create_employee)
         self.btn_edit.clicked.connect(self.update_employee)
         self.btn_delete = QPushButton("삭제")
         self.btn_vehicle = QPushButton("차량등록")
-    
+
         
         # BaseLeftTableWidget의 레이아웃(버튼이 들어있는 레이아웃)에 추가합니다.
         # (BaseLeftTableWidget의 init_ui()에서 마지막에 addLayout(btn_layout)을 호출함)
@@ -334,6 +370,87 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
             self.set_value(6, "")
             self.set_value(7, "")
             self.set_value(8, "")
+
+        if not employee:
+            for r in range(self.row_count):
+                self.set_value(r, "")
+            # 하단 테이블도 비우기
+            self.client_sales_table.setRowCount(0)
+            return
+
+        emp_id = str(employee.get("id", ""))
+        self.set_value(0, emp_id)
+        ...
+        # 차량 정보 표시 ...
+
+        # 새로 추가: 담당 거래처 + 매출 테이블 갱신
+        self.update_client_sales(emp_id)
+
+    def update_client_sales(self, emp_id):
+        """
+        1) 서버에서 직원 담당 거래처들의 월별 매출 + 이름을 받아옴
+        2) 이번달 매출만 추출하여 테이블에 표시 + 합계는 별도 라벨에 표시
+        """
+        from datetime import datetime
+        now = datetime.now()
+        year = now.year
+        month = now.month
+
+        url = "http://127.0.0.1:8000/sales/employee_clients_sales"
+        headers = {"Authorization": f"Bearer {global_token}"}
+        params = {"employee_id": emp_id, "year": year, "month": month}
+
+        try:
+            resp = requests.get(url, headers=headers, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            print("❌ 직원 거래처 매출 조회 실패:", e)
+            return
+
+        per_client = data.get("per_client", {})
+        client_names = data.get("client_names", {})
+
+        self.client_sales_table.clearContents()
+        self.client_sales_table.setRowCount(len(per_client))
+
+        # 👉 열 크기 조절
+        header = self.client_sales_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+
+        total_sum = 0
+        for row_idx, (client_id, monthly_sales) in enumerate(per_client.items()):
+            name = client_names.get(str(client_id), f"거래처 {client_id}")
+            this_month_sales = monthly_sales[month - 1]
+
+            # 👉 순번
+            item_index = QTableWidgetItem(str(row_idx + 1))
+            item_index.setTextAlignment(Qt.AlignCenter)
+            self.client_sales_table.setItem(row_idx, 0, item_index)
+
+            # 👉 거래처명
+            item_name = QTableWidgetItem(name)
+            item_name.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            self.client_sales_table.setItem(row_idx, 1, item_name)
+
+            # 👉 매출
+            item_sales = QTableWidgetItem(f"{this_month_sales:,.0f} 원")
+            item_sales.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.client_sales_table.setItem(row_idx, 2, item_sales)
+
+            total_sum += this_month_sales
+
+        # 👉 합계 라벨에 표시 (별도)
+        self.client_sales_total_label.setText(f"합계: {total_sum:,.0f} 원")
+        self.client_sales_total_label.setAlignment(Qt.AlignRight)
+        self.client_sales_total_label.setFont(QFont("Arial", 10, QFont.Bold))
+
+        # 마지막 줄로 스크롤
+        self.client_sales_table.scrollToBottom()
+
+
 
     def format_phone_number(self, phone):
         """ ✅ 전화번호를 '010-1234-5678' 형식으로 변환 """

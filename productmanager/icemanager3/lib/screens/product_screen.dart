@@ -53,7 +53,7 @@ class _ProductScreenState extends State<ProductScreen> {
           .where((product) {
         final query = _searchQuery.toLowerCase();
         return (product['product_name']?.toLowerCase().contains(query) ?? false) ||
-            (product['brand_id']?.toString().contains(query) ?? false) ||
+            (product['brand_name']?.toString().contains(query) ?? false) ||
             (product['default_price']?.toString().contains(query) ?? false) ||
             (product['category']?.toLowerCase().contains(query) ?? false) ||
             (product['barcode']?.contains(query) ?? false);
@@ -92,7 +92,7 @@ class _ProductScreenState extends State<ProductScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _popupLine("상품명", product['product_name']),
-                _popupLine("브랜드", product['brand_id']),
+                _popupLine("브랜드", product['brand_name']),
                 _popupLine("가격", "${formatter.format(product['default_price'])} 원"),
                 _popupLine("가격 유형", isFixedPrice ? "고정가" : "일반가"),
                 _popupLine("바코드", (product['barcodes'] as List<dynamic>?)?.join('\n') ?? "-"),
@@ -235,7 +235,7 @@ class _ProductScreenState extends State<ProductScreen> {
             child: Row(
               children: [
                 _TableCell(product['product_name'] ?? "-", flex: 3),
-                _TableCell(product['brand_id']?.toString() ?? "-", flex: 2),
+                _TableCell(product['brand_name']?.toString() ?? "-", flex: 2),
                 _TableCell(formatter.format((product['default_price'] ?? 0).toInt()), flex: 2),
                 _TableCell(
                     (product['barcodes'] != null && product['barcodes'].isNotEmpty)

@@ -117,15 +117,32 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final productProvider = context.read<ProductProvider>();
 
-      // ✅ 상품 목록이 비어 있으면 다시 가져오기
       if (productProvider.products.isEmpty) {
         print("⚠️ SalesScreen: 상품 목록이 비어 있음. 서버에서 다시 불러옴.");
-        final List<dynamic> products = await ApiService.fetchAllProducts(widget.token);
-        if (products.isNotEmpty) {
-          productProvider.setProducts(List<Map<String, dynamic>>.from(products));
-          print("✅ SalesScreen: 상품 목록 업데이트 완료. 총 ${products.length}개");
+
+        final Map<String, dynamic> groupedProducts = await ApiService.fetchAllProducts(widget.token);
+        List<Map<String, dynamic>> allProducts = [];
+
+        // 👉 Map 구조를 펼쳐서 List<Map<String, dynamic>> 만들기
+        groupedProducts.forEach((category, brandMap) {
+          if (brandMap is Map<String, dynamic>) {
+            brandMap.forEach((brand, products) {
+              if (products is List) {
+                for (var product in products) {
+                  if (product is Map<String, dynamic>) {
+                    allProducts.add(product);
+                  }
+                }
+              }
+            });
+          }
+        });
+
+        if (allProducts.isNotEmpty) {
+          productProvider.setProducts(allProducts);
+          print("✅ SalesScreen: 상품 목록 업데이트 완료. 총 ${allProducts.length}개");
         } else {
-          print("❌ SalesScreen: 서버에서 상품을 가져오지 못함.");
+          print("❌ SalesScreen: 파싱된 상품 목록이 비어 있음.");
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("상품 목록을 가져오지 못했습니다.")),
           );
@@ -134,12 +151,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
         print("✅ SalesScreen: ProductProvider에서 상품을 정상적으로 가져옴. 총 ${productProvider.products.length}개");
       }
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // 여기서 _keyboardFocusNode를 실제로 포커스하도록
-      _tryReconnectToPrinter();
-      FocusScope.of(context).requestFocus(_keyboardFocusNode);
-      _tryReconnectToLastDeviceOnEntry();
-    });
+
 
   }
   @override

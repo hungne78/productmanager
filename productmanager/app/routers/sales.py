@@ -998,3 +998,103 @@ def get_outstanding_balances(employee_id: int, db: Session = Depends(get_db)):
     ]
 
     return JSONResponse(content=response_data, media_type="application/json; charset=utf-8")
+
+@router.get("/employee_clients_sales")
+def get_client_sales(
+    employee_id: int = Query(...),
+    year: int = Query(...),
+    month: int = Query(...),
+    db: Session = Depends(get_db)
+):
+    """
+    직원(employee_id)이 담당하는 거래처들의 월별 매출과 이름 포함한 결과 반환
+
+    """
+    from app.models.clients import Client
+    from sqlalchemy import extract, func
+
+    # 🔹 1) 직원 담당 거래처 목록 (client_id + 이름)
+    employee_client_rows = (
+        db.query(EmployeeClient.client_id, Client.client_name)
+        .join(Client, EmployeeClient.client_id == Client.id)
+        .filter(EmployeeClient.employee_id == employee_id)
+        .all()
+    )
+
+    if not employee_client_rows:
+        return {
+            "year": year,
+            "per_client": {},
+            "total_monthly": [0]*12,
+            "client_names": {}
+        }
+
+    client_ids = []
+    client_names = {}
+    for row in employee_client_rows:
+        client_ids.append(row.client_id)
+        client_names[row.client_id] = row.client_name
+
+    # 🔹 2) 각 거래처 월별 매출 조회
+    results = (
+        db.query(
+            SalesRecord.client_id.label("cid"),
+            extract('month', SalesRecord.sale_datetime).label('sale_month'),
+            func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
+        )
+        .join(Product, SalesRecord.product_id == Product.id)
+        .filter(SalesRecord.client_id.in_(client_ids))
+        .filter(SalesRecord.employee_id == employee_id)
+        .filter(extract('year', SalesRecord.sale_datetime) == year)
+        
+        .group_by(SalesRecord.client_id, extract('month', SalesRecord.sale_datetime))
+        .all()
+    )
+
+    per_client = {cid: [0]*12 for cid in client_ids}
+    for row in results:
+        m = int(row.sale_month)
+        per_client[int(row.cid)][m - 1] = float(row.sum_sales or 0)
+
+    total_monthly = [0]*12
+    for values in per_client.values():
+        for i in range(12):
+            total_monthly[i] += values[i]
+
+    return {
+        "year": year,
+        "per_client": per_client,
+        "total_monthly": total_monthly,
+        "client_names": client_names
+    }
+
+
+# sales.py (예: 이 파일 제일 아래쪽 등에 추가)
+@router.get("/client_monthly_sales")
+def get_client_monthly_sales(
+    client_id: int = Query(...),
+    year: int = Query(...),
+    month: int = Query(...),
+    db: Session = Depends(get_db)
+):
+    """
+    특정 거래처(client_id)의 year년도 month월 매출 합계를 반환.
+    반환 예시: { "total_sales": 12345.0 }
+    """
+
+    from sqlalchemy import extract, func
+    from app.models.sales_records import SalesRecord
+    from app.models.products import Product
+
+    # 1) 기본 가격 * 수량 = 매출
+    sum_val = db.query(
+        func.sum(Product.default_price * SalesRecord.quantity)
+    )\
+    .join(Product, Product.id == SalesRecord.product_id)\
+    .filter(SalesRecord.client_id == client_id)\
+    .filter(extract('year', SalesRecord.sale_datetime) == year)\
+    .filter(extract('month', SalesRecord.sale_datetime) == month)\
+    .scalar()
+
+    total_sales = float(sum_val or 0.0)
+    return { "total_sales": total_sales }

@@ -12,6 +12,9 @@ from PyQt5.QtWidgets import QSizePolicy
 from PyQt5.QtPrintSupport import QPrintDialog, QPrinter
 from PyQt5.QtGui import QTextDocument, QFont
 from PyQt5.QtCore import QSizeF
+import json
+from PyQt5.QtWidgets import QListWidget, QListWidgetItem
+
 BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
@@ -65,6 +68,18 @@ class OrderLeftWidget(QWidget):
         self.scroll_area.setWidget(self.employee_container)
         layout.addWidget(self.scroll_area)
 
+        # ✅ 카테고리 순서 관리용
+        self.category_list = QListWidget()
+        self.category_list.setDragDropMode(QListWidget.InternalMove)
+        layout.addWidget(QLabel("🗂️ 카테고리 순서 정렬"))
+        layout.addWidget(self.category_list)
+
+        self.save_category_order_button = QPushButton("💾 카테고리 순서 저장")
+        self.save_category_order_button.clicked.connect(self.save_category_order)
+        layout.addWidget(self.save_category_order_button)
+
+        self.load_category_list_from_server()  # ✅ 최초 실행 시 불러오기
+
         # ✅ 4. "전체 주문 조회" 버튼 추가
         self.order_button = QPushButton("전체 주문 조회")
         self.order_button.clicked.connect(self.fetch_orders_for_all_employees)  # ✅ 전체 주문 조회
@@ -74,6 +89,69 @@ class OrderLeftWidget(QWidget):
         self.setLayout(layout)
          # ✅ 현재 출고 단계 불러오기
         self.fetch_current_shipment_round()
+        
+    def save_category_order(self):
+        order = [self.category_list.item(i).text() for i in range(self.category_list.count())]
+        print("✅ 저장된 카테고리 순서:", order)
+
+        # 1️⃣ 로컬 저장
+        with open("category_order.json", "w", encoding="utf-8") as f:
+            json.dump(order, f, ensure_ascii=False, indent=2)
+
+        # 2️⃣ 서버에 업로드
+        url = f"{BASE_URL}/products/category_order"
+        headers = {
+            "Authorization": f"Bearer {global_token}",
+            "Content-Type": "application/json"
+        }
+        try:
+            response = requests.post(url, headers=headers, json={"order": order})
+            if response.status_code == 200:
+                print("✅ 서버에 카테고리 순서 업로드 완료")
+            else:
+                print(f"❌ 서버 업로드 실패: {response.status_code}")
+        except Exception as e:
+            print(f"❌ 서버 업로드 중 예외 발생: {e}")
+
+        # 3️⃣ 우측 테이블 갱신
+        if self.order_right_widget:
+            self.order_right_widget.set_category_order(order)
+            self.order_right_widget.populate_table()
+
+    
+    def load_category_order(self):
+        import os
+        if os.path.exists("category_order.json"):
+            with open("category_order.json", "r", encoding="utf-8") as f:
+                order = json.load(f)
+                self.category_list.clear()
+                for category in order:
+                    self.category_list.addItem(QListWidgetItem(category))
+
+            if self.order_right_widget:
+                self.order_right_widget.set_category_order(order)
+
+        
+    def load_category_list_from_server(self):
+        url = f"{BASE_URL}/products/categories"
+        headers = {"Authorization": f"Bearer {global_token}"}
+
+        try:
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                categories = response.json()
+                if not os.path.exists("category_order.json"):
+                    self.category_list.clear()
+                    for category in categories:
+                        self.category_list.addItem(QListWidgetItem(category))
+                else:
+                    self.load_category_order()
+            else:
+                print(f"❌ 카테고리 목록 불러오기 실패: {response.status_code}")
+        except Exception as e:
+            print(f"❌ 카테고리 목록 요청 실패: {e}")
+
+
     
     def on_order_date_changed(self):
         """
@@ -432,6 +510,8 @@ class OrderRightWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = QVBoxLayout()
+        self.category_order = []
+
         self.selected_order_date = QDate.currentDate().toString("yyyy-MM-dd")  # ✅ 기본값: 오늘 날짜
         self.current_products = []  # ✅ 상품 목록 저장
         self.selected_order_id = None  # ✅ 선택한 주문 ID 저장
@@ -475,6 +555,9 @@ class OrderRightWidget(QWidget):
 
         self.setLayout(self.layout)
         self.load_products()  # ✅ 서버에서 상품 목록 로드
+    
+    def set_category_order(self, order_list):
+        self.category_order = order_list
     
     def update_mode(self, mode_str):
         self.current_mode = mode_str  # "전체" or 직원명
@@ -819,7 +902,7 @@ class OrderRightWidget(QWidget):
 
     def populate_table(self):
         """
-        상품 목록을 `카테고리 -> 품명 -> 갯수` 순으로 정렬하여 표시
+        상품 목록을 `카테고리 순서 → 브랜드 → 품명` 순으로 정렬하여 표시
         """
         # ✅ grid_layout 초기화 (기존 위젯 제거)
         for i in reversed(range(self.grid_layout.count())):
@@ -827,18 +910,28 @@ class OrderRightWidget(QWidget):
             if widget is not None:
                 widget.setParent(None)
 
-        # ✅ 사용 가능한 세로 공간 계산
-        available_height = self.height() - self.header_layout.sizeHint().height() - 80  
-        row_height = 30  
-        max_rows_per_section = max(5, available_height // row_height)  
+        available_height = self.height() - self.header_layout.sizeHint().height() - 80
+        row_height = 30
+        max_rows_per_section = max(5, available_height // row_height)
 
-        row = 0  
-        col = 0  
+        row = 0
+        col = 0
 
-        # ✅ 상품을 `카테고리 -> 품명` 순으로 정리
+        # ✅ 카테고리 정렬 우선순위 지정 함수
+        def category_sort_key(p):
+            category = p.get("category", "")
+            if hasattr(self, "category_order") and category in self.category_order:
+                return self.category_order.index(category)
+            return len(self.category_order) + 1
+
         sorted_products = sorted(
             self.current_products,
-            key=lambda p: (p.get("category", ""), p.get("brand_name", ""), p.get("product_name", ""))
+            key=lambda p: (
+                category_sort_key(p),
+                int(p["brand_id"]) if p.get("brand_id") is not None else float('inf'),
+                p.get("brand_name", ""),
+                p.get("product_name", "")
+            )
         )
 
         table = None
@@ -855,13 +948,19 @@ class OrderRightWidget(QWidget):
                 table = QTableWidget()
                 table.setColumnCount(2)
                 table.setHorizontalHeaderLabels(["품명", "갯수"])
-                table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+                header = table.horizontalHeader()
+                header.setSectionResizeMode(0, QHeaderView.Stretch)
+                header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+
                 table.setFont(QFont("Arial", 9))
                 table.verticalHeader().setVisible(False)
                 table.setRowCount(0)
-
+                table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                table.setMinimumWidth(300)
                 table.cellClicked.connect(self.select_order_for_edit)
-                
+
             if current_category != category:
                 table.insertRow(table.rowCount())
                 category_item = QTableWidgetItem(category)
@@ -876,7 +975,7 @@ class OrderRightWidget(QWidget):
 
             table.insertRow(table.rowCount())
             table.setItem(table.rowCount() - 1, 0, self.create_resized_text(product_name, table))
-            table.setItem(table.rowCount() - 1, 1, QTableWidgetItem(""))  
+            table.setItem(table.rowCount() - 1, 1, QTableWidgetItem(""))
 
             table.setRowHeight(table.rowCount() - 1, 12)
             row_index += 1
@@ -885,10 +984,11 @@ class OrderRightWidget(QWidget):
                 self.grid_layout.addWidget(table, row, col, 1, 1)
                 row_index = 0
                 col += 1
-                table = None  
+                table = None
 
         if table is not None:
             self.grid_layout.addWidget(table, row, col, 1, 1)
+
 
     def create_resized_text(self, text, table):
         """

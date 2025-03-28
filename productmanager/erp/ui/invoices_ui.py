@@ -494,7 +494,7 @@ QHeaderView::section {
 """)
     def fetch_company_info(self):
         """ 서버에서 회사 정보를 가져와 우측 패널에 표시 """
-        url = f"http://127.0.0.1:8000/company/"
+        url = f"http://127.0.0.1:8000/company"
         headers = {"Authorization": f"Bearer {global_token}"}
 
         try:

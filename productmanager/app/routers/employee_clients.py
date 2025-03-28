@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.db.database import get_db
 from app.models.employee_clients import EmployeeClient
+from app.models.clients import Client
 from app.schemas.employee_clients import EmployeeClientCreate, EmployeeClientOut
 from pydantic import BaseModel
 from datetime import date
@@ -78,3 +79,62 @@ def unassign_employee(data: EmployeeUnassignRequest, db: Session = Depends(get_d
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"담당 직원 해제 실패: {str(e)}")
+    
+    # employee_clients.py
+@router.get("/{employee_id}")
+def get_employee_clients_by_emp(employee_id: int, db: Session = Depends(get_db)):
+    """
+    특정 직원(employee_id)이 담당하는 client_id + client_name을 함께 반환.
+    예: 
+    [
+      { "client_id": 2, "client_name": "가나상사", ... },
+      { "client_id": 3, "client_name": "다라상사", ... }
+    ]
+    """
+    from app.models.clients import Client
+    from sqlalchemy.orm import joinedload
+
+    # 1) JOIN 해서 클라이언트 이름까지 한 번에 가져오기
+    rows = (
+        db.query(EmployeeClient, Client.client_name)
+        .join(Client, EmployeeClient.client_id == Client.id)
+        .filter(EmployeeClient.employee_id == employee_id)
+        .all()
+    )
+
+    # 2) 결과를 JSON 형태(dict list)로 가공
+    output = []
+    for ec, cname in rows:
+        output.append({
+            "id": ec.id,
+            "employee_id": ec.employee_id,
+            "client_id": ec.client_id,
+            "client_name": cname,
+            "start_date": ec.start_date,
+            "end_date": ec.end_date,
+            "created_at": ec.created_at,
+            "updated_at": ec.updated_at
+        })
+
+    return output
+@router.get("/clients/{employee_id}")
+def get_clients_by_employee(employee_id: int, db: Session = Depends(get_db)):
+    """
+    특정 직원이 담당하는 (EmployeeClient + Client.client_name) 리스트
+    """
+    rows = (
+        db.query(EmployeeClient, Client.client_name)
+        .join(Client, Client.id == EmployeeClient.client_id)
+        .filter(EmployeeClient.employee_id == employee_id)
+        .all()
+    )
+    result = []
+    for ec, c_name in rows:
+        result.append({
+            "id": ec.id,
+            "employee_id": ec.employee_id,
+            "client_id": ec.client_id,
+            "client_name": c_name,
+            # 기타 start_date, end_date 등
+        })
+    return result

@@ -21,6 +21,7 @@ import 'dart:io';
 import '../screens/settings_screen.dart';
 import '../screens/printer.dart';
 
+bool _hasLoadedProducts = false;
 
 class WeatherService {
   // ▷ 서울 기준 위도/경도
@@ -148,12 +149,18 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true; // ✅ 로딩 상태 추가
   double _totalMonthlySales = 0; // ✅ 전체 매출 총합
 
+
   @override
   void initState() {
     super.initState();
+    if (!_hasLoadedProducts) {
+      _hasLoadedProducts = true;
+      _updateItemList(); // ✅ 딱 한 번만 실행됨
+    }
+
     _fetchSalesData();
     _loadWeather();
-    _updateItemList();
+
   }
 
   // 🔹 모든 직원의 이번 달 매출 가져오기
@@ -212,8 +219,28 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final productData = await ApiService.fetchAllProducts(widget.token);
-      context.read<ProductProvider>().setProducts(productData);
+      final Map<String, dynamic> grouped = await ApiService.fetchAllProducts(widget.token);
+
+      List<Map<String, dynamic>> flattened = [];
+
+      grouped.forEach((category, brandMap) {
+        if (brandMap is Map<String, dynamic>) {
+          brandMap.forEach((brand, products) {
+            if (products is List) {
+              for (var product in products) {
+                if (product is Map<String, dynamic>) {
+                  product['category'] = category;
+                  product['brand_name'] = brand;
+                  flattened.add(product);
+                }
+              }
+            }
+          });
+        }
+      });
+
+      context.read<ProductProvider>().setProducts(flattened);
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("아이템 목록이 업데이트되었습니다!")),
       );
@@ -227,6 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
   }
+
 
   void _launchStore() async {
     const String appStoreUrl = "https://apps.apple.com/us/app/example/id123456789"; // ✅ 앱스토어 링크

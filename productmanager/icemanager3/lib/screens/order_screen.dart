@@ -128,36 +128,22 @@ class _OrderScreenState extends State<OrderScreen> {
   Future<void> _fetchAndSortProducts() async {
     try {
       final productProvider = context.read<ProductProvider>();
-      final List<dynamic> products = await ApiService.fetchAllProducts(widget.token);
 
-      if (products.isNotEmpty) {
-        // 활성화된 상품 필터링
-        final activeProducts = products.where((product) => product['is_active'] == 1).toList();
+      // ✅ 서버에서 정렬된 그룹화된 데이터 가져오기
+      final groupedProducts = await ApiService.fetchAllProducts(widget.token);
 
-        // 분류별로 정렬
-        activeProducts.sort((a, b) {
-          return a['category'].compareTo(b['category']);
-        });
+      // ✅ 그대로 provider에 저장
+      productProvider.setGroupedProducts(groupedProducts);  // setGroupedProducts는 Map<String, dynamic>을 받도록 정의 필요
 
-        // 브랜드별로 정렬
-        activeProducts.sort((a, b) {
-          return a['brand_id'].compareTo(b['brand_id']);
-        });
-
-        // 정렬된 상품을 상품 프로바이더에 설정
-        productProvider.setProducts(activeProducts);
-      } else {
-        // 상품 목록이 비어있을 때
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("상품 목록이 비어 있습니다.")),
-        );
-      }
+      print("✅ 상품 그룹 데이터 저장 완료. 총 카테고리: ${groupedProducts.length}");
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("상품 목록을 가져오는 중 오류 발생: $e")),
       );
     }
   }
+
+
   Future<void> _fetchEmployeeVehicleStock(int employeeId) async {
     try {
       final stockList = await ApiService.fetchVehicleStock(widget.token, employeeId);

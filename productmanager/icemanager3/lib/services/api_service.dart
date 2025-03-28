@@ -162,8 +162,8 @@ class ApiService {
     });
   }
 
-  static Future<List<dynamic>> fetchAllProducts(String token) async {
-    final url = Uri.parse("$baseUrl/products/all");
+  static Future<Map<String, dynamic>> fetchAllProducts(String token) async {
+    final url = Uri.parse("$baseUrl/products/grouped");
     final response = await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json; charset=utf-8",
@@ -172,16 +172,17 @@ class ApiService {
     if (response.statusCode == 200) {
       try {
         final decodedBody = utf8.decode(response.bodyBytes, allowMalformed: true); // ✅ UTF-8 오류 방지
-        return jsonDecode(decodedBody) as List<dynamic>;
+        return jsonDecode(decodedBody) as Map<String, dynamic>;
       } catch (e) {
         print("❌ JSON 디코딩 오류: $e");
-        return [];
+        return {};
       }
     } else {
       print("❌ 상품 목록 조회 실패: ${response.statusCode}");
-      return [];
+      return {};
     }
   }
+
 
   static Future<http.Response> updateClientOutstanding(String token, int clientId, Map<String, dynamic> data) async {
     final url = Uri.parse("$baseUrl/clients/$clientId/outstanding");

@@ -77,9 +77,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final id = int.parse(idText);
-
-      // ✅ 수정된 API 호출
-      final data = await ApiService.login(id, password); // Map<String, dynamic> 반환
+      final data = await ApiService.login(id, password); // ✅ 로그인 요청
 
       if (data.containsKey("token")) {
         final user = User(
@@ -87,14 +85,33 @@ class _LoginScreenState extends State<LoginScreen> {
           name: data["name"],
           role: data["role"],
           token: data["token"],
-          phone: data["phone"] ?? "정보 없음", // ✅ phone 값 추가
+          phone: data["phone"] ?? "정보 없음",
         );
 
         context.read<AuthProvider>().setUser(user);
-        final productData = await ApiService.fetchAllProducts(user.token);
-        context.read<ProductProvider>().setProducts(productData);
 
-        // ✅ 로그인 정보 저장
+        // ✅ 상품 데이터 받아서 펼치기
+        final Map<String, dynamic> grouped = await ApiService.fetchAllProducts(user.token);
+        List<Map<String, dynamic>> flattened = [];
+
+        grouped.forEach((category, brandMap) {
+          if (brandMap is Map<String, dynamic>) {
+            brandMap.forEach((brand, products) {
+              if (products is List) {
+                for (var product in products) {
+                  if (product is Map<String, dynamic>) {
+                    product['category'] = category;
+                    product['brand_name'] = brand;
+                    flattened.add(product);
+                  }
+                }
+              }
+            });
+          }
+        });
+
+        context.read<ProductProvider>().setProducts(flattened);
+
         await _saveLoginData();
 
         Navigator.pushReplacement(
@@ -110,6 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _isLoading = false);
     }
   }
+
 
 
   @override

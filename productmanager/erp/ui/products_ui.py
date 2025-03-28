@@ -134,8 +134,8 @@ class ProductDialog(QDialog):
         """
         다이얼로그에서 입력한 데이터를 dict로 만들어 반환
         """
-        brand_id_text = self.brand_id_edit.text().strip()
-        brand_id = int(brand_id_text) if brand_id_text.isdigit() else 0
+        # brand_id_text = self.brand_id_edit.text().strip()
+        # brand_id = int(brand_id_text) if brand_id_text.isdigit() else 0
 
         barcodes_text = self.barcodes_edit.toPlainText().strip()
         # 여러 줄을 리스트로 분리
@@ -484,10 +484,8 @@ class ProductLeftPanel(BaseLeftTableWidget):
             try:
                 brand_name = dialog.brand_name_combo.currentText().strip()
                 product_name = dialog.name_edit.text().strip()
-                barcodes_raw = dialog.barcode_edit.toPlainText().strip()
-                barcodes = [
-                    line.strip() for line in barcodes_raw.splitlines() if line.strip()
-                ]
+                barcodes_raw = dialog.barcodes_edit.toPlainText().strip()
+                barcodes = [line.strip() for line in barcodes_raw.splitlines() if line.strip()]
 
                 data = {
                     "brand_name": brand_name,
@@ -505,7 +503,7 @@ class ProductLeftPanel(BaseLeftTableWidget):
                 resp = api_update_product_by_id(global_token, product_id, data)
                 if resp and resp.status_code == 200:
                     QMessageBox.information(self, "성공", "상품 수정 완료!")
-                    self.refresh_callback()
+                    self.refresh_product_list()
                 else:
                     QMessageBox.critical(self, "실패", f"상품 수정 실패: {resp.status_code}\n{resp.text}")
 
@@ -513,7 +511,14 @@ class ProductLeftPanel(BaseLeftTableWidget):
                 QMessageBox.critical(self, "에러", f"수정 중 오류 발생: {e}")
 
 
-
+    def refresh_product_list(self):
+        """
+        서버에서 상품 목록을 다시 불러오고,
+        테이블(또는 해당 UI)을 다시 표시한다.
+        """
+        # 1) api_fetch_products() 같은 걸 호출해서 서버에서 전체 상품 목록 가져오기
+        # 2) 현재 선택된 상품 ID, 검색 결과, 테이블 업데이트 등
+        pass
 
     def delete_product(self):
         """

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from collections import defaultdict
 from dateutil.relativedelta import relativedelta
 from app.models.brands import Brand
+import os
 
 from app.models.products import Product
 from app.models.product_barcodes import ProductBarcode
@@ -17,8 +18,8 @@ from app.models.sales_records import SalesRecord
 from app.schemas.products import ProductCreate, ProductOut, ProductResponse, ProductUpdate
 from app.utils.time_utils import get_kst_now, convert_utc_to_kst
 from app.db.database import get_db  # SessionLocal() 반환
-
-
+from collections import defaultdict, OrderedDict
+import json
 router = APIRouter()
 
 
@@ -223,22 +224,88 @@ def get_product_by_barcode(barcode: str, db: Session = Depends(get_db)):
 # ======================================
 # 카테고리별 브랜드별로 나눠서 조회(활성화 1로만)
 # ======================================
+
+
 @router.get("/grouped", response_model=dict)
 def get_grouped_products(db: Session = Depends(get_db)):
-    """
-    모든 활성화 상품을 카테고리 → 브랜드별로 분류하여 반환
-    """
-    products = db.query(Product).filter(Product.is_active == 1).all()
+    from collections import defaultdict, OrderedDict
+    import os, json
 
-    grouped = defaultdict(lambda: defaultdict(list))
+    products = (
+        db.query(Product)
+        .filter(Product.is_active == 1, Product.product_name.isnot(None), Product.product_name != "")
+        .all()
+    )
+
+    # temp_dict: category -> list of (brand_id, brand_name, product_dict)
+    temp_dict = defaultdict(list)
 
     for product in products:
         category = product.category or "기타"
+        brand_id = product.brand_id if product.brand_id is not None else 9999
         brand_name = product.brand.name if product.brand else "기타"
-        product_data = convert_product_to_kst(product)  # ✅ ProductOut 변환 포함
-        grouped[category][brand_name].append(product_data)
+
+        product_data = convert_product_to_kst(product)
+        product_dict = dict(product_data)
+        product_dict["brand_name"] = brand_name  # UI에서 사용
+
+        temp_dict[category].append((brand_id, brand_name, product_dict))
+
+    # 카테고리 순서
+    category_order = []
+    if os.path.exists("category_order_server.json"):
+        with open("category_order_server.json", "r", encoding="utf-8") as f:
+            category_order = json.load(f)
+
+    grouped = OrderedDict()
+
+    # (1) 지정된 카테고리 순서
+    for category in category_order:
+        if category in temp_dict:
+            items = temp_dict[category]
+            brand_group = defaultdict(list)
+
+            # brand_id 기준 정렬 후 → brand_name 기준으로 키 만들기
+            for bid, bname, pdata in sorted(items, key=lambda x: x[0]):
+                brand_group[bname].append(pdata)
+
+            grouped[category] = brand_group
+
+    # (2) 누락된 카테고리들
+    remaining_categories = sorted(set(temp_dict.keys()) - set(category_order))
+    for category in remaining_categories:
+        items = temp_dict[category]
+        brand_group = defaultdict(list)
+
+        for bid, bname, pdata in sorted(items, key=lambda x: x[0]):
+            brand_group[bname].append(pdata)
+
+        grouped[category] = brand_group
 
     return grouped
+
+
+
+
+
+
+# ======================================
+# 모든 카테고리 반환
+# ======================================
+
+@router.get("/categories", response_model=List[str])
+def get_all_categories(db: Session = Depends(get_db)):
+    """
+    활성화된 상품의 고유 카테고리 목록 반환 (중복 제거, None → '기타')
+    """
+    categories = (
+        db.query(Product.category)
+        .filter(Product.is_active == 1)
+        .distinct()
+        .all()
+    )
+    category_names = {c[0] or "기타" for c in categories}
+    return sorted(category_names)
 
 # ======================================
 # 상품 삭제
@@ -446,3 +513,14 @@ def convert_product_to_kst(product: Product) -> ProductOut:
         created_at = created_kst,
         updated_at = updated_kst
     )
+    
+class CategoryOrderRequest(BaseModel):
+    order: List[str]
+
+@router.post("/category_order")
+def save_category_order(req: CategoryOrderRequest):
+    category_order = req.order
+    # 예: 서버에 파일로 저장하거나 DB 저장
+    with open("category_order_server.json", "w", encoding="utf-8") as f:
+        json.dump(category_order, f, ensure_ascii=False, indent=2)
+    return {"message": "서버에 카테고리 순서 저장 완료"}
