@@ -839,7 +839,7 @@ def get_clients_invoices(year: int, month: int, db: Session = Depends(get_db)):
         db.query(
             SalesRecord.client_id,
             Client.client_name,
-            Client.address.label("client_ceo"),
+            Client.representative_name.label("client_ceo"),
             Client.business_number,
             func.sum(Product.default_price * SalesRecord.quantity).label("total_sales"),
         )

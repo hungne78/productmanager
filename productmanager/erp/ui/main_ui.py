@@ -26,8 +26,14 @@ import json
 from PyQt5.QtGui import QIcon
 from pathlib import Path
 import requests
+from PyQt5.QtWidgets import QCalendarWidget, QInputDialog
+from PyQt5.QtWidgets import QGraphicsOpacityEffect
+from PyQt5.QtCore import QPropertyAnimation
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 파일의 절대 경로
 ICONS_DIR = os.path.join(BASE_DIR, "assets/icons")  # icons 폴더 경로 설정
+
+MEMO_FILE = "memo.json"
 
 def load_erp_style():
     return """
@@ -616,7 +622,9 @@ class CompanyInfoDialog(QDialog):
 class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
-
+        self.memo_dict = {}
+        
+        self.load_memos_from_file()
         # ◆ 프레임 없애서 커스텀 타이틀바 사용
         self.setWindowFlags(Qt.FramelessWindowHint)  
         self.setGeometry(0, 0, 1900, 1200)
@@ -654,17 +662,43 @@ class MainApp(QMainWindow):
         user_label = QLabel("로그인: 관리자")
         user_label.setStyleSheet("color: white; font-size: 13px;")
 
-        # 닫기버튼
+        # 🔷 최소화 버튼
+        min_btn = QPushButton("―")
+        min_btn.setFixedSize(32, 28)
+        min_btn.setStyleSheet("color: white; background: transparent; font-size: 16px;")
+        min_btn.clicked.connect(self.showMinimized)
+
+        # 🔷 최대화 버튼 (토글)
+        self.max_btn = QPushButton("⬜")
+        self.max_btn.setFixedSize(32, 28)
+        self.max_btn.setStyleSheet("color: white; background: transparent; font-size: 14px;")
+        self.max_btn.clicked.connect(self.toggle_max_restore)
+
+        # 🔷 닫기 버튼 (더 잘 보이게 수정)
         close_btn = QPushButton("✕")
-        close_btn.setObjectName("CloseButton")  # QSS: #CloseButton
+        close_btn.setObjectName("CloseButton")
         close_btn.setFixedSize(32, 28)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                color: white;
+                background-color: #E11D48;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #DC2626;
+            }
+        """)
         close_btn.clicked.connect(self.close)
 
         # 헤더 레이아웃 배치
         header_layout.addWidget(title_label)
         header_layout.addStretch()
+       
         header_layout.addWidget(user_label)
-        header_layout.addSpacing(12)
+        header_layout.addSpacing(10)
+        header_layout.addWidget(min_btn)
+        header_layout.addWidget(self.max_btn)
         header_layout.addWidget(close_btn)
 
         # ─────────────────────────────────────────────────────────────────
@@ -737,27 +771,88 @@ class MainApp(QMainWindow):
         # 2-2) 오른쪽 패널
         self.right_panel = QWidget()
         right_layout = QVBoxLayout(self.right_panel)
-        right_layout.setContentsMargins(16, 16, 16, 16)
-        right_layout.setSpacing(0)
+        right_layout.setContentsMargins(1, 1, 0, 0)
+        right_layout.setSpacing(1)  # 약간 여백
 
-        # 상단 날짜/시간
+        # 🔷 날짜/시간 라벨
+        # 시계/요일 라벨
         self.datetime_label = QLabel()
-        self.datetime_label.setObjectName("DateTimeLabel")  # QSS: #DateTimeLabel
+        self.datetime_label.setObjectName("DateTimeLabel")
+        self.datetime_label.setStyleSheet("""
+            background-color: rgba(255, 255, 255, 0.9);
+            color: #2F3A66;
+            font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+            font-size: 20px;
+            font-weight: 600;
+            border: 1px solid #CBD5E0;
+            border-radius: 8px;
+            padding: 6px 14px;
+        """)
+
+        self.day_label = QLabel()
+        self.day_label.setStyleSheet("""
+            color: #4B5563;
+            font-size: 12px;
+            font-weight: 500;
+            padding-left: 6px;
+        """)
+
+        # ⏱️ 타이머로 시계/요일 갱신
         self.update_datetime()
         timer = QTimer(self)
         timer.timeout.connect(self.update_datetime)
-        timer.start(1000)  # 1초마다 갱신
+        timer.start(1000)
 
-        right_layout.addWidget(self.datetime_label, alignment=Qt.AlignLeft)
+        # 📅 달력 팝업 버튼
+        self.calendar_toggle_btn = QPushButton("📅")
+        self.calendar_toggle_btn.setFixedSize(45, 45)
+        self.calendar_toggle_btn.setStyleSheet("""
+            font-size: 40px;
+            background-color: #E2E8F0;
+            border: 1px solid #CBD5E0;
+            border-radius: 8px;
+        """)
+        self.calendar_toggle_btn.clicked.connect(self.show_calendar_popup)
 
-        # 버튼 영역
-        button_row = QHBoxLayout()
-        button_row.addStretch()
-        for label in ["저장", "조회", "삭제"]:
-            btn = QPushButton(label)
-            btn.setFixedWidth(80)
-            button_row.addWidget(btn)
-        right_layout.addLayout(button_row)
+        # 🧭 시계 + 요일 + 버튼 한 줄에 배치
+        clock_row = QHBoxLayout()
+        clock_col = QVBoxLayout()
+        clock_col.addWidget(self.datetime_label)
+        clock_col.addWidget(self.day_label)
+
+        clock_row.addLayout(clock_col)
+        clock_row.addSpacing(12)
+        clock_row.addWidget(self.calendar_toggle_btn)
+        clock_row.addStretch()
+
+        right_layout.addLayout(clock_row)
+        
+        self.sales_label = QLabel("📊 매출 정보 불러오는 중...")
+        self.sales_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.sales_label.setContentsMargins(12, 0, 0, 0)
+
+        self.sales_label.setStyleSheet("""
+            color: #2563EB;
+            font-weight: 500;
+            font-size: 20px;
+        """)
+
+        self.sales_timer = QTimer(self)
+        self.sales_timer.timeout.connect(self.update_sales_message)
+        self.sales_timer.start(4000)  # 4초 간격
+        clock_row.addSpacing(12)
+        
+        clock_row.addWidget(self.sales_label)
+        self.load_monthly_sales()
+
+        # # 버튼 영역
+        # button_row = QHBoxLayout()
+        # button_row.addStretch()
+        # for label in ["저장", "조회", "삭제"]:
+        #     btn = QPushButton(label)
+        #     btn.setFixedWidth(80)
+        #     button_row.addWidget(btn)
+        # right_layout.addLayout(button_row)
 
         # 정보 패널(얇은 구분선 등)
         self.info_panel = QFrame()
@@ -822,12 +917,127 @@ class MainApp(QMainWindow):
         self.update_search_placeholder("employees")
         self.update_custom_button("employees")
 
+
+        self.memo_dict = {}  # 날짜: 메모 저장용 딕셔너리
+
+    def fade_in_sales_label(self):
+        self.opacity_effect = QGraphicsOpacityEffect()
+        self.sales_label.setGraphicsEffect(self.opacity_effect)
+
+        self.animation = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.animation.setDuration(500)  # 0.5초
+        self.animation.setStartValue(0.0)
+        self.animation.setEndValue(1.0)
+        self.animation.start()
+
+    def update_sales_message(self):
+        if hasattr(self, 'sales_messages') and self.sales_messages:
+            self.sales_label.setText(self.sales_messages[self.sales_index])
+            self.sales_index = (self.sales_index + 1) % len(self.sales_messages)
+            self.fade_in_sales_label()
+
+
+    def load_monthly_sales(self):
+        from datetime import datetime
+        import requests
+
+        try:
+            now = datetime.now()
+            year = now.year
+            month = now.month
+
+            # 시작일과 종료일 (이번 달 1일부터 오늘까지)
+            start_date = f"{year}-{month:02d}-01"
+            end_date = now.strftime("%Y-%m-%d")
+
+            url = f"http://localhost:8000/sales/by_client_range?start_date={start_date}&end_date={end_date}"
+            res = requests.get(url)
+            if res.status_code == 200:
+                sales_data = res.json()  # [{"client_name": "...", "total_sales": ...}, ...]
+                if not sales_data:
+                    self.sales_messages = ["📭 이번 달 매출 데이터가 없습니다."]
+                else:
+                    self.sales_messages = [
+                        f"📊 {item['client_name']} - {int(item['total_sales']):,}원"
+                        for item in sales_data
+                    ]
+            else:
+                self.sales_messages = ["❌ 매출 정보 불러오기 실패"]
+        except Exception as e:
+            self.sales_messages = [f"❌ 연결 실패: {e}"]
+
+        self.sales_index = 0
+        self.update_sales_message()
+
+
+    def show_calendar_popup(self):
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("📅 달력")
+        dialog.setFixedSize(400, 500)
+
+        layout = QVBoxLayout(dialog)
+        calendar = QCalendarWidget()
+        calendar.setGridVisible(True)
+        calendar.clicked.connect(self.on_date_clicked)
+        layout.addWidget(calendar)
+
+        dialog.exec_()
+
+
+    def toggle_calendar(self):
+        if self.calendar.isVisible():
+            self.calendar.hide()
+        else:
+            self.calendar.show()
+            
+    def on_date_clicked(self, qdate):
+        key = qdate.toString("yyyy-MM-dd")
+        current = self.memo_dict.get(key, "")
+        text, ok = QInputDialog.getMultiLineText(self, "메모 작성", f"{key} 메모:", current)
+        if ok:
+            self.memo_dict[key] = text
+            self.save_memos_to_file()
+
+
+    def toggle_max_restore(self):
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+
+
+    def save_memos_to_file(self):
+        try:
+            with open(MEMO_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.memo_dict, f, ensure_ascii=False, indent=2)
+            print("✅ 메모 저장 완료")
+        except Exception as e:
+            print(f"❌ 메모 저장 실패: {e}")
+
+    def load_memos_from_file(self):
+        try:
+            if not os.path.exists(MEMO_FILE):
+                self.memo_dict = {}
+                return
+            with open(MEMO_FILE, "r", encoding="utf-8") as f:
+                self.memo_dict = json.load(f)
+            print("✅ 메모 불러오기 완료")
+        except Exception as e:
+            print(f"❌ 메모 로딩 실패: {e}")
+            self.memo_dict = {}
+
     # ─────────────────────────────────────────────────────────────────
     # 5) 시그널/슬롯 & 기존 기능들
     # ─────────────────────────────────────────────────────────────────
     def update_datetime(self):
-        current = QDateTime.currentDateTime()
-        self.datetime_label.setText(current.toString("yyyy-MM-dd hh:mm:ss"))
+        from datetime import datetime
+        now = datetime.now()
+        self.datetime_label.setText(now.strftime("%Y-%m-%d %H:%M:%S"))
+        self.day_label.setText(now.strftime("%A"))  # Friday, Saturday...
+
+
 
     def mousePressEvent(self, event):
         """

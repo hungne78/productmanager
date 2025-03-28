@@ -243,18 +243,28 @@ class InvoicesLeftPanel(QWidget):
                 super().__init__(parent)
                 self.setWindowTitle("세금계산서 수정")
 
+                self.type_selector = QComboBox()
+                self.type_selector.addItems(["01", "02"])
+                self.type_selector.setCurrentText(data.get("type", "01"))
+
                 self.client_id_edit = QLineEdit(data.get("client_id", ""))
                 self.client_name_edit = QLineEdit(data.get("client_name", ""))
                 self.client_ceo_edit = QLineEdit(data.get("client_ceo", ""))
                 self.sales_edit = QLineEdit(str(data.get("total_sales", 0)))
                 self.tax_edit = QLineEdit(str(data.get("tax_amount", 0)))
+                # ✅ 새 항목 추가: 영수/청구
+                self.rc_selector = QComboBox()
+                self.rc_selector.addItems(["01", "02"])
+                self.rc_selector.setCurrentText(data.get("rc_type", "01"))
 
                 form = QFormLayout()
+                form.addRow("종류 (01/02):", self.type_selector)  # ✅ 추가
                 form.addRow("거래처 ID:", self.client_id_edit)
                 form.addRow("거래처명:", self.client_name_edit)
                 form.addRow("대표자명:", self.client_ceo_edit)
                 form.addRow("공급가액:", self.sales_edit)
                 form.addRow("세액:", self.tax_edit)
+                form.addRow("영수/청구:", self.rc_selector)
 
                 btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
                 btn_box.accepted.connect(self.accept)
@@ -265,11 +275,13 @@ class InvoicesLeftPanel(QWidget):
 
             def get_data(self):
                 return {
+                    "type": self.type_selector.currentText(),               # ✅ 추가
                     "client_id": self.client_id_edit.text().strip(),
                     "client_name": self.client_name_edit.text().strip(),
                     "client_ceo": self.client_ceo_edit.text().strip(),
                     "total_sales": float(self.sales_edit.text() or 0),
                     "tax_amount": float(self.tax_edit.text() or 0),
+                    "rc_type": self.rc_selector.currentText(),              # ✅ 추가
                 }
 
         dialog = EditInvoiceDialog(self, data=old_data)
@@ -318,11 +330,22 @@ class InvoicesRightPanel(QWidget):
         layout.addWidget(self.company_label)
 
         self.invoice_table = QTableWidget()
-        self.invoice_table.setColumnCount(15)
+        self.invoice_table.setColumnCount(14)
         self.invoice_table.setHorizontalHeaderLabels([
-            "종류", "작성일자", "공급자 등록번호", "공급자 상호", "공급자 성명",
-            "공급받는자 등록번호", "공급받는자 상호", "공급받는자",
-            "공급가액 합계", "세액 합계", "일자1", "공급가액1", "세액1", "영수(01)", "청구(02)"
+           "종류",              # (A)
+        "작성일자",          # (B)
+        "공급자 등록번호",    # (C)
+        "공급자 상호",       # (E)
+        "공급자 성명",       # (F)
+        "공급받는자 등록번호",# (K)
+        "공급받는자 상호",   # (M)
+        "공급받는자",        # (N)
+        "공급가액 합계",     # (T)
+        "세액 합계",         # (U)
+        "일자1",            # (W)
+        "공급가액1",         # (AB)
+        "세액1",            # (AC)
+        "영수/청구",         # (BG) → 기본값 "01"
         ])
 
         # ── 컬럼 리사이즈 옵션 ───────────────────────────
@@ -341,86 +364,149 @@ class InvoicesRightPanel(QWidget):
         self.setLayout(layout)
 
     def update_invoice_data(self, invoice_data):
-        """
-        거래처별 월 매출 리스트 업데이트할 때,
-        self.company_info에 있는 공급자(우리 업체) 정보도 함께 써넣는다.
-        """
-        # 우선 상단 라벨 갱신
-        if self.company_info and self.company_info.get("company_name"):
-            txt = f"[{self.company_info['company_name']}] 대표: {self.company_info.get("ceo_name") or self.company_info.get("ceo", "대표자 없음")} / 사업자번호: {self.company_info['business_number']}"
-            self.company_label.setText(txt)
-        else:
-            self.company_label.setText("공급자(우리 회사) 정보가 등록되지 않았습니다.")
-
+        # 회사정보 라벨 세팅(생략)
+        ...
         self.invoice_table.setRowCount(0)
+        today_day = datetime.today().strftime("%d") 
         for invoice in invoice_data:
             row = self.invoice_table.rowCount()
             self.invoice_table.insertRow(row)
 
-            # 공급자(our company) 정보
-            supplier_reg = self.company_info.get("business_number", "")
+            # 🔹 필요 변수들
+            supplier_reg  = self.company_info.get("business_number", "")
             supplier_name = self.company_info.get("company_name", "")
-            supplier_ceo = self.company_info.get("ceo_name") or self.company_info.get("ceo", "")
-
-            # 공급받는자(거래처) 정보
-            client_reg = invoice.get("business_number")  # DB에서 가져온 사업자번호/등록번호
-            client_name = invoice["client_name"]
-            client_ceo = invoice["client_ceo"]
+            supplier_ceo  = self.company_info.get("ceo_name") or self.company_info.get("ceo", "")
             
-            self.invoice_table.setItem(row, 0, QTableWidgetItem("01"))  # 전자세금계산서 종류 (일반)
-            self.invoice_table.setItem(row, 1, QTableWidgetItem(datetime.today().strftime("%Y-%m-%d")))  # 작성일자
-            self.invoice_table.setItem(row, 2, QTableWidgetItem(supplier_reg))    # 공급자 등록번호(=우리 회사 사업자번호)
-            self.invoice_table.setItem(row, 3, QTableWidgetItem(supplier_name))   # 공급자 상호(=회사명)
-            self.invoice_table.setItem(row, 4, QTableWidgetItem(supplier_ceo))    # 공급자 성명(=대표명)
+            client_reg  = invoice.get("business_number", "")
+            client_name = invoice.get("client_name", "")
+            client_ceo  = invoice.get("client_ceo", "")
 
-            self.invoice_table.setItem(row, 5, QTableWidgetItem(client_reg))      # 공급받는자 등록번호
-            self.invoice_table.setItem(row, 6, QTableWidgetItem(client_name))     # 공급받는자 상호
-            self.invoice_table.setItem(row, 7, QTableWidgetItem(client_ceo))      # 공급받는자 성명
+            total_sales = invoice["total_sales"]
+            tax_amount  = invoice["tax_amount"]
 
-            # 공급가액, 세액
-            self.invoice_table.setItem(row, 8, QTableWidgetItem(f"₩{invoice['total_sales']:,}"))
-            self.invoice_table.setItem(row, 9, QTableWidgetItem(f"₩{invoice['tax_amount']:,}"))
+            # ✅ 추가: 수정 다이얼로그에서 받아온 값 처리
+            doc_type = invoice.get("type", "01")       # 기본 "01"
+            rc_type  = invoice.get("rc_type", "01")    # 기본 "01"
 
-            # 일자1, 공급가액1, 세액1, 영수(01), 청구(02)
-            self.invoice_table.setItem(row, 10, QTableWidgetItem("01"))
-            self.invoice_table.setItem(row, 11, QTableWidgetItem(f"₩{invoice['total_sales']:,}"))
-            self.invoice_table.setItem(row, 12, QTableWidgetItem(f"₩{invoice['tax_amount']:,}"))
-            self.invoice_table.setItem(row, 13, QTableWidgetItem("01"))
-            self.invoice_table.setItem(row, 14, QTableWidgetItem("02"))
+            # 🔹 테이블 셀 채우기
+            self.invoice_table.setItem(row, 0, QTableWidgetItem(doc_type))  # ✅ 종류
+            self.invoice_table.setItem(row, 1, QTableWidgetItem(datetime.today().strftime("%Y%m%d")))  # 작성일자
+            self.invoice_table.setItem(row, 2, QTableWidgetItem(supplier_reg))
+            self.invoice_table.setItem(row, 3, QTableWidgetItem(supplier_name))
+            self.invoice_table.setItem(row, 4, QTableWidgetItem(supplier_ceo))
 
-    
+            self.invoice_table.setItem(row, 5, QTableWidgetItem(client_reg))
+            self.invoice_table.setItem(row, 6, QTableWidgetItem(client_name))
+            self.invoice_table.setItem(row, 7, QTableWidgetItem(client_ceo))
+
+            self.invoice_table.setItem(row, 8, QTableWidgetItem(f"{int(total_sales):,}"))
+            self.invoice_table.setItem(row, 9, QTableWidgetItem(f"{int(tax_amount):,}"))
+
+            self.invoice_table.setItem(row, 10, QTableWidgetItem(today_day))          # ✅ 오늘 일자(2자리)
+            self.invoice_table.setItem(row, 11, QTableWidgetItem(f"{int(total_sales):,}"))
+            self.invoice_table.setItem(row, 12, QTableWidgetItem(f"{int(tax_amount):,}"))
+
+            self.invoice_table.setItem(row, 13, QTableWidgetItem(rc_type))   
+
     def export_to_excel(self):
-        """
-        세금계산서를 엑셀 파일로 저장
-        """
-        file_path, _ = QFileDialog.getSaveFileName(self, "엑셀 파일 저장", "", "Excel Files (*.xls *.xlsx)")
-        if not file_path:
+        import openpyxl
+        from openpyxl import load_workbook
+        from PyQt5.QtWidgets import QFileDialog
+        import shutil
+
+        # 1) 사용자에게 저장경로 묻기
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "엑셀 파일 저장",
+            "",
+            "Excel Files (*.xlsx *.xls)"  # 가능하다면 xlsx를 권장
+        )
+        if not save_path:
             return
 
+        # 2) 테이블 데이터 수집
         row_count = self.invoice_table.rowCount()
         col_count = self.invoice_table.columnCount()
 
-        # ✅ 엑셀 데이터 저장 준비
-        data = []
-        for row in range(row_count):
-            row_data = [self.invoice_table.item(row, col).text() for col in range(col_count)]
-            data.append(row_data)
+        import os
 
-        df = pd.DataFrame(data, columns=[self.invoice_table.horizontalHeaderItem(i).text() for i in range(col_count)])
+        base_dir = os.path.dirname(os.path.abspath(__file__))  # invoices_ui.py가 있는 폴더
+        template_dir = os.path.join(base_dir, "templates")
 
+        if row_count <= 100:
+            template_path = os.path.join(template_dir, "세금계산서등록양식(일반).xlsx")
+        else:
+            template_path = os.path.join(template_dir, "세금계산서등록양식(일반)_대량.xlsx")
+                # 3) 원본 템플릿 복사 → 임시 파일로 (xls인 경우 openpyxl이 호환 문제 있을 수도 있으니 xlsx 권장)
+        temp_copy = "temp_copy.xlsx"
+        shutil.copyfile(template_path, temp_copy)
 
-
-        # ✅ 100건 이하 / 100건 초과 구분
-        template_file = "/mnt/data/세금계산서등록양식(일반).xls" if row_count <= 100 else "/mnt/data/세금계산서등록양식(일반)_대량.xls"
-
+        # 4) openpyxl로 임시 파일 열기 (xls는 지원이 제한되므로 실제론 xlsx를 권장합니다)
         try:
-            writer = pd.ExcelWriter(template_file, engine="openpyxl")
-            df.to_excel(writer, sheet_name="Sheet1", startrow=3, index=False, header=False)
-            writer.close()
-            df.to_excel(file_path, index=False)
-            print(f"✅ 엑셀 저장 완료: {file_path}")
+            wb = load_workbook(temp_copy)
+        except Exception as e:
+            print(f"❌ 템플릿 열기 실패: {e}")
+            return
+
+        ws = wb.active  # "Sheet1" 가정
+
+        # 5) 엑셀에서 7행부터 채우고 싶다면
+        start_row = 7
+
+        # 6) 열 매핑 딕셔너리
+        #    Key: 테이블 헤더이름, Value: 엑셀 열 주소
+        column_mapping = {
+            "종류":           "A",
+            "작성일자":       "B",
+            "공급자 등록번호": "C",
+            "공급자 상호":    "E",
+            "공급자 성명":    "F",
+            "공급받는자 등록번호": "K",
+            "공급받는자 상호":   "M",
+            "공급받는자":       "N",
+            "공급가액 합계":     "T",
+            "세액 합계":       "U",
+            "일자1":          "W",
+            "공급가액1":       "AB",
+            "세액1":          "AC",
+            "영수/청구":       "BG",  # 기본값 "01"
+        }
+
+        # 7) 실제 테이블로부터 셀 값을 읽어, 매핑된 열에 기입
+        for r in range(row_count):
+            excel_row = start_row + r
+
+            for c in range(col_count):
+                header_text = self.invoice_table.horizontalHeaderItem(c).text()  # "종류", "작성일자" 등
+                cell_widget = self.invoice_table.item(r, c)
+                if cell_widget:
+                    val = cell_widget.text().strip()
+                else:
+                    val = ""
+
+                # 영수/청구 열 → 빈값이면 "01"로
+                if header_text == "영수/청구" and not val:
+                    val = "01"
+
+                if header_text in column_mapping:
+                    excel_col = column_mapping[header_text]  # 예: "A"
+                    target_cell = f"{excel_col}{excel_row}"
+                    ws[target_cell] = val
+                else:
+                    # 매핑에 없는 열은 무시
+                    pass
+
+        # 8) 저장
+        try:
+            wb.save(temp_copy)
+            shutil.copyfile(temp_copy, save_path)  # 최종 저장
+            print(f"✅ 엑셀 저장 성공: {save_path}")
         except Exception as e:
             print(f"❌ 엑셀 저장 실패: {e}")
+        finally:
+            # 임시파일 정리 등
+            pass
+
 
 class InvoicesTab(QWidget):
     def __init__(self):
