@@ -7,6 +7,8 @@ import requests
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from services.api_services import api_fetch_purchases, api_fetch_products, api_update_product_stock, get_auth_headers
 from PyQt5.QtWidgets import QSizePolicy
+from PyQt5.QtCore import QSize, Qt
+
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 class PurchaseLeftPanel(QWidget):
@@ -16,12 +18,13 @@ class PurchaseLeftPanel(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        """
-        매입 UI 초기화
-        """
         main_layout = QVBoxLayout()
 
-        # 날짜 선택 추가 (기간 조회)
+        # ---------- 🔼 위쪽: 기존 매입 등록/조회 영역 ----------
+        top_section = QWidget()
+        top_layout = QVBoxLayout()
+
+        # 날짜 선택
         date_layout = QHBoxLayout()
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
@@ -29,70 +32,197 @@ class PurchaseLeftPanel(QWidget):
         self.end_date = QDateEdit()
         self.end_date.setCalendarPopup(True)
         self.end_date.setDate(datetime.today().date())
-
         self.filter_button = QPushButton("조회")
         self.filter_button.clicked.connect(self.filter_purchases_by_date)
-
         date_layout.addWidget(QLabel("시작 날짜:"))
         date_layout.addWidget(self.start_date)
         date_layout.addWidget(QLabel("종료 날짜:"))
         date_layout.addWidget(self.end_date)
         date_layout.addWidget(self.filter_button)
+        top_layout.addLayout(date_layout)
 
-        main_layout.addLayout(date_layout)
-
-        # 상품 검색 및 매입 입력 UI 추가
+        # 상품 검색
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("상품명 입력")
         self.search_button = QPushButton("검색")
         self.search_button.clicked.connect(self.search_products)
-
         search_layout = QHBoxLayout()
         search_layout.addWidget(self.search_edit)
         search_layout.addWidget(self.search_button)
-        main_layout.addLayout(search_layout)
+        top_layout.addLayout(search_layout)
 
+        # 상품 테이블
         self.product_table = QTableWidget()
         self.product_table.setColumnCount(4)
         self.product_table.setHorizontalHeaderLabels(["ID", "상품명", "재고", "가격"])
         self.product_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.product_table.itemSelectionChanged.connect(self.select_product)
-        main_layout.addWidget(self.product_table)
+        top_layout.addWidget(self.product_table)
 
-        # 매입 입력 (상품 ID, 매입 수량)
+        # 매입 입력
         self.selected_product_id = QLineEdit()
         self.selected_product_id.setPlaceholderText("선택된 상품 ID")
         self.selected_product_id.setReadOnly(True)
         self.purchase_quantity = QSpinBox()
-        self.purchase_quantity.setMinimum(1)
-        self.purchase_quantity.setMaximum(10000)
-        self.purchase_price = QSpinBox()  # ✅ 단가 입력 추가
-        self.purchase_price.setMinimum(1)
-        self.purchase_price.setMaximum(100000)
-        self.purchase_price.setPrefix("₩")
-        main_layout.addWidget(QLabel("매입 상품 ID:"))
-        main_layout.addWidget(self.selected_product_id)
-        main_layout.addWidget(QLabel("매입 수량:"))
-        main_layout.addWidget(self.purchase_quantity)
-        main_layout.addWidget(QLabel("단가 (₩):"))  # ✅ 단가 입력 추가
-        main_layout.addWidget(self.purchase_price)
-        # 매입 버튼
+        
+        self.purchase_price = QSpinBox()
+        
+        
+
+        top_layout.addWidget(QLabel("매입 상품 ID:"))
+        top_layout.addWidget(self.selected_product_id)
+        top_layout.addWidget(QLabel("매입 수량:"))
+        top_layout.addWidget(self.purchase_quantity)
+        top_layout.addWidget(QLabel("단가"))
+        top_layout.addWidget(self.purchase_price)
+
+        # 버튼들
         self.purchase_button = QPushButton("매입 등록")
         self.purchase_button.clicked.connect(self.register_purchase)
-        main_layout.addWidget(self.purchase_button)
-
-        # ✅ 매입 수정 및 삭제 버튼 추가
         self.update_button = QPushButton("매입 수정")
         self.delete_button = QPushButton("매입 삭제")
         self.update_button.clicked.connect(self.update_selected_purchase)
         self.delete_button.clicked.connect(self.delete_selected_purchase)
-        main_layout.addWidget(self.update_button)
-        main_layout.addWidget(self.delete_button)
 
+        top_layout.addWidget(self.purchase_button)
+        top_layout.addWidget(self.update_button)
+        top_layout.addWidget(self.delete_button)
+
+        top_section.setLayout(top_layout)
+
+        # ▼ 재고 필터링 그룹박스
+        # ▼ 재고 필터링 그룹박스
+        bottom_section = QWidget()
+        bottom_layout = QVBoxLayout()
+
+        stock_group = QGroupBox("📦 재고 필터링")
+        stock_layout = QVBoxLayout()
+
+        # (1) 수량 입력 + 조회 버튼
+        input_layout = QHBoxLayout()
+        self.stock_input = QLineEdit()
+        self.stock_input.setPlaceholderText("💡 재고 수량 입력 (예: 10)")
+        self.stock_input.setMinimumSize(QSize(150, 30))
+        self.stock_input.setStyleSheet("""
+            QLineEdit {
+                padding: 6px;
+                border: 1px solid #C0C0C0;
+                border-radius: 6px;
+                font-size: 13px;
+            }
+        """)
+
+        self.stock_search_button = QPushButton("🔍 재고 적은 품목 조회")
+        self.stock_search_button.setMinimumSize(QSize(150, 30))
+        self.stock_search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4B7BEC;
+                color: white;
+                padding: 6px 12px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #3A5FDB;
+            }
+        """)
+        self.stock_search_button.clicked.connect(self.search_low_stock_items)
+
+        input_layout.addWidget(self.stock_input)
+        input_layout.addWidget(self.stock_search_button)
+        stock_layout.addLayout(input_layout)
+
+        # (2) 결과 출력용 테이블
+        self.low_stock_table = QTableWidget()
+        self.low_stock_table.setColumnCount(2)
+        self.low_stock_table.setHorizontalHeaderLabels(["📦 상품명", "🔢 재고 수량"])
+        self.low_stock_table.setAlternatingRowColors(True)
+        self.low_stock_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.low_stock_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.low_stock_table.verticalHeader().setVisible(False)
+        self.low_stock_table.setShowGrid(False)
+        self.low_stock_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        self.low_stock_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #D6DDE8;
+                border-radius: 8px;
+                font-size: 13px;
+            }
+            QHeaderView::section {
+                background-color: #F1F3F9;
+                padding: 6px;
+                font-weight: bold;
+                color: #333;
+                border: 1px solid #D6DDE8;
+            }
+            QTableWidget::item {
+                padding: 6px;
+            }
+            QTableWidget::item:selected {
+                background-color: #C8DAFC;
+            }
+        """)
+
+        stock_layout.addWidget(self.low_stock_table)
+
+        # 그룹박스에 레이아웃 설정
+        stock_group.setLayout(stock_layout)
+
+        # 그룹박스를 아래쪽 섹션에 추가
+        bottom_layout.addWidget(stock_group)
+
+
+        # ✅ 이 줄이 꼭 필요! → 아래쪽 위젯에 레이아웃 적용
+        bottom_section.setLayout(bottom_layout)
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(top_section, 1)
+        main_layout.addWidget(bottom_section, 1)
         self.setLayout(main_layout)
+
 
         # 초기 상품 목록 로드
         # self.search_products()
+    def search_low_stock_items(self):
+        try:
+            threshold = int(self.stock_input.text().strip())
+        except ValueError:
+            QMessageBox.warning(self, "입력 오류", "유효한 숫자를 입력하세요.")
+            return
+
+        try:
+            # 🔹 FastAPI 서버에서 창고 재고 불러오기
+            url = "http://localhost:8000/products/warehouse_stock"  # 실제 주소/포트로 교체
+            headers = {"Authorization": f"Bearer {global_token}"}  # 필요 시만
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+
+            products = response.json()  # 리스트 형태
+
+            # 🔹 재고 부족 항목 필터링
+            low_stock_items = [p for p in products if p.get("quantity", 0) < threshold]
+
+            # 🔹 테이블 초기화
+            self.low_stock_table.setRowCount(0)
+
+            if not low_stock_items:
+                QMessageBox.information(self, "조회 결과", "재고 부족 상품이 없습니다.")
+                return
+
+            # 🔹 결과 테이블에 표시
+            self.low_stock_table.setRowCount(len(low_stock_items))
+            for row, item in enumerate(low_stock_items):
+                name_item = QTableWidgetItem(item["product_name"])
+                qty_item = QTableWidgetItem(str(item["quantity"]))
+                name_item.setTextAlignment(Qt.AlignCenter)
+                qty_item.setTextAlignment(Qt.AlignCenter)
+                self.low_stock_table.setItem(row, 0, name_item)
+                self.low_stock_table.setItem(row, 1, qty_item)
+
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"서버 요청 중 오류 발생:\n{e}")
 
     def search_products(self):
         """

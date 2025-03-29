@@ -39,7 +39,7 @@ from app.utils.time_utils import get_kst_now
 from dateutil.relativedelta import relativedelta
 
 def cleanup_unused_products_task():
-    db = get_db()  # 직접 세션 획득
+    db = next(get_db())  # 직접 세션 획득
     try:
         six_months_ago = get_kst_now() - relativedelta(months=6)
         recent_sold_subq = (

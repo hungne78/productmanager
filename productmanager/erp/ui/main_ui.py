@@ -656,7 +656,7 @@ class MainApp(QMainWindow):
         header_layout.setContentsMargins(10, 0, 10, 0)
 
         # 타이틀 라벨
-        title_label = QLabel("성심유통 ERP")
+        title_label = QLabel("아이스크림 ERP ")
         title_label.setObjectName("TitleLabel")  # QSS: #TitleLabel
         # 우측에 관리자 표기
         user_label = QLabel("로그인: 관리자")
@@ -825,18 +825,24 @@ class MainApp(QMainWindow):
         clock_row.addWidget(self.calendar_toggle_btn)
         clock_row.addStretch()
 
-        right_layout.addLayout(clock_row)
+        
         
         self.sales_label = QLabel("📊 매출 정보 불러오는 중...")
         self.sales_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.sales_label.setContentsMargins(12, 0, 0, 0)
+        self.sales_label.setContentsMargins(12, 4, 12, 4)
 
         self.sales_label.setStyleSheet("""
-            color: #2563EB;
-            font-weight: 500;
-            font-size: 20px;
+            background-color: rgba(255, 255, 255, 0.25);
+            color: #1E3A8A;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 8px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            margin: 4px;
         """)
-
+        
+        right_layout.addLayout(clock_row)
         self.sales_timer = QTimer(self)
         self.sales_timer.timeout.connect(self.update_sales_message)
         self.sales_timer.start(4000)  # 4초 간격

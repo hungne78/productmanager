@@ -14,6 +14,8 @@ from PyQt5.QtGui import QTextDocument, QFont
 from PyQt5.QtCore import QSizeF
 import json
 from PyQt5.QtWidgets import QListWidget, QListWidgetItem
+import requests
+from collections import OrderedDict
 
 BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
@@ -68,17 +70,45 @@ class OrderLeftWidget(QWidget):
         self.scroll_area.setWidget(self.employee_container)
         layout.addWidget(self.scroll_area)
 
-        # ✅ 카테고리 순서 관리용
+        # ✅ 카테고리 & 브랜드 정렬 구역 라벨
+        layout.addWidget(QLabel("🗂️ 카테고리 & 브랜드 순서 정렬"))
+
+        # ✅ 가로 정렬로 감쌀 박스
+        sort_layout = QHBoxLayout()
+
+        # ▶️ [1] 카테고리 정렬 영역
+        category_group = QVBoxLayout()
+        category_group.addWidget(QLabel("📂 카테고리 순서"))
         self.category_list = QListWidget()
         self.category_list.setDragDropMode(QListWidget.InternalMove)
-        layout.addWidget(QLabel("🗂️ 카테고리 순서 정렬"))
-        layout.addWidget(self.category_list)
+        category_group.addWidget(self.category_list)
 
-        self.save_category_order_button = QPushButton("💾 카테고리 순서 저장")
+        self.save_category_order_button = QPushButton("💾 저장")
         self.save_category_order_button.clicked.connect(self.save_category_order)
-        layout.addWidget(self.save_category_order_button)
+        category_group.addWidget(self.save_category_order_button)
 
-        self.load_category_list_from_server()  # ✅ 최초 실행 시 불러오기
+        # ▶️ [2] 브랜드 정렬 영역
+        brand_group = QVBoxLayout()
+        brand_group.addWidget(QLabel("🏷️ 브랜드 순서"))
+        self.brand_list = QListWidget()
+        self.brand_list.setDragDropMode(QListWidget.InternalMove)
+        brand_group.addWidget(self.brand_list)
+
+        self.save_brand_order_button = QPushButton("💾 저장")
+        self.save_brand_order_button.clicked.connect(self.save_brand_order)
+        brand_group.addWidget(self.save_brand_order_button)
+
+        # ▶️ 두 영역을 sort_layout에 추가
+        sort_layout.addLayout(category_group)
+        sort_layout.addLayout(brand_group)
+
+        # ▶️ 메인 레이아웃에 추가
+        layout.addLayout(sort_layout)
+
+        # ✅ 최초 실행 시 목록 불러오기
+        self.load_category_list_from_server()
+        self.load_brand_list_from_server()
+
 
         # ✅ 4. "전체 주문 조회" 버튼 추가
         self.order_button = QPushButton("전체 주문 조회")
@@ -89,10 +119,39 @@ class OrderLeftWidget(QWidget):
         self.setLayout(layout)
          # ✅ 현재 출고 단계 불러오기
         self.fetch_current_shipment_round()
-        
+    
+    
+    def load_brand_list_from_server(self):
+        try:
+            resp = requests.get(f"{BASE_URL}/products/brands/order")  # ✅ 순서 포함된 엔드포인트로 변경
+            resp.raise_for_status()
+            brand_names = resp.json()
+
+            self.brand_list.clear()
+            for name in brand_names:
+                self.brand_list.addItem(name)
+
+            # print("✅ 브랜드 정렬 순서 불러오기 완료:", brand_names)
+        except Exception as e:
+            print(f"❌ 브랜드 목록 불러오기 실패: {e}")
+
+
+    def save_brand_order(self):
+        brand_order = [self.brand_list.item(i).text() for i in range(self.brand_list.count())]
+        try:
+            resp = requests.post(
+                f"{BASE_URL}/products/brands/order",
+                json=brand_order
+            )
+            resp.raise_for_status()
+            print("✅ 브랜드 순서 저장 완료")
+        except Exception as e:
+            print(f"❌ 브랜드 순서 저장 실패: {e}")
+
+    
     def save_category_order(self):
         order = [self.category_list.item(i).text() for i in range(self.category_list.count())]
-        print("✅ 저장된 카테고리 순서:", order)
+        # print("✅ 저장된 카테고리 순서:", order)
 
         # 1️⃣ 로컬 저장
         with open("category_order.json", "w", encoding="utf-8") as f:
@@ -902,9 +961,9 @@ class OrderRightWidget(QWidget):
 
     def populate_table(self):
         """
-        상품 목록을 `카테고리 순서 → 브랜드 → 품명` 순으로 정렬하여 표시
+        서버에서 정렬된 상품 목록을 그대로 표시 (카테고리 → 브랜드 → 품명 순서 유지)
         """
-        # ✅ grid_layout 초기화 (기존 위젯 제거)
+        # 기존 위젯 제거
         for i in reversed(range(self.grid_layout.count())):
             widget = self.grid_layout.itemAt(i).widget()
             if widget is not None:
@@ -916,30 +975,15 @@ class OrderRightWidget(QWidget):
 
         row = 0
         col = 0
-
-        # ✅ 카테고리 정렬 우선순위 지정 함수
-        def category_sort_key(p):
-            category = p.get("category", "")
-            if hasattr(self, "category_order") and category in self.category_order:
-                return self.category_order.index(category)
-            return len(self.category_order) + 1
-
-        sorted_products = sorted(
-            self.current_products,
-            key=lambda p: (
-                category_sort_key(p),
-                int(p["brand_id"]) if p.get("brand_id") is not None else float('inf'),
-                p.get("brand_name", ""),
-                p.get("product_name", "")
-            )
-        )
-
         table = None
         row_index = 0
         current_category = None
         current_brand = None
 
-        for product in sorted_products:
+        # ✅ 정렬 없이 그대로 사용
+        products_to_display = self.current_products
+
+        for product in products_to_display:
             category = product.get("category", "")
             brand = product.get("brand_name", "")
             product_name = product.get("product_name", "")
@@ -948,11 +992,9 @@ class OrderRightWidget(QWidget):
                 table = QTableWidget()
                 table.setColumnCount(2)
                 table.setHorizontalHeaderLabels(["품명", "갯수"])
-
                 header = table.horizontalHeader()
                 header.setSectionResizeMode(0, QHeaderView.Stretch)
                 header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-
                 table.setFont(QFont("Arial", 9))
                 table.verticalHeader().setVisible(False)
                 table.setRowCount(0)
@@ -961,6 +1003,7 @@ class OrderRightWidget(QWidget):
                 table.setMinimumWidth(300)
                 table.cellClicked.connect(self.select_order_for_edit)
 
+            # ✅ 카테고리 제목 추가
             if current_category != category:
                 table.insertRow(table.rowCount())
                 category_item = QTableWidgetItem(category)
@@ -969,9 +1012,12 @@ class OrderRightWidget(QWidget):
                 table.setSpan(table.rowCount() - 1, 0, 1, 2)
                 table.setItem(table.rowCount() - 1, 0, category_item)
                 current_category = category
+                current_brand = None  # 브랜드 초기화
 
+            # ✅ 브랜드 구분용 빈 줄 추가 가능 (옵션)
             if current_brand != brand:
                 current_brand = brand
+                # 원하면 브랜드 타이틀 줄도 추가 가능
 
             table.insertRow(table.rowCount())
             table.setItem(table.rowCount() - 1, 0, self.create_resized_text(product_name, table))
@@ -1096,39 +1142,47 @@ class OrderRightWidget(QWidget):
         self.orders_table.clearContents()
         self.orders_table.setRowCount(0)
 
+        
+    
 
     def load_products(self):
-        print("[DEBUG] 상품 불러오기 시작")
-        global global_token
-        url = f"{BASE_URL}/products/grouped"
-        headers = {"Authorization": f"Bearer {global_token}"}
-
         try:
-            resp = requests.get(url, headers=headers)
-            print(f"[DEBUG] 응답 코드: {resp.status_code}")
-            if resp.status_code == 200:
-                result = resp.json()
-                self.current_products = []
+            url = f"{BASE_URL}/products/grouped"
+            response = requests.get(url)
+            response.raise_for_status()
 
-                for category, brands in result.items():
-                    for brand, products in brands.items():
-                        for product in products:
-                            product["category"] = category
-                            product["brand_name"] = brand
-                            self.current_products.append(product)
-            else:
-                print(f"❌ 상품 목록 응답 실패: {resp.status_code}")
-                self.current_products = []
+            grouped_raw = response.json()
+
+            # ✅ OrderedDict로 순서 유지
+            grouped = OrderedDict()
+            flat_product_list = []
+
+            for category in grouped_raw:
+                brand_group = grouped_raw[category]
+                ordered_brand_group = OrderedDict()
+                for brand_name in brand_group:
+                    products = brand_group[brand_name]
+                    ordered_brand_group[brand_name] = products
+
+                    # ✅ 상품 평탄화
+                    for p in products:
+                        p["category"] = category
+                        p["brand_name"] = brand_name
+                        flat_product_list.append(p)
+
+                grouped[category] = ordered_brand_group
+
+            # ✅ 디버깅 출력
+            print("✅ 서버에서 받은 정렬 결과:")
+            for cat, brands in grouped.items():
+                print(f"📦 {cat} → {list(brands.keys())}")
+
+            # 저장
+            self.current_products = flat_product_list  # ✅ 테이블에 쓸 리스트 저장
+            self.grouped_products = grouped            # (선택) 원형도 보관
 
         except Exception as e:
-            print(f"❌ 상품 목록 가져오기 실패: {e}")
-            self.current_products = []
-
-        print("[DEBUG] 상품 개수:", len(self.current_products))
-        print("[DEBUG] populate_table 호출 시작")
-        self.populate_table()
-
-
+            print(f"❌ 상품 불러오기 실패: {e}")
     
     def create_resized_text(self, text, table):
         """

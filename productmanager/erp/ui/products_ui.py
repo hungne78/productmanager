@@ -840,6 +840,41 @@ QHeaderView::section {
         except Exception as ex:
             QMessageBox.critical(self, "오류", str(ex))
 
+    
+    def do_custom_action(self):
+        """ '모든 검색' 버튼 클릭 시 실행: 전체 상품 목록 보여줌 """
+        global global_token
+        if not global_token:
+            QMessageBox.warning(self, "경고", "로그인이 필요합니다.")
+            return
+
+        try:
+            # 전체 상품 불러오기
+            resp = api_fetch_products(global_token)
+            if not isinstance(resp, dict):
+                QMessageBox.critical(self, "실패", "상품 목록 불러오기 실패!")
+                return
+
+            # 카테고리별로 묶여 있으므로 풀어서 리스트로 만들기
+            all_products = []
+            for category, items in resp.items():
+                for p in items:
+                    p["category"] = category
+                    all_products.append(p)
+
+            if not all_products:
+                QMessageBox.information(self, "정보", "등록된 상품이 없습니다.")
+                return
+
+            # 다이얼로그에서 선택
+            dialog = ProductSelectionDialog(all_products, parent=self)
+            if dialog.exec_() == QDialog.Accepted and dialog.selected_product:
+                self.left_panel.display_product(dialog.selected_product)
+
+        except Exception as e:
+            QMessageBox.critical(self, "에러", f"전체 상품 불러오기 실패:\n{e}")
+
+
     # ========== (5.1) “상품 선택 시” → fetch_and_update_stock_data ==========
     def product_selected(self, product: dict):
         """

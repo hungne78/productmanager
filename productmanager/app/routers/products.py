@@ -11,6 +11,7 @@ from collections import defaultdict
 from dateutil.relativedelta import relativedelta
 from app.models.brands import Brand
 import os
+from app.models.products import Product
 
 from app.models.products import Product
 from app.models.product_barcodes import ProductBarcode
@@ -231,14 +232,18 @@ def get_grouped_products(db: Session = Depends(get_db)):
     from collections import defaultdict, OrderedDict
     import os, json
 
+    # 🔹 (1) 모든 상품 불러오기
     products = (
         db.query(Product)
         .filter(Product.is_active == 1, Product.product_name.isnot(None), Product.product_name != "")
         .all()
     )
 
-    # temp_dict: category -> list of (brand_id, brand_name, product_dict)
+    # 🔹 (2) temp_dict: category → list of (brand_id, brand_name, product_dict)
     temp_dict = defaultdict(list)
+    # 디버깅 삽입 (for문 위)
+    # print(f"📦 정렬 대상 브랜드 목록: {[x[1] for x in items]}")
+    # print(f"📘 브랜드 정렬 기준 brand_order_dict: {brand_order_dict}")
 
     for product in products:
         category = product.category or "기타"
@@ -251,39 +256,51 @@ def get_grouped_products(db: Session = Depends(get_db)):
 
         temp_dict[category].append((brand_id, brand_name, product_dict))
 
-    # 카테고리 순서
+    # 🔹 (3) 카테고리 순서 로드
     category_order = []
     if os.path.exists("category_order_server.json"):
         with open("category_order_server.json", "r", encoding="utf-8") as f:
             category_order = json.load(f)
 
+    # 🔹 (4) 브랜드 순서 로드
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    brand_order_path = os.path.join(BASE_DIR, "brand_order_server.json")
+
+    brand_order = []
+    if os.path.exists(brand_order_path):
+        with open(brand_order_path, "r", encoding="utf-8") as f:
+            brand_order = json.load(f)
+            print(f"{brand_order}")
+
+    brand_order_dict = {name.strip(): idx for idx, name in enumerate(brand_order)}
+
+
+    # 🔹 (5) 최종 그룹화된 결과
     grouped = OrderedDict()
 
-    # (1) 지정된 카테고리 순서
+    # ✅ (5-1) 지정된 카테고리 순서에 따라 처리
     for category in category_order:
         if category in temp_dict:
             items = temp_dict[category]
-            brand_group = defaultdict(list)
+            ordered_brand_group = OrderedDict()
+            for bid, bname, pdata in sorted(items, key=lambda x: brand_order_dict.get(x[1].strip(), 9999)):
+                clean_name = bname.strip()
+                ordered_brand_group.setdefault(clean_name, []).append(pdata)
+            grouped[category] = ordered_brand_group
+    
 
-            # brand_id 기준 정렬 후 → brand_name 기준으로 키 만들기
-            for bid, bname, pdata in sorted(items, key=lambda x: x[0]):
-                brand_group[bname].append(pdata)
-
-            grouped[category] = brand_group
-
-    # (2) 누락된 카테고리들
+    # ✅ (5-2) 누락된 카테고리 처리 (카테고리 정렬 외에 추가된 것들)
     remaining_categories = sorted(set(temp_dict.keys()) - set(category_order))
     for category in remaining_categories:
         items = temp_dict[category]
         brand_group = defaultdict(list)
 
-        for bid, bname, pdata in sorted(items, key=lambda x: x[0]):
+        for bid, bname, pdata in sorted(items, key=lambda x: brand_order_dict.get(x[1], 9999)):
             brand_group[bname].append(pdata)
 
         grouped[category] = brand_group
 
     return grouped
-
 
 
 
@@ -306,6 +323,46 @@ def get_all_categories(db: Session = Depends(get_db)):
     )
     category_names = {c[0] or "기타" for c in categories}
     return sorted(category_names)
+# ======================================
+# 브랜드정렬
+# ======================================
+
+@router.get("/brands", response_model=List[str])
+def get_all_brands(db: Session = Depends(get_db)):
+    """
+    활성화된 상품의 브랜드 이름 목록 반환 (중복 제거, None → '기타')
+    """
+    products = (
+        db.query(Product)
+        .filter(Product.is_active == 1)
+        .all()
+    )
+
+    names = {p.brand.name if p.brand else "기타" for p in products}
+    return sorted(names)
+
+@router.get("/brands/order", response_model=List[str])
+def get_brand_order():
+    import os, json
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brand_order_server.json")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+@router.post("/brands/order")
+def save_brand_order(order: List[str]):
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    save_path = os.path.join(BASE_DIR, "brand_order_server.json")
+
+    print(f"🔹 [DEBUG] save_brand_order(): order={order}")
+    print(f"🔹 [DEBUG] save_path={save_path}")
+
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(order, f, ensure_ascii=False)
+    print("✅ 브랜드 순서 저장 완료")
+
+    return {"message": "브랜드 순서 저장 완료"}
 
 # ======================================
 # 상품 삭제
