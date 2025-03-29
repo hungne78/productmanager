@@ -137,6 +137,9 @@ def finalize_inventory(order_date: date, db: Session = Depends(get_db)):
     """
     출고 확정 후 이번 차수 주문을 차량 재고에 반영 + 다음 차수 생성 (단, 아이템 복사는 안 함)
     """
+    # ✅ 출고 확정 전에 마지막 차수에 주문이 있는지 먼저 확인
+    
+
     # ✅ 1) 주문 잠금 체크
     order_lock = db.query(OrderLock).filter(OrderLock.lock_date == order_date).first()
     if not order_lock:
@@ -148,6 +151,18 @@ def finalize_inventory(order_date: date, db: Session = Depends(get_db)):
     last_shipment_round = db.query(func.max(Order.shipment_round)) \
                             .filter(Order.order_date == order_date) \
                             .scalar() or 0
+    
+    order_count = (
+        db.query(OrderItem)
+        .join(Order, Order.id == OrderItem.order_id)
+        .filter(Order.order_date == order_date, Order.shipment_round == last_shipment_round)
+        .count()
+    )
+
+    if order_count == 0:
+        raise HTTPException(status_code=400, detail="주문이 없어서 출고차수가 변경되지 않았습니다.")
+
+
     current_shipment_round = last_shipment_round + 1
     print(f"🔔 [출고 확정] 이전 차수={last_shipment_round}, 새 차수={current_shipment_round}")
 

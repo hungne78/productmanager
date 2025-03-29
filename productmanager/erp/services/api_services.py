@@ -160,7 +160,7 @@ def api_fetch_lent_freezers(token, client_id):
     """
     특정 거래처의 대여 냉동고 정보를 조회하는 API 요청 함수
     """
-    url = f"{BASE_URL}/lents/{client_id}"
+    url = f"{BASE_URL}/lent/{client_id}"
     headers = {
         "Authorization": f"Bearer {token}"
     }

@@ -213,7 +213,115 @@ class ProductRightPanel(QWidget):
         self.box2.setLayout(self.box2_layout)
 
         self.setLayout(layout)            
-                        
+
+class BrandManagerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("브랜드 관리")
+        self.resize(400, 300)
+
+        layout = QVBoxLayout(self)
+
+        self.list_widget = QListWidget()
+        self.name_edit = QLineEdit()
+
+        btn_layout = QHBoxLayout()
+        self.btn_update = QPushButton("수정")
+        self.btn_delete = QPushButton("삭제")
+        self.btn_close = QPushButton("닫기")
+
+        btn_layout.addWidget(self.btn_update)
+        btn_layout.addWidget(self.btn_delete)
+        btn_layout.addWidget(self.btn_close)
+
+        layout.addWidget(QLabel("브랜드 목록"))
+        layout.addWidget(self.list_widget)
+        layout.addWidget(QLabel("선택된 브랜드명 수정"))
+        layout.addWidget(self.name_edit)
+        layout.addLayout(btn_layout)
+
+        self.load_brands()
+
+        # 연결
+        self.list_widget.currentItemChanged.connect(self.on_brand_selected)
+        self.btn_update.clicked.connect(self.update_brand)
+        self.btn_delete.clicked.connect(self.delete_brand)
+        self.btn_close.clicked.connect(self.reject)
+
+    def load_brands(self):
+        try:
+            resp = requests.get(
+                "http://127.0.0.1:8000/brands/",
+                headers={"Authorization": f"Bearer {global_token}"}
+            )
+            if resp.status_code == 200:
+                self.list_widget.clear()
+                for brand in resp.json():
+                    item = QListWidgetItem(brand["name"])
+                    item.setData(Qt.UserRole, brand["id"])
+                    self.list_widget.addItem(item)
+        except Exception as e:
+            QMessageBox.critical(self, "오류", str(e))
+
+    def on_brand_selected(self, current, _):
+        if current:
+            self.name_edit.setText(current.text())
+
+    def update_brand(self):
+        current_item = self.list_widget.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "경고", "수정할 브랜드를 선택하세요.")
+            return
+
+        new_name = self.name_edit.text().strip()
+        if not new_name:
+            QMessageBox.warning(self, "경고", "브랜드명을 입력하세요.")
+            return
+
+        brand_id = current_item.data(Qt.UserRole)
+
+        try:
+            resp = requests.put(
+                f"http://127.0.0.1:8000/brands/{brand_id}",
+                headers={"Authorization": f"Bearer {global_token}"},
+                json={"name": new_name}
+            )
+            if resp.status_code == 200:
+                QMessageBox.information(self, "성공", "브랜드가 수정되었습니다.")
+                self.load_brands()
+            else:
+                QMessageBox.critical(self, "실패", f"수정 실패: {resp.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "에러", str(e))
+
+    def delete_brand(self):
+        current_item = self.list_widget.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "경고", "삭제할 브랜드를 선택하세요.")
+            return
+
+        brand_id = current_item.data(Qt.UserRole)
+        confirm = QMessageBox.question(
+            self, "삭제 확인", f'"{current_item.text()}" 브랜드를 삭제할까요?',
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            resp = requests.delete(
+                f"http://127.0.0.1:8000/brands/{brand_id}",
+                headers={"Authorization": f"Bearer {global_token}"}
+            )
+            if resp.status_code == 200:
+                QMessageBox.information(self, "성공", "브랜드가 삭제되었습니다.")
+                self.load_brands()
+            else:
+                QMessageBox.critical(self, "실패", f"삭제 실패: {resp.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "에러", str(e))
+
+
 class ProductLeftPanel(BaseLeftTableWidget):
     def __init__(self, parent=None):
         labels = [
@@ -245,7 +353,14 @@ class ProductLeftPanel(BaseLeftTableWidget):
         self.btn_add_brand = QPushButton("브랜드 등록")
         self.layout().itemAt(1).layout().addWidget(self.btn_add_brand)
         self.btn_add_brand.clicked.connect(self.add_brand_dialog)
+        self.btn_brand_fix = QPushButton("브랜드 수정")
+        self.layout().itemAt(1).layout().addWidget(self.btn_brand_fix)
+        self.btn_brand_fix.clicked.connect(self.open_brand_manager_dialog)
         self.current_product_id = None
+
+    def open_brand_manager_dialog(self):
+        dialog = BrandManagerDialog(self)
+        dialog.exec_()
 
     def add_brand_dialog(self):
         dialog = QDialog(self)
@@ -278,16 +393,22 @@ class ProductLeftPanel(BaseLeftTableWidget):
                 )
                 if resp.status_code == 201:
                     QMessageBox.information(dialog, "성공", "브랜드가 등록되었습니다.")
-                    dialog.accept()
+                    dialog.registered_brand_name = name  # ✅ 등록된 이름 전달
+                    dialog.accept()  # ✅ "성공적으로 종료됨" 표시
                 else:
-                    # QMessageBox.critical(dialog, "실패", f"등록 실패: {resp.status_code}\n{resp.text}")
-                    pass
+                    QMessageBox.critical(dialog, "실패", f"등록 실패: {resp.status_code}\n{resp.text}")
             except Exception as e:
                 QMessageBox.critical(dialog, "에러", str(e))
 
         btn_ok.clicked.connect(on_register)
         btn_cancel.clicked.connect(dialog.reject)
-        dialog.exec_()
+        result = dialog.exec_()
+
+        # ✅ 외부에서 성공 여부 확인 및 반환값 활용
+        if result == QDialog.Accepted:
+            return dialog.registered_brand_name
+        return None
+
 
     def import_from_excel(self):
         global global_token

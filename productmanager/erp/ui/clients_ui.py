@@ -14,33 +14,114 @@ import requests
 from datetime import datetime
 global_token = get_auth_headers
 
-class LentDialog(QDialog):
-    def __init__(self, lent_data, parent=None):
+class LentEditorDialog(QDialog):
+    def __init__(self, client_id, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("대여 냉동고 목록")
-        self.resize(500, 400)
 
-        layout = QVBoxLayout(self)
+        self.setWindowTitle("대여 냉동고 등록/수정")
+        self.resize(800, 800)
+        self.client_id = client_id
+        self.selected_lent_id = None  # ✅ 현재 수정 대상 냉동고 ID
 
-        self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["상표", "시리얼 번호", "년식"])
+        layout = QVBoxLayout()
+
+        # 🔹 냉동고 목록 테이블
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["브랜드", "사이즈", "시리얼", "년식"])
+        self.table.setMinimumHeight(180)
+        self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.itemClicked.connect(self.fill_form_from_table)
 
+        layout.addWidget(QLabel("📦 현재 등록된 냉동고 목록"))
         layout.addWidget(self.table)
 
-        self.populate_table(lent_data)
+        # 🔹 입력 폼
+        self.brand_edit = QLineEdit()
+        self.size_edit = QLineEdit()
+        self.serial_edit = QLineEdit()
+        self.year_edit = QLineEdit()
 
-        close_btn = QPushButton("닫기")
-        close_btn.clicked.connect(self.accept)
-        layout.addWidget(close_btn)
+        form = QFormLayout()
+        form.addRow("브랜드", self.brand_edit)
+        form.addRow("사이즈", self.size_edit)
+        form.addRow("시리얼번호", self.serial_edit)
+        form.addRow("년식", self.year_edit)
+        layout.addLayout(form)
 
-    def populate_table(self, lent_data):
-        self.table.setRowCount(len(lent_data))
-        for i, record in enumerate(lent_data):
-            self.table.setItem(i, 0, QTableWidgetItem(record.get("brand", "")))
-            self.table.setItem(i, 1, QTableWidgetItem(record.get("serial_number", "")))
-            self.table.setItem(i, 2, QTableWidgetItem(str(record.get("year", ""))))
+        # 🔹 버튼 영역
+        btn_layout = QHBoxLayout()
+        save_btn = QPushButton("저장")
+        cancel_btn = QPushButton("취소")
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        save_btn.clicked.connect(self.save_data)
+        cancel_btn.clicked.connect(self.reject)
+
+        self.setLayout(layout)
+        self.load_existing_data()
+
+    def load_existing_data(self):
+        try:
+            response = api_fetch_lent_freezers(global_token, self.client_id)
+            if response and isinstance(response, list):
+                self.table.setRowCount(len(response))
+                for row, freezer in enumerate(response):
+                    # ✅ ID 저장
+                    item0 = QTableWidgetItem(freezer.get("brand", ""))
+                    item0.setData(Qt.UserRole, freezer.get("id"))  # freezer ID 저장
+                    self.table.setItem(row, 0, item0)
+                    self.table.setItem(row, 1, QTableWidgetItem(freezer.get("size", "")))
+                    self.table.setItem(row, 2, QTableWidgetItem(freezer.get("serial_number", "")))
+                    self.table.setItem(row, 3, QTableWidgetItem(str(freezer.get("year", ""))))
+            else:
+                self.table.setRowCount(0)
+        except Exception as e:
+            print(f"❌ 냉동고 정보 로딩 실패: {e}")
+
+    def fill_form_from_table(self, item):
+        row = item.row()
+        self.selected_lent_id = self.table.item(row, 0).data(Qt.UserRole)  # ✅ 선택한 냉동고 ID 저장
+        self.brand_edit.setText(self.table.item(row, 0).text())
+        self.size_edit.setText(self.table.item(row, 1).text())
+        self.serial_edit.setText(self.table.item(row, 2).text())
+        self.year_edit.setText(self.table.item(row, 3).text())
+
+    def save_data(self):
+        data = {
+            "client_id": int(self.client_id),
+            "brand": self.brand_edit.text(),
+            "size": self.size_edit.text(),
+            "serial_number": self.serial_edit.text(),
+            "year": int(self.year_edit.text()),
+        }
+
+        headers = {"Authorization": f"Bearer {global_token}"}
+
+        try:
+            if self.selected_lent_id:  # ✅ 수정
+                url = f"http://127.0.0.1:8000/lent/id/{self.selected_lent_id}"
+                response = requests.put(url, headers=headers, json=data)
+            else:  # ✅ 신규 등록
+                url = f"http://127.0.0.1:8000/lent/{self.client_id}"
+                response = requests.post(url, headers=headers, json=data)
+
+            if response.status_code in (200, 201):
+                QMessageBox.information(self, "성공", "냉동고 정보가 저장되었습니다.")
+                self.selected_lent_id = None  # ✅ 입력 폼 리셋
+                self.brand_edit.clear()
+                self.size_edit.clear()
+                self.serial_edit.clear()
+                self.year_edit.clear()
+                self.load_existing_data()  # ✅ 목록 새로고침
+            else:
+                QMessageBox.critical(self, "오류", f"저장 실패: {response.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "에러", f"오류 발생: {e}")
+
             
 class ClientDialog(QDialog):
     def __init__(self, title, client=None, parent=None):
@@ -205,7 +286,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
         main_layout.addLayout(btn_layout_bottom)
         
         # ✅ 버튼 이벤트 연결
-        self.btn_lent.clicked.connect(self.show_lent_freezers)
+        self.btn_lent.clicked.connect(self.open_lent_editor_dialog)
         self.btn_new.clicked.connect(self.create_client)
         self.btn_edit.clicked.connect(self.update_client)
         self.btn_delete.clicked.connect(self.delete_client)
@@ -213,7 +294,17 @@ class ClientLeftPanel(BaseLeftTableWidget):
         
         self.btn_unassign.clicked.connect(self.unassign_employee)
         
-        
+    def open_lent_editor_dialog(self):
+        client_id = self.get_value(0).strip()
+        if not client_id:
+            QMessageBox.warning(self, "경고", "거래처를 먼저 선택하세요.")
+            return
+
+        dialog = LentEditorDialog(client_id, self)
+        if dialog.exec_() == QDialog.Accepted:
+            # 저장 완료 후 새로고침 가능
+            print("✅ 냉동고 정보 저장 완료")
+    
     def unassign_employee(self):
         """ 팝업 창에서 직원 ID를 입력받아 거래처에서 해제하는 기능 """
         global global_token

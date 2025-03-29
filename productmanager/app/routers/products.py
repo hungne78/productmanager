@@ -286,6 +286,11 @@ def get_grouped_products(db: Session = Depends(get_db)):
             for bid, bname, pdata in sorted(items, key=lambda x: brand_order_dict.get(x[1].strip(), 9999)):
                 clean_name = bname.strip()
                 ordered_brand_group.setdefault(clean_name, []).append(pdata)
+            
+            # 🔠 정렬 추가 (이 아래 for문 끝나고 정렬 적용)
+            for brand in ordered_brand_group:
+                ordered_brand_group[brand].sort(key=lambda p: p["product_name"])
+                
             grouped[category] = ordered_brand_group
     
 

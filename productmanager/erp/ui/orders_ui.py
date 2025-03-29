@@ -41,7 +41,7 @@ class OrderLeftWidget(QWidget):
         # ✅ 2. 출고 단계 선택 드롭다운 (현재 출고 가능 단계만 활성화)
         self.shipment_round_dropdown = QComboBox()
         self.shipment_round_dropdown.addItems([f"{i}차 출고" for i in range(1, 11)])  # ✅ 1차 ~ 10차
-        self.shipment_round_dropdown.setEnabled(False)  # ✅ 기본적으로 비활성화
+        self.shipment_round_dropdown.setEnabled(True)  # ✅ 기본적으로 비활성화
         layout.addWidget(QLabel("출고 단계 선택"))
         layout.addWidget(self.shipment_round_dropdown)
 
@@ -109,6 +109,10 @@ class OrderLeftWidget(QWidget):
         self.load_category_list_from_server()
         self.load_brand_list_from_server()
 
+        
+        self.current_round_orders_button = QPushButton("이번차수 전체 주문조회<<<")
+        self.current_round_orders_button.clicked.connect(self.fetch_orders_for_current_shipment)
+        layout.addWidget(self.current_round_orders_button)
 
         # ✅ 4. "전체 주문 조회" 버튼 추가
         self.order_button = QPushButton("전체 주문 조회")
@@ -120,6 +124,64 @@ class OrderLeftWidget(QWidget):
          # ✅ 현재 출고 단계 불러오기
         self.fetch_current_shipment_round()
     
+    def fetch_orders_for_current_shipment(self):
+        """
+        현재(시스템에서 받아둔) 출고 차수의 주문을 전직원 대상으로 조회하여 합산 후 표시한다.
+        """
+        selected_date = self.order_date_picker.date().toString("yyyy-MM-dd")
+        # fetch_current_shipment_round() 에서 받아둔 현재 출고 차수를 사용 (예: 0부터 시작)
+        current_round = self.current_shipment_round
+
+        url = f"{BASE_URL}/employees/"
+        headers = {"Authorization": f"Bearer {global_token}"}
+        aggregated_orders = {}
+
+        try:
+            # 1. 모든 직원 목록 조회
+            resp = requests.get(url, headers=headers)
+            if resp.status_code == 200:
+                employees = resp.json()
+            else:
+                print(f"❌ 직원 목록 조회 실패: {resp.status_code}, 응답: {resp.text}")
+                return
+
+            # 2. 각 직원의 주문 조회 (현재 출고 차수만)
+            for employee in employees:
+                employee_id = employee["id"]
+                order_url = (f"{BASE_URL}/orders/orders_with_items?employee_id={employee_id}"
+                            f"&date={selected_date}&shipment_round={current_round}")
+                order_resp = requests.get(order_url, headers=headers)
+
+                if order_resp.status_code == 200:
+                    orders = order_resp.json()
+                    for order in orders:
+                        # 만약 응답에 출고 차수 정보가 있고 다르면 무시
+                        if order.get("shipment_round") != current_round:
+                            continue
+                        for item in order["items"]:
+                            product_id = item["product_id"]
+                            quantity = item["quantity"]
+
+                            key = (product_id, current_round)
+                            if key in aggregated_orders:
+                                aggregated_orders[key]["quantity"] += quantity
+                            else:
+                                aggregated_orders[key] = {
+                                    "product_id": product_id,
+                                    "product_name": item["product_name"],
+                                    "quantity": quantity
+                                }
+                else:
+                    print(f"❌ 직원 {employee_id}의 주문 조회 실패: {order_resp.status_code}")
+
+            # 3. 합산된 주문 데이터를 오른쪽 패널에 표시
+            aggregated_order_list = list(aggregated_orders.values())
+            print(f"📌 이번차수 최종 합산 주문 데이터: {aggregated_order_list}")
+            self.display_orders([{"order_id": "all", "items": aggregated_order_list}])
+        except Exception as e:
+            print(f"❌ 오류 발생: {e}")
+
+
     
     def load_brand_list_from_server(self):
         try:
@@ -221,32 +283,30 @@ class OrderLeftWidget(QWidget):
 
     def update_shipment_dropdown(self):
         """
-        출고 드롭다운 메뉴를 선택한 날짜의 출고 차수에 맞게 갱신
+        모든 출고 차수를 활성화하고, 현재 출고 차수를 강조(예: 파란색/굵은 글씨)하여 표시합니다.
         """
-        self.shipment_round_dropdown.clear()  # ✅ 기존 항목 초기화
+        self.shipment_round_dropdown.clear()  # 기존 항목 초기화
 
-        for i in range(10):  # ✅ 1차 ~ 10차까지 표시
+        for i in range(10):  # 1차 ~ 10차까지 표시
             item_text = f"{i + 1}차 출고"
             item = QStandardItem(item_text)
-
-            # ✅ 현재 출고 차수까지만 활성화, 이후는 비활성화 (회색 표시)
-            if i == self.current_shipment_round:  # ✅ 현재 출고 차수는 선택 가능
-                item.setEnabled(True)
-                item.setForeground(QColor(0, 0, 0))  # ✅ 활성화 (검은색)
-            elif i < self.current_shipment_round:  # ✅ 이미 출고된 단계는 비활성화
-                item.setEnabled(False)
-                item.setForeground(QColor(100, 100, 100))  # ✅ 비활성화 (연한 회색)
-            else:  # ✅ 아직 출고되지 않은 미래 차수
-                item.setEnabled(False)
-                item.setForeground(QColor(150, 150, 150))  # ✅ 회색 (비활성화)
-
+            # 모든 항목 활성화
+            item.setEnabled(True)
+            # 현재 출고 차수는 강조(예: 파란색, 굵은 글씨)
+            if i == self.current_shipment_round:
+                item.setForeground(QColor(0, 0, 255))  # 파란색
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+            else:
+                item.setForeground(QColor(0, 0, 0))
             self.shipment_round_dropdown.model().appendRow(item)
 
-        # ✅ 출고 가능한 차수를 자동 선택 (현재 출고 차수)
+        # 기본 선택은 현재 출고 차수로 설정
         self.shipment_round_dropdown.setCurrentIndex(self.current_shipment_round)
         self.shipment_round_dropdown.setEnabled(True)
+        print(f"📌 [디버깅] 현재 출고 차수는 {self.current_shipment_round + 1}차로 표시됩니다.")
 
-        print(f"📌 [디버깅] {self.current_shipment_round + 1}차까지 선택 가능")
 
 
     def fetch_current_shipment_round(self):
@@ -308,7 +368,10 @@ class OrderLeftWidget(QWidget):
                 QMessageBox.information(self, "성공", f"{selected_round}차 출고가 확정되었습니다.")
                 self.fetch_current_shipment_round()  # ✅ 출고 확정 후 드롭다운 업데이트
             else:
-                QMessageBox.critical(self, "실패", f"출고 확정 실패: {response.text}")
+                if "주문이 없어서 출고차수가 변경되지 않았습니다" in response.text:
+                    QMessageBox.information(self, "안내", "🚫 주문이 없어 출고차수가 변경되지 않았습니다.")
+                else:
+                    QMessageBox.critical(self, "실패", f"출고 확정 실패: {response.text}")
         except Exception as e:
             QMessageBox.critical(self, "오류 발생", f"서버 요청 오류: {e}")
             
@@ -635,119 +698,170 @@ class OrderRightWidget(QWidget):
         self.current_date = date_str
 
     def on_print_clicked(self):
-        self.print_orders_painter(self.current_items, self.selected_order_date, self.current_mode)
+        # 1) 테이블에 표시된 순서 그대로 아이템 목록을 가져온다.
+        items_in_table_order = self.gather_current_items_in_ui_order()
+
+        # 2) “주문 날짜/모드”는 기존처럼 가져오거나, self.selected_order_date 등 사용
+        order_date = self.selected_order_date
+        mode = self.current_mode
+
+        # 3) QPainter로 인쇄
+        self.print_orders_painter(items_in_table_order, order_date, mode)
 
     def print_orders_painter(self, items, order_date, mode):
-        """
-        QPainter로 A4 한 장에 16칸 × 50행 표를 그리고,
-        '왼쪽 위->아래' (상품명/갯수) 채우고 표 상단에 날짜+모드(전체/직원명).
-        """
         from PyQt5.QtGui import QPainter, QFont
         from PyQt5.QtCore import QRectF, Qt
+        from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 
         printer = QPrinter(QPrinter.HighResolution)
-        printer.setPageSize(QPrinter.A4)
-        printer.setOrientation(QPrinter.Portrait)
-        printer.setFullPage(True)
-        printer.setResolution(300)
+        ...
 
         dlg = QPrintDialog(printer, self)
         if dlg.exec_() != QPrintDialog.Accepted:
             return
 
-        # ✅ items 확인 (주문 목록이 비어 있지 않은지 체크)
-        print(f"📌 [DEBUG] print_orders_painter() 호출됨 → items 개수: {len(items)}")
-        for idx, item in enumerate(items[:10]):  # 최대 10개만 출력 확인
-            print(f"📌 [DEBUG] items[{idx}] = {item}")
-
-        # A4 = 210×297mm, 여백=10mm => 190×277mm
         margin_mm = 10
         page_width_mm = 210 - margin_mm * 2
         page_height_mm = 297 - margin_mm * 2
 
-        # 16열(8쌍), 50행 -> 400개 item
         total_columns = 16
-        rows = 50
+        rows = 63
+        pairs_count = total_columns // 2
 
-        cell_w_mm = page_width_mm / total_columns  # 190/16
-        cell_h_mm = page_height_mm / rows          # 277/50
+        width_per_pair_mm = page_width_mm / pairs_count
+        name_col_ratio = 0.6
+        qty_col_ratio = 0.4
+        cell_h_mm = page_height_mm / rows
 
         dpmm = printer.resolution() / 25.4
-        cell_w_px = cell_w_mm * dpmm
-        cell_h_px = cell_h_mm * dpmm
-        margin_x_px = margin_mm * dpmm
-        margin_y_px = margin_mm * dpmm
+        name_col_w_px = (width_per_pair_mm * name_col_ratio) * dpmm
+        qty_col_w_px  = (width_per_pair_mm * qty_col_ratio)  * dpmm
+        cell_h_px     = cell_h_mm * dpmm
+        margin_x_px   = margin_mm * dpmm
+        margin_y_px   = margin_mm * dpmm
 
-        # ✅ QPainter 중복 실행 방지
         painter = QPainter()
-        if not painter.begin(printer):  
+        if not painter.begin(printer):
             print("❌ QPainter 시작 실패")
             return
 
-        # (1) 상단 제목
+        # 제목
         font_title = QFont("Arial", 12)
         painter.setFont(font_title)
-        title_text = f"주문 날짜: {order_date}  /  {mode}"
-        title_x = margin_x_px
-        title_y = margin_y_px - (5 * dpmm)
-        painter.drawText(int(title_x), int(title_y), title_text)
+        painter.drawText(int(margin_x_px), int(margin_y_px - 3*dpmm),
+                        f"주문 날짜: {order_date} / {mode}")
 
-        # (2) 표 폰트
-        font_cell = QFont("Arial", 8)
+        # 표 폰트
+        font_cell = QFont("Arial", 7)
         painter.setFont(font_cell)
 
-        max_items = 400  # 16×50/2 = 8×50=400
+        max_items = pairs_count * rows
         item_count = min(len(items), max_items)
 
-        # ✅ 첫 번째 열(품목명) 출력 로직 수정 및 colPair 오타 수정
         for i in range(item_count):
-            col_pair = i // rows  # 열쌍 인덱스 (0~7)
-            row_idx = i % rows    # 행 인덱스 (0~49)
+            col_pair = i // rows
+            row_idx  = i % rows
 
-            # ✅ items에서 product_name 가져오기
-            if i < len(items):  
-                product_name = items[i].get("product_name", "❌ 없음")
-                quantity_str = str(items[i].get("quantity", "0"))
+            x_name = margin_x_px + col_pair*(name_col_w_px + qty_col_w_px)
+            x_qty  = x_name + name_col_w_px
+            y_row  = margin_y_px + row_idx*cell_h_px
+
+            rect_name = QRectF(x_name, y_row, name_col_w_px, cell_h_px)
+            rect_qty  = QRectF(x_qty,  y_row, qty_col_w_px, cell_h_px)
+
+            data = items[i]
+            product_name = data.get("product_name", "❌ 없음")
+            quantity_val = data.get("quantity", None)
+            is_cat       = data.get("is_category", False)
+
+            if is_cat:
+                # ▷ 카테고리 행: 2칸 합쳐서 중앙 정렬
+                merged_rect = QRectF(x_name, y_row,
+                                    name_col_w_px + qty_col_w_px,
+                                    cell_h_px)
+                painter.drawRect(merged_rect)
+                painter.drawText(merged_rect, int(Qt.AlignCenter), product_name)
+
             else:
-                product_name = "❌ 없음"
-                quantity_str = "0"
+                # ▷ 일반 상품 행: 왼쪽(상품명) + 오른쪽(수량)
+                painter.drawRect(rect_name)
+                painter.drawRect(rect_qty)
 
-            colName = col_pair * 2
-            colQty  = col_pair * 2 + 1  # ✅ 오타 수정 (colPair → col_pair)
+                # 상품명 왼쪽 정렬
+                painter.drawText(rect_name, int(Qt.AlignVCenter|Qt.AlignLeft), product_name)
 
-            # 상품명칸
-            x_name = margin_x_px + colName * cell_w_px
-            y_name = margin_y_px + row_idx * cell_h_px
-            rect_name = QRectF(x_name, y_name, cell_w_px, cell_h_px)
-            painter.drawRect(rect_name)
-            painter.drawText(rect_name, int(Qt.AlignCenter), product_name)  # ✅ 품목명 출력
-
-            # 갯수칸
-            x_qty = margin_x_px + colQty * cell_w_px
-            y_qty = margin_y_px + row_idx * cell_h_px
-            rect_qty = QRectF(x_qty, y_qty, cell_w_px, cell_h_px)
-            painter.drawRect(rect_qty)
-            painter.drawText(rect_qty, int(Qt.AlignCenter), quantity_str)  # ✅ 수량 출력
+                # 수량(없으면 0)
+                qty_str = str(quantity_val if quantity_val is not None else 0)
+                painter.drawText(rect_qty, int(Qt.AlignCenter), qty_str)
 
         # 남은 칸은 빈칸
-        total_cells = rows * (total_columns // 2)
+        total_cells = pairs_count*rows
         for i in range(item_count, total_cells):
             col_pair = i // rows
-            row_idx = i % rows
-            colName = col_pair * 2
-            colQty  = col_pair * 2 + 1
+            row_idx  = i % rows
+            x_name = margin_x_px + col_pair*(name_col_w_px + qty_col_w_px)
+            x_qty  = x_name + name_col_w_px
+            y_row  = margin_y_px + row_idx*cell_h_px
 
-            x_name = margin_x_px + colName * cell_w_px
-            y_name = margin_y_px + row_idx * cell_h_px
-            rect_name = QRectF(x_name, y_name, cell_w_px, cell_h_px)
+            rect_name = QRectF(x_name, y_row, name_col_w_px, cell_h_px)
+            rect_qty  = QRectF(x_qty,  y_row, qty_col_w_px, cell_h_px)
             painter.drawRect(rect_name)
-
-            x_qty = margin_x_px + colQty * cell_w_px
-            y_qty = margin_y_px + row_idx * cell_h_px
-            rect_qty = QRectF(x_qty, y_qty, cell_w_px, cell_h_px)
             painter.drawRect(rect_qty)
 
         painter.end()
+        print("✅ 인쇄 완료")
+
+
+
+    def gather_current_items_in_ui_order(self):
+        collected_items = []
+
+        for table_index in range(self.grid_layout.count()):
+            widget = self.grid_layout.itemAt(table_index).widget()
+            if not isinstance(widget, QTableWidget):
+                continue
+
+            for row in range(widget.rowCount()):
+                product_name_item = widget.item(row, 0)  # 첫 칸
+                quantity_item = widget.item(row, 1)     # 두 번째 칸(수량)
+
+                if product_name_item is None:
+                    continue
+
+                product_name = product_name_item.text().strip()
+                if not product_name:
+                    continue
+
+                # [A] 여기서 UserRole을 확인: 
+                #     is_category = True/False
+                role_data = product_name_item.data(Qt.UserRole)
+                is_category = bool(role_data)  # True면 카테고리 행
+
+                if is_category:
+                    # 카테고리 행: 2칸 span되어 수량칸은 무의미
+                    collected_items.append({
+                        "product_name": product_name,
+                        "quantity": None,
+                        "is_category": True
+                    })
+                else:
+                    # 일반 상품 행
+                    qty_val = 0
+                    if quantity_item:
+                        qtext = quantity_item.text().strip()
+                        if qtext:
+                            try:
+                                qty_val = int(qtext)
+                            except:
+                                qty_val = 0
+                    collected_items.append({
+                        "product_name": product_name,
+                        "quantity": qty_val,
+                        "is_category": False
+                    })
+
+        return collected_items
+
 
 
     def print_orders(self):
@@ -1009,6 +1123,7 @@ class OrderRightWidget(QWidget):
                 category_item = QTableWidgetItem(category)
                 category_item.setFont(QFont("Arial", 9, QFont.Bold))
                 category_item.setTextAlignment(Qt.AlignCenter)
+                category_item.setData(Qt.UserRole, True)
                 table.setSpan(table.rowCount() - 1, 0, 1, 2)
                 table.setItem(table.rowCount() - 1, 0, category_item)
                 current_category = category
@@ -1022,7 +1137,9 @@ class OrderRightWidget(QWidget):
             table.insertRow(table.rowCount())
             table.setItem(table.rowCount() - 1, 0, self.create_resized_text(product_name, table))
             table.setItem(table.rowCount() - 1, 1, QTableWidgetItem(""))
-
+            name_item = self.create_resized_text(product_name, table)
+            # 카테고리가 아닌 일반 상품이므로, UserRole=False (또는 설정 안 함)
+            name_item.setData(Qt.UserRole, False)
             table.setRowHeight(table.rowCount() - 1, 12)
             row_index += 1
 

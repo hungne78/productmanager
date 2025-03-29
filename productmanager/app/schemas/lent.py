@@ -7,6 +7,7 @@ from app.utils.time_utils import get_kst_now, convert_utc_to_kst  # ✅ KST 변�
 class LentCreate(BaseModel):
     client_id: int
     brand: str
+    size: str
     serial_number: str
     year: int
 
@@ -14,6 +15,7 @@ class LentOut(BaseModel):
     id: int
     client_id: int
     brand: str
+    size: str
     serial_number: str
     year: int
     created_at: datetime = Field(default_factory=get_kst_now)  # ✅ KST 변환 적용
