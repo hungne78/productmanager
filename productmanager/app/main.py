@@ -14,8 +14,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers.client_visits import router as client_visits_router
 from app.routers.employee_vehicle import router as employee_vehicle_router
 from app.routers.sales import router as sales_router
+from app.routers.franchise_order import router as franchise_order_router
 from app.routers.brands import router as brands_router
 from app.routers.company import router as company_router
+from app.routers.client_auth import router as client_auth_router
 from app.core.security import get_password_hash
 from app.routers import payments
 from app.models.employees import Employee
@@ -205,6 +207,8 @@ def create_app() -> FastAPI:
     app.include_router(employee_inventory_router, prefix="/inventory", tags=["Inventory"])
     # print("✅ /inventory 라우터 등록 완료!")  # ✅ 정상 등록 확인 로그
     app.include_router(company_router, prefix="/company", tags=["Company"]) 
+    app.include_router(franchise_order_router, prefix="/franchise_orders", tags=["FranchiseOrders"])
+    app.include_router(client_auth_router, prefix="/client_auth", tags=["ClientAuth"])
     return app
 
 app = create_app()

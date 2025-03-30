@@ -1098,3 +1098,4 @@ def get_client_monthly_sales(
 
     total_sales = float(sum_val or 0.0)
     return { "total_sales": total_sales }
+

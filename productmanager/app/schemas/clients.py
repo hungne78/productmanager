@@ -26,8 +26,21 @@ class ClientOut(BaseModel):
     fixed_price: Optional[float] = None
     business_number: Optional[str] = None
     email: Optional[str] = None
+    password_hash: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+class ClientUpdate(BaseModel):
+    client_name: str
+    representative_name: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    outstanding_amount: float
+    regular_price: Optional[float] = None
+    fixed_price: Optional[float] = None
+    business_number: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None  # ✅ 추가

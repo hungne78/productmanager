@@ -3,18 +3,20 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from app.db.database import get_db
 from app.models.clients import Client
-from app.schemas.clients import ClientCreate, ClientOut
+from app.schemas.clients import ClientCreate, ClientOut, ClientUpdate
 from fastapi.responses import JSONResponse
 from app.models.employee_clients import EmployeeClient
 from app.utils.time_utils import convert_utc_to_kst
 from starlette.responses import JSONResponse, StreamingResponse
 import json
 from typing import List
+from passlib.hash import bcrypt
 router = APIRouter()
 
 @router.post("/", response_model=ClientOut)
 def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
     """ 새로운 거래처 등록 (KST로 저장) """
+    password_hash = bcrypt.hash("1234")
     new_client = Client(
         client_name=payload.client_name,
         representative_name=payload.representative_name,
@@ -24,7 +26,8 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
         regular_price=payload.regular_price,
         fixed_price=payload.fixed_price,
         business_number=payload.business_number,
-        email=payload.email
+        email=payload.email,
+        password_hash=password_hash
     )
     db.add(new_client)
     db.commit()
@@ -48,8 +51,8 @@ def get_client(client_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{client_id}", response_model=ClientOut)
-def update_client(client_id: int, payload: ClientCreate, db: Session = Depends(get_db)):
-    """ 거래처 정보 수정 """
+def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(get_db)):
+    """ 거래처 정보 수정 + 비밀번호 변경 """
     db_client = db.query(Client).filter(Client.id == client_id).first()
     if not db_client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -64,9 +67,13 @@ def update_client(client_id: int, payload: ClientCreate, db: Session = Depends(g
     db_client.business_number = payload.business_number
     db_client.email = payload.email
 
+    # ✅ 비밀번호 변경 시
+    if payload.password:
+        db_client.password_hash = bcrypt.hash(payload.password)
+
     db.commit()
     db.refresh(db_client)
-    return db_client  # ✅ 변환 없이 그대로 반환
+    return db_client
 
 @router.delete("/{client_id}")
 def delete_client(client_id: int, db: Session = Depends(get_db)):
@@ -128,7 +135,7 @@ def get_all_clients(employee_id: int, db: Session = Depends(get_db)):
     )
 
     if not clients:
-        logger.warning(f"⚠️ No clients found for employee {employee_id}")
+        print.warning(f"⚠️ No clients found for employee {employee_id}")
         return []
 
     response_data = [{"client_id": c.id, "client_name": c.client_name.strip()} for c in clients]

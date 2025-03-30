@@ -917,58 +917,50 @@ Future<Map<String, dynamic>> _fetchEmployeeClients(String token, int employeeId)
   }
 }
 
-void _showDateSelectionDialog(BuildContext context, String token) {
-  DateTime selectedDate = DateTime.now();
+void _showDateSelectionDialog(BuildContext context, String token) async {
+  try {
+    // ✅ 서버 시간을 먼저 가져오기
+    final serverNow = await ApiService.fetchServerTime(token);
+    final onlyDate = DateTime(serverNow.year, serverNow.month, serverNow.day);
 
-  showDialog(
-    context: context,
-    builder: (BuildContext ctx) {
-      return AlertDialog(
-        title: const Text("주문 날짜 선택"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("주문할 날짜를 선택하세요."),
-            const SizedBox(height: 10),
-            StatefulBuilder(
-              builder: (context, setState) {
-                return Column(
-                  children: [
-                    CalendarDatePicker(
-                      initialDate: selectedDate,
-                      firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
-                      onDateChanged: (DateTime date) {
-                        setState(() {
-                          selectedDate = date;
-                        });
-                      },
-                    ),
-                  ],
+    showDialog(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          title: const Text("주문 날짜 선택"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("현재 날짜로만 주문할 수 있습니다."),
+              const SizedBox(height: 10),
+              Text("${onlyDate.year}년 ${onlyDate.month}월 ${onlyDate.day}일", style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("취소"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => OrderScreen(token: token, selectedDate: onlyDate),
+                  ),
                 );
               },
+              child: const Text("확인"),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("취소"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => OrderScreen(token: token, selectedDate: selectedDate),
-                ),
-              );
-            },
-            child: const Text("확인"),
-          ),
-        ],
-      );
-    },
-  );
+        );
+      },
+    );
+  } catch (e) {
+    print("❌ 서버 시간 불러오기 실패: $e");
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("서버 시간 조회 실패: $e")),
+    );
+  }
 }

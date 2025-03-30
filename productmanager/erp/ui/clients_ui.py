@@ -141,7 +141,10 @@ class ClientDialog(QDialog):
         self.fixed_price_edit = QLineEdit("70")
         self.business_edit = QLineEdit()
         self.email_edit = QLineEdit()
-        
+        self.password_edit = QLineEdit()
+        self.password_edit.setPlaceholderText("입력 안하면 변경 없음")
+        self.password_edit.setEchoMode(QLineEdit.Password)
+
         form_layout.addRow("거래처명:", self.name_edit)
         form_layout.addRow("대표자명:", self.representative_edit)
         form_layout.addRow("주소:", self.address_edit)
@@ -151,6 +154,7 @@ class ClientDialog(QDialog):
         form_layout.addRow("고정가단단가:", self.fixed_price_edit)
         form_layout.addRow("사업자번호:", self.business_edit)
         form_layout.addRow("이메일:", self.email_edit)
+        form_layout.addRow("비밀번호:", self.password_edit)
 
         layout.addLayout(form_layout)
         
@@ -168,51 +172,56 @@ class ClientDialog(QDialog):
         
         if client:
             self.name_edit.setText(client.get("client_name", ""))
+            self.representative_edit.setText(client.get("representative_name", ""))  # ✅ 빠진 필드 추가
             self.address_edit.setText(client.get("address", ""))
             self.phone_edit.setText(client.get("phone", ""))
             self.outstanding_edit.setText(str(client.get("outstanding_amount", "0")))
 
-            self.regular_price__edit.setText(str(client.get("unit_price", "0")))
-            self.fixed_price_edit.setText(str(client.get("unit_price", "0")))
+            self.regular_price__edit.setText(str(client.get("regular_price", "35")))  # ✅ 키명 수정
+            self.fixed_price_edit.setText(str(client.get("fixed_price", "70")))      # ✅ 키명 수정
 
             self.business_edit.setText(client.get("business_number", ""))
             self.email_edit.setText(client.get("email", ""))
-            
+
+            self.password_edit.setText("")  # 항상 비워둠 (입력 시에만 변경)
+
+            print("🧪 클라이언트 dict 구조 확인:")
+            for k, v in client.items():
+                print(f"   {k}: {v}")
 class ClientSelectionDialog(QDialog):
-    def __init__(self, client_names, parent=None):
+    def __init__(self, clients, parent=None):
         super().__init__(parent)
         self.setWindowTitle("거래처 목록")
         self.resize(300, 400)
-        self.client_names = client_names  # ✅ 거래처 이름 리스트
+        self.clients = clients  # ✅ 전체 dict 리스트 저장
         self.selected_client = None
 
         layout = QVBoxLayout(self)
         self.list_widget = QListWidget()
-        
-        print(f"📌 ClientSelectionDialog 받은 거래처 이름 목록: {client_names}")  # ✅ 거래처 데이터 확인
 
-        # ✅ 거래처 이름만 리스트에 추가
-        for name in client_names:
-            self.list_widget.addItem(name)  # ✅ client.get() 대신 직접 문자열 사용
+        for client in clients:
+            self.list_widget.addItem(client["client_name"])  # 이름만 표시
+
         layout.addWidget(self.list_widget)
 
         btn_layout = QHBoxLayout()
-        self.ok_button = QPushButton("선택")
-        self.cancel_button = QPushButton("취소")
-        btn_layout.addWidget(self.ok_button)
-        btn_layout.addWidget(self.cancel_button)
+        ok_btn = QPushButton("선택")
+        cancel_btn = QPushButton("취소")
+        ok_btn.clicked.connect(self.on_ok)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
 
-        self.ok_button.clicked.connect(self.on_ok)
-        self.cancel_button.clicked.connect(self.reject)
-
     def on_ok(self):
-        selected_items = self.list_widget.selectedItems()
-        if selected_items:
-            self.selected_client = selected_items[0].text()  # ✅ 선택한 거래처 이름 저장
+        selected = self.list_widget.currentItem()
+        if selected:
+            name = selected.text()
+            self.selected_client = next((c for c in self.clients if c["client_name"] == name), None)
             self.accept()
         else:
-            QMessageBox.warning(self, "선택", "거래처를 선택해주세요.")
+            QMessageBox.warning(self, "알림", "거래처를 선택해주세요.")
+
 
             
 class ClientLeftPanel(BaseLeftTableWidget):
@@ -230,7 +239,8 @@ class ClientLeftPanel(BaseLeftTableWidget):
             "일반가단가", 
             "고정가단가",
             "사업자번호",  # 6
-            "메일주소"     # 7
+            "메일주소",     # 7
+            "비밀번호",
         ]
         
         super().__init__(row_count=len(labels), labels=labels, parent=parent)
@@ -423,7 +433,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
             return
 
         # 팝업 창 띄우기
-        dialog = LentDialog(lent_data, self)
+        dialog = LentEditorDialog(lent_data, self)
         dialog.exec_()
            
     def display_client(self, client):
@@ -451,6 +461,8 @@ class ClientLeftPanel(BaseLeftTableWidget):
         self.set_value(7, str(client.get("fixed_price", "")))
         self.set_value(8, client.get("business_number", ""))
         self.set_value(9, client.get("email", ""))
+        password_status = "🔒 설정됨" if client.get("password_hash") else "❌ 미설정"
+        self.set_value(10, password_status)
         # ✅ 거래처 ID가 있을 경우 담당 직원 목록을 불러옴
         client_id = client.get("id")
         if client_id:
@@ -477,6 +489,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
                 "fixed_price": float(dialog.fixed_price_edit.text() or 0),
                 "business_number": dialog.business_edit.text(),
                 "email": dialog.email_edit.text(),
+                "password": "1234",
             }
             resp = api_create_client(global_token, data)
             if resp and resp.status_code in (200, 201):
@@ -497,19 +510,22 @@ class ClientLeftPanel(BaseLeftTableWidget):
 
         current_client = {
             "client_name": self.get_value(1),
-            "address": self.get_value(2),
-            "phone": self.get_value(3),
-            "outstanding_amount": self.get_value(4),
-            "regular_price": self.get_value(5),
-            "fixed_price": self.get_value(6),
-            "business_number": self.get_value(7),
-            "email": self.get_value(8),
+            "representative_name": self.get_value(2),  # ✅ 추가
+            "address": self.get_value(3),
+            "phone": self.get_value(4),
+            "outstanding_amount": self.get_value(5),
+            "regular_price": self.get_value(6),
+            "fixed_price": self.get_value(7),
+            "business_number": self.get_value(8),
+            "email": self.get_value(9),
         }
+
         
         dialog = ClientDialog("거래처 수정", client=current_client)
         if dialog.exec_() == QDialog.Accepted:
             data = {
                 "client_name": dialog.name_edit.text(),
+                "representative_name": dialog.representative_edit.text(),
                 "address": dialog.address_edit.text(),
                 "phone": dialog.phone_edit.text(),
                 "outstanding_amount": float(dialog.outstanding_edit.text() or 0),
@@ -518,6 +534,10 @@ class ClientLeftPanel(BaseLeftTableWidget):
                 "business_number": dialog.business_edit.text(),
                 "email": dialog.email_edit.text(),
             }
+            password = dialog.password_edit.text().strip()
+            if password:
+                data["password"] = password
+
             resp = api_update_client(global_token, client_id, data)
             if resp and resp.status_code == 200:
                 QMessageBox.information(self, "성공", "거래처 수정 완료!")
@@ -946,13 +966,14 @@ QHeaderView::section {
             return
 
         # ✅ 거래처 선택 팝업 띄우기
-        dialog = ClientSelectionDialog(client_names, parent=self)
-        if dialog.exec_() == QDialog.Accepted and dialog.selected_client:
-            selected_client_name = dialog.selected_client
-            print(f"✅ 선택한 거래처: {selected_client_name}")  # ✅ 선택한 거래처 확인
+        dialog = ClientSelectionDialog(clients, parent=self)
 
-            # ✅ 선택한 거래처의 전체 정보 찾기
-            selected_client = next((c for c in clients if c["client_name"] == selected_client_name), None)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_client:
+            selected_client = dialog.selected_client
+            print(f"✅ 선택한 거래처 정보: {selected_client}")  # ✅ 선택한 거래처 정보 출력
+
+            self.left_panel.display_client(selected_client)  # ✅ 왼쪽 패널 업데이트
+            self.right_panel.update_data_for_client(selected_client["id"])  # ✅ 오른쪽 패널 업데이트
 
             if selected_client:
                 print(f"✅ 선택한 거래처 정보: {selected_client}")  # ✅ 선택한 거래처 정보 출력
@@ -994,7 +1015,10 @@ QHeaderView::section {
             # 검색 결과가 여러 개면 팝업창 띄우기
             dialog = ClientSelectionDialog(filtered_clients, parent=self)
             if dialog.exec_() == QDialog.Accepted and dialog.selected_client:
-                self.left_panel.display_client(dialog.selected_client)
+                selected_client = dialog.selected_client
+                self.left_panel.display_client(selected_client)
+                self.right_panel.update_data_for_client(selected_client["id"])
+
         if len(filtered_clients) == 1:
             selected_client = filtered_clients[0]
             self.left_panel.display_client(selected_client)
@@ -1007,7 +1031,10 @@ QHeaderView::section {
             # 여러 건이면 팝업창
             dialog = ClientSelectionDialog(filtered_clients, parent=self)
             if dialog.exec_() == QDialog.Accepted and dialog.selected_client:
-                self.left_panel.display_client(dialog.selected_client)
+                selected_client = dialog.selected_client
+                self.left_panel.display_client(selected_client)
+                self.right_panel.update_data_for_client(selected_client["id"])
+
 
                 # 동일하게 오른쪽 패널도 갱신
                 cid = dialog.selected_client["id"]

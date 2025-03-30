@@ -426,7 +426,7 @@ class _OrderScreenState extends State<OrderScreen> {
                     DropdownMenuItem<int>(
                       value: currentShipmentRound,
                       child: Text(
-                        "$currentShipmentRound차 출고",
+                        "${currentShipmentRound + 1}차 출고",
                         style: const TextStyle(color: Colors.black),
                       ),
                     ),
@@ -436,7 +436,7 @@ class _OrderScreenState extends State<OrderScreen> {
                   iconEnabledColor: Colors.white,
                   underline: SizedBox(),
                   disabledHint: Text(
-                    "$currentShipmentRound차 출고",
+                    "${currentShipmentRound + 1}차 출고",
                     style: const TextStyle(color: Colors.white),
                   ),
                 ),

@@ -391,7 +391,7 @@ class ProductLeftPanel(BaseLeftTableWidget):
                     headers={"Authorization": f"Bearer {global_token}"},
                     json={"name": name}
                 )
-                if resp.status_code == 201:
+                if resp.status_code == 200:
                     QMessageBox.information(dialog, "성공", "브랜드가 등록되었습니다.")
                     dialog.registered_brand_name = name  # ✅ 등록된 이름 전달
                     dialog.accept()  # ✅ "성공적으로 종료됨" 표시

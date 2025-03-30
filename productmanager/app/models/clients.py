@@ -14,6 +14,8 @@ class Client(Base):
     __tablename__ = "clients"
 
     id = Column(Integer, primary_key=True, index=True)
+    password_hash = Column(String, nullable=True)
+
     client_name = Column(String(100), nullable=False)
     representative_name = Column(String(100), nullable=True)
     address = Column(String(255))

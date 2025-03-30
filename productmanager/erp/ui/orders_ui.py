@@ -32,6 +32,8 @@ class OrderLeftWidget(QWidget):
         self.order_date_picker = QDateEdit()
         self.order_date_picker.setCalendarPopup(True)
         self.order_date_picker.setDate(QDate.currentDate())
+        self.order_date_picker.setMinimumDate(QDate(2025, 4, 1))  # ✅ 필요한 경우 조정
+        self.order_date_picker.setMaximumDate(QDate.currentDate())              # ✅ 오늘까지만 선택 가능
         self.selected_order_date = self.order_date_picker.date().toString("yyyy-MM-dd")  # ✅ 초기값 설정
         self.order_date_picker.dateChanged.connect(self.on_date_changed)  # ✅ 이벤트 연결
         self.order_date_picker.dateChanged.connect(self.on_order_date_changed)
