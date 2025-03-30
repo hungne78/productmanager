@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:intl/intl.dart'; // ✅ 천 단위 콤마 포맷 추가
 import '../screens/home_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:http/http.dart' as http;
 
 class ClientsScreen extends StatefulWidget {
   final String token;
@@ -222,6 +223,21 @@ class _ClientsScreenState extends State<ClientsScreen> {
                         _infoRow("💵 일반가", details['regular_price']?.toString()),
                         _infoRow("📦 고정가", details['fixed_price']?.toString()),
                         _infoRow("💰 미수금", formattedAmount.toString()),
+                        const SizedBox(height: 12), // 여백
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _showLentFreezerModal(context, clientId, widget.token),
+                            icon: const Icon(Icons.ac_unit),
+                            label: const Text("대여 냉동고 보기"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.indigo,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -233,6 +249,17 @@ class _ClientsScreenState extends State<ClientsScreen> {
       ),
     );
   }
+  void _showLentFreezerModal(BuildContext context, int clientId, String token) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => LentFreezerBottomSheet(clientId: clientId, token: token),
+    );
+  }
+
   Widget _infoRow(String label, String? value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -279,3 +306,182 @@ class _ClientsScreenState extends State<ClientsScreen> {
     );
   }
 }
+
+class LentFreezerEditDialog extends StatefulWidget {
+  final int clientId;
+  final String token;
+  final Map<String, dynamic>? freezer;
+
+  const LentFreezerEditDialog({
+    super.key,
+    required this.clientId,
+    required this.token,
+    this.freezer,
+  });
+
+  @override
+  State<LentFreezerEditDialog> createState() => _LentFreezerEditDialogState();
+}
+class _LentFreezerEditDialogState extends State<LentFreezerEditDialog> {
+  final _brandController = TextEditingController();
+  final _sizeController = TextEditingController();
+  final _serialController = TextEditingController();
+  final _yearController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final f = widget.freezer;
+    if (f != null) {
+      _brandController.text = f['brand'] ?? '';
+      _sizeController.text = f['size'] ?? '';
+      _serialController.text = f['serial_number'] ?? '';
+      _yearController.text = f['year']?.toString() ?? '';
+    }
+  }
+
+  void _save() async {
+    final data = {
+      "client_id": widget.clientId,
+      "brand": _brandController.text,
+      "size": _sizeController.text,
+      "serial_number": _serialController.text,
+      "year": int.tryParse(_yearController.text) ?? 0,
+    };
+
+    final isUpdate = widget.freezer != null;
+    final url = isUpdate
+        ? '$baseUrl/lent/id/${widget.freezer!['id']}'
+        : '$baseUrl/lent/${widget.clientId}';
+
+    final response = await (isUpdate
+        ? http.put(Uri.parse(url),
+      headers: {
+        "Authorization": "Bearer ${widget.token}",
+        "Content-Type": "application/json"
+      },
+      body: json.encode(data),
+    )
+        : http.post(Uri.parse(url),
+      headers: {
+        "Authorization": "Bearer ${widget.token}",
+        "Content-Type": "application/json"
+      },
+      body: json.encode(data),
+    ));
+
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      Navigator.pop(context, true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("저장 실패")));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.freezer == null ? "냉동고 등록" : "냉동고 수정"),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(controller: _brandController, decoration: InputDecoration(labelText: "브랜드")),
+          TextField(controller: _sizeController, decoration: InputDecoration(labelText: "사이즈")),
+          TextField(controller: _serialController, decoration: InputDecoration(labelText: "시리얼번호")),
+          TextField(controller: _yearController, decoration: InputDecoration(labelText: "년식"), keyboardType: TextInputType.number),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text("취소")),
+        ElevatedButton(onPressed: _save, child: Text("저장")),
+      ],
+    );
+  }
+}
+class LentFreezerBottomSheet extends StatefulWidget {
+  final int clientId;
+  final String token;
+
+  const LentFreezerBottomSheet({super.key, required this.clientId, required this.token});
+
+  @override
+  State<LentFreezerBottomSheet> createState() => _LentFreezerBottomSheetState();
+}
+
+class _LentFreezerBottomSheetState extends State<LentFreezerBottomSheet> {
+  late Future<List<Map<String, dynamic>>> _freezers;
+
+  @override
+  void initState() {
+    super.initState();
+    _freezers = ApiService.fetchLentFreezers(widget.clientId, widget.token);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(top: 16, bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text("대여 냉동고", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const Divider(),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _freezers,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator(),
+                );
+              }
+
+              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text("등록된 냉동고가 없습니다."),
+                );
+              }
+
+              final items = snapshot.data!;
+              return Column(
+                children: [
+                  ...items.map((item) => ListTile(
+                    title: Text("${item['brand']} (${item['size']})"),
+                    subtitle: Text("시리얼: ${item['serial_number']} / 년식: ${item['year']}"),
+                    // trailing: IconButton(                           //냉동고 수정
+                    //   icon: const Icon(Icons.edit),
+                    //   onPressed: () => _showEditDialog(item),
+                    // ),
+                  )),
+                  // TextButton.icon(
+                  //   onPressed: () => _showEditDialog(),              //냉동고 추가
+                  //   icon: const Icon(Icons.add),
+                  //   label: const Text("냉동고 추가"),
+                  // ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditDialog([Map<String, dynamic>? freezer]) async {
+    final result = await showDialog(
+      context: context,
+      builder: (_) => LentFreezerEditDialog(
+        clientId: widget.clientId,
+        freezer: freezer,
+        token: widget.token,
+      ),
+    );
+    if (result == true) {
+      setState(() {
+        _freezers = ApiService.fetchLentFreezers(widget.clientId, widget.token);
+      });
+    }
+  }
+}
+

@@ -206,12 +206,29 @@ from sqlalchemy.sql import exists
 @router.post("/", response_model=OrderSchema)
 def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(get_db)):
     """
-    주문 생성 또는 업데이트 (출고 단계 고려 + 창고 재고 차감)
+    주문 생성 또는 업데이트 (출고 차수 검증 + 창고 재고 차감)
+    출고 차수는 PC에서 확정 버튼 눌러야 올라감
     """
     today = date.today()
+    
     print("🧪 검증 중: employee_id=", order_data.employee_id)
     print("🧪 order_date=", order_data.order_date)
-    print("🧪 shipment_round=", order_data.shipment_round)
+    print("🧪 요청된 shipment_round=", order_data.shipment_round)
+
+    # ✅ 현재 출고 차수 조회 (출고 확정된 최대 차수 기준)
+    last_shipment_round = (
+        db.query(func.max(Order.shipment_round))
+        .filter(Order.order_date == order_data.order_date)
+        .scalar()
+    ) or 0
+
+    print("📌 서버 기준 현재 차수:", last_shipment_round)
+
+    # ✅ 클라이언트가 보낸 차수가 현재보다 크면 → 잘못된 요청
+    if order_data.shipment_round > last_shipment_round:
+        raise HTTPException(status_code=400, detail=f"출고 차수가 유효하지 않습니다. (현재: {last_shipment_round})")
+
+    # ✅ 중복 주문 차단
     order_item_count = (
         db.query(OrderItem)
         .join(Order, Order.id == OrderItem.order_id)
@@ -220,110 +237,94 @@ def create_or_update_order(order_data: OrderCreateSchema, db: Session = Depends(
         .filter(Order.shipment_round == order_data.shipment_round)
         .count()
     )
-
     if order_item_count > 0:
         print("🚫 주문 상품이 존재함 → 403 차단")
         raise HTTPException(status_code=403, detail="이 차수에 대해 이미 주문이 전송되었습니다.")
     else:
         print("✅ 해당 차수에 주문 없음 → 진행 가능")
-    # ✅ 주문이 잠겨 있는지 확인
+
+    # ✅ 잠금 여부 확인
     order_lock = db.query(OrderLock).filter(OrderLock.lock_date == order_data.order_date).first()
     if order_lock and order_lock.is_locked:
-        raise HTTPException(status_code=403, detail="이 날짜의 주문은 수정이 불가능합니다.")
+        raise HTTPException(status_code=403, detail="이 날짜의 주문은 잠겨 있습니다.")
 
-    # ✅ 현재 출고 단계 조회
-    last_shipment_round = (
-        db.query(func.max(Order.shipment_round))
-        .filter(Order.order_date == order_data.order_date)
-        .scalar()
-    ) or 0  # ✅ 기본값 0
-
-    # ✅ 기존 주문 조회 (같은 직원 & 같은 날짜 & 같은 출고 단계)
+    # ✅ 기존 주문 조회
     existing_order = (
         db.query(Order)
         .filter(Order.employee_id == order_data.employee_id)
         .filter(Order.order_date == order_data.order_date)
-        .filter(Order.shipment_round == order_data.shipment_round)  # ✅ 동일한 출고 차수만 조회
+        .filter(Order.shipment_round == order_data.shipment_round)
         .first()
     )
 
-    
     if existing_order:
-        # ✅ 출고 확정된 주문은 수정 불가
+        # ✅ 이미 출고 확정된 차수라면 수정 금지
         if existing_order.shipment_round < last_shipment_round:
             raise HTTPException(status_code=400, detail="이미 출고된 주문은 수정할 수 없습니다.")
 
-        # ✅ 기존 주문 업데이트 (총 금액, 인센티브, 박스 수량)
+        # ✅ 기존 주문 수정
         existing_order.total_amount = order_data.total_amount
         existing_order.total_incentive = order_data.total_incentive
         existing_order.total_boxes = order_data.total_boxes
 
-        # ✅ 기존 주문 항목 조회 및 매핑
-        existing_order_items = db.query(OrderItem).filter(OrderItem.order_id == existing_order.id).all()
-        existing_order_map = {item.product_id: item.quantity for item in existing_order_items}
+        existing_items = db.query(OrderItem).filter(OrderItem.order_id == existing_order.id).all()
+        existing_map = {item.product_id: item.quantity for item in existing_items}
 
-        # ✅ 기존 주문 항목 업데이트 + 창고 재고 차감/복구
         for item in order_data.order_items:
             product = db.query(Product).filter(Product.id == item.product_id).with_for_update().first()
             if not product:
-                raise HTTPException(status_code=404, detail=f"상품 {item.product_id}를 찾을 수 없습니다.")
+                raise HTTPException(status_code=404, detail=f"상품 {item.product_id} 없음")
 
-            new_quantity = item.quantity
-            old_quantity = existing_order_map.get(item.product_id, 0)
-            quantity_diff = new_quantity - old_quantity  # ✅ 변경된 수량 계산
+            new_q = item.quantity
+            old_q = existing_map.get(item.product_id, 0)
+            diff = new_q - old_q
 
-            if quantity_diff > 0:
-                # ✅ 창고 재고에서 차감 (추가 주문량만큼 차감)
-                if product.stock < quantity_diff:
-                    raise HTTPException(status_code=400, detail=f"재고 부족: {product.product_name} (남은 재고: {product.stock})")
-                product.stock -= quantity_diff
-            elif quantity_diff < 0:
-                # ✅ 기존보다 수량이 줄어들면 창고 재고를 복구
-                product.stock += abs(quantity_diff)
+            if diff > 0:
+                if product.stock < diff:
+                    raise HTTPException(status_code=400, detail=f"{product.product_name} 재고 부족")
+                product.stock -= diff
+            elif diff < 0:
+                product.stock += abs(diff)
 
-            if item.product_id in existing_order_map:
+            if item.product_id in existing_map:
                 db.query(OrderItem).filter(
                     OrderItem.order_id == existing_order.id,
                     OrderItem.product_id == item.product_id
-                ).update({"quantity": new_quantity})
+                ).update({"quantity": new_q})
             else:
-                db.add(OrderItem(order_id=existing_order.id, product_id=item.product_id, quantity=item.quantity))
+                db.add(OrderItem(order_id=existing_order.id, product_id=item.product_id, quantity=new_q))
 
-            db.commit()
-            db.refresh(existing_order)
+        db.commit()
+        db.refresh(existing_order)
+        print(f"✅ 주문 수정 완료")
+        return existing_order
 
-            print(f"✅ [디버깅] 주문 수정 완료, 창고 재고 업데이트")
-            return existing_order  # 🚀 차량 재고 업데이트 X (출고 확정 시에만 업데이트)
-
-        # ✅ 새로운 출고 차수이면 새 주문 생성
+    # ✅ 신규 주문 생성
     new_order = Order(
         employee_id=order_data.employee_id,
         order_date=order_data.order_date,
+        shipment_round=order_data.shipment_round,
         total_amount=order_data.total_amount,
         total_incentive=order_data.total_incentive,
-        total_boxes=order_data.total_boxes,
-        shipment_round=order_data.shipment_round 
-          # ✅ 출고 단계 증가
+        total_boxes=order_data.total_boxes
     )
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
 
-    # ✅ 새 주문 항목 추가 & 창고 재고 차감
     for item in order_data.order_items:
         product = db.query(Product).filter(Product.id == item.product_id).with_for_update().first()
         if not product:
-            raise HTTPException(status_code=404, detail=f"상품 {item.product_id}를 찾을 수 없습니다.")
-
+            raise HTTPException(status_code=404, detail=f"상품 {item.product_id} 없음")
         if product.stock < item.quantity:
-            raise HTTPException(status_code=400, detail=f"재고 부족: {product.product_name} (남은 재고: {product.stock})")
-
-        product.stock -= item.quantity  # 🔥 창고 재고 차감
+            raise HTTPException(status_code=400, detail=f"{product.product_name} 재고 부족 (남은 재고: {product.stock})")
+        product.stock -= item.quantity
         db.add(OrderItem(order_id=new_order.id, product_id=item.product_id, quantity=item.quantity))
 
     db.commit()
-    print(f"✅ [디버깅] 새 주문 생성 완료, 창고 재고 차감")
+    print("✅ 새 주문 등록 완료")
     return new_order
+
 
 # ✅ 4️⃣ 특정 직원의 특정 날짜 주문 목록 조회
 @router.get("/orders/employee/{employee_id}/date/{order_date}", response_model=List[OrderSchema])
@@ -478,7 +479,7 @@ def get_orders_with_items(employee_id: int, date: str, shipment_round: int, db: 
         Order.order_date == date,
         Order.shipment_round == shipment_round  # ✅ 출고 차수를 필터링
     ).all()
-
+    
     if not orders:
         raise HTTPException(status_code=404, detail="해당 직원의 해당 출고 차수에 대한 주문이 없습니다.")
 
@@ -617,3 +618,33 @@ def get_current_shipment_round(order_date: date, db: Session = Depends(get_db)):
     print(f"📌 [디버깅] {order_date}의 현재 출고 차수: {shipment_round}")
     
     return {"shipment_round": shipment_round}
+
+@router.get("/available_shipment_round/{order_date}")
+def get_available_shipment_round(order_date: date, employee_id: int, db: Session = Depends(get_db)):
+    from datetime import datetime, time
+
+    # 현재 출고 차수 계산
+    confirmed_round = (
+        db.query(func.max(Order.shipment_round))
+        .filter(Order.order_date == order_date, Order.is_confirmed == True)
+        .scalar()
+    ) or 0
+
+    available_round = confirmed_round + 1
+
+    # ✅ 이미 주문한 기록이 있는지 확인
+    existing_order = (
+        db.query(Order)
+        .filter(Order.employee_id == employee_id)
+        .filter(Order.order_date == order_date)
+        .filter(Order.shipment_round == available_round)
+        .first()
+    )
+
+    # ✅ 첫 주문이라면 시간 제한 적용
+    now = datetime.now().time()
+    if not existing_order:
+        if not (now >= time(20, 0) or now <= time(7, 0)):
+            raise HTTPException(status_code=403, detail="첫 주문은 20:00~07:00 사이에만 가능합니다.")
+
+    return {"available_shipment_round": available_round}

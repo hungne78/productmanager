@@ -23,7 +23,7 @@ class OrderScreen extends StatefulWidget {
 
 class _OrderScreenState extends State<OrderScreen> {
   int currentShipmentRound = 0; // ✅ 현재 출고 단계 저장
-  int selectedShipmentRound = 1; // ✅ 드롭다운에서 선택된 출고 단계
+  int selectedShipmentRound = 0; // ✅ 드롭다운에서 선택된 출고 단계
   List<int> shipmentRounds = List.generate(10, (index) => index + 1); // ✅ 1차 ~ 10차 출고
   late WebSocketChannel channel;
   Map<int, bool> outOfStockItems = {}; // ✅ 재고 부족 품목 추적
@@ -114,7 +114,9 @@ class _OrderScreenState extends State<OrderScreen> {
         final data = response.data;
         setState(() {
           currentShipmentRound = data['shipment_round']; // ✅ 현재 출고 단계 업데이트
-          selectedShipmentRound = currentShipmentRound + 1; // ✅ 현재 가능 단계 설정
+          selectedShipmentRound = currentShipmentRound ; // ✅ 현재 가능 단계 설정
+          print("🚚 서버에서 받은 차수: ${data['shipment_round']}");
+
         });
       } else {
         throw Exception("출고 단계 조회 실패");
@@ -364,8 +366,12 @@ class _OrderScreenState extends State<OrderScreen> {
   // 상품 ID로 상품 정보를 찾는 함수
   Map<String, dynamic> _getProductById(int productId) {
     final productProvider = context.read<ProductProvider>();
-    return productProvider.products.firstWhere((p) => p['id'] == productId, orElse: () => {});
+    return productProvider.products.firstWhere(
+          (p) => p['id'] == productId,
+      orElse: () => <String, dynamic>{}, // ✅ FIXED
+    );
   }
+
 
 
   @override
@@ -415,31 +421,27 @@ class _OrderScreenState extends State<OrderScreen> {
               Padding(
                 padding: const EdgeInsets.only(right: 12),
                 child: DropdownButton<int>(
-                  dropdownColor: Colors.white,
                   value: selectedShipmentRound,
-                  underline: SizedBox(),
-                  iconEnabledColor: Colors.white,
-                  onChanged: (int? newValue) {
-                    if (newValue != null && newValue == currentShipmentRound + 1) {
-                      setState(() {
-                        selectedShipmentRound = newValue;
-                      });
-                    }
-                  },
-                  items: shipmentRounds.map((round) {
-                    return DropdownMenuItem<int>(
-                      value: round,
+                  items: [
+                    DropdownMenuItem<int>(
+                      value: currentShipmentRound,
                       child: Text(
-                        "$round차 출고",
-                        style: TextStyle(
-                          color: round == currentShipmentRound + 1 ? Colors.black : Colors.grey,
-                        ),
+                        "$currentShipmentRound차 출고",
+                        style: const TextStyle(color: Colors.black),
                       ),
-                      enabled: round == currentShipmentRound + 1,
-                    );
-                  }).toList(),
+                    ),
+                  ],
+                  onChanged: null, // ✅ 읽기 전용 처리
+                  dropdownColor: Colors.white,
+                  iconEnabledColor: Colors.white,
+                  underline: SizedBox(),
+                  disabledHint: Text(
+                    "$currentShipmentRound차 출고",
+                    style: const TextStyle(color: Colors.white),
+                  ),
                 ),
               ),
+
             ],
           ),
         ),
@@ -501,15 +503,14 @@ class _OrderScreenState extends State<OrderScreen> {
             child: _buildHeaderRow(),
           ),
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.vertical,
-              child: Column(
-                children: products.map((product) {
-                  return _buildProductRow(product);
-                }).toList(),
-              ),
+            child: ListView.builder(
+              itemCount: products.length,
+              itemBuilder: (context, index) {
+                final product = products[index];
+                return _buildProductRow(product);
+              },
             ),
-          ),
+          )
         ],
       ),
     );

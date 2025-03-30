@@ -182,6 +182,38 @@ class ApiService {
       return {};
     }
   }
+  static Future<List<Map<String, dynamic>>> fetchLentFreezers(int clientId, String token) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/lent/$clientId'),
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final decoded = utf8.decode(response.bodyBytes); // ✅ 한글 깨짐 방지
+      return List<Map<String, dynamic>>.from(json.decode(decoded));
+    } else {
+      throw Exception('냉동고 정보를 불러오지 못했습니다.');
+    }
+  }
+  static Future<bool> registerLentFreezer(int clientId, Map<String, dynamic> data, String token) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/lent/$clientId'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode(data),
+    );
+
+    if (response.statusCode == 201) return true;
+    if (response.statusCode == 400) {
+      final msg = json.decode(utf8.decode(response.bodyBytes))['detail'];
+      throw Exception("등록 실패: $msg");
+    }
+    throw Exception("등록 실패: ${response.statusCode}");
+  }
 
 
   static Future<http.Response> updateClientOutstanding(String token, int clientId, Map<String, dynamic> data) async {
