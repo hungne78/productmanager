@@ -130,13 +130,11 @@ class WeatherService {
     }
   }
 }
-////////////////////////////////////////////////////////////////////////////////////////////////////////
-// 🔴🔴🔴 여기까지 Open-Meteo로 교체 완료. 이외 나머지 전체 코드는 원본 그대로 유지합니다. 🔴🔴🔴
-////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 class HomeScreen extends StatefulWidget {
   final String token;
-  final String appVersion = "version 0.8.8.1"; // 현재 앱 버전
+  final String appVersion = "version 0.9.7.1"; // 현재 앱 버전
 
   const HomeScreen({Key? key, required this.token}) : super(key: key);
 
@@ -308,6 +306,166 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
   }
+  void _showFranchisePopupFromHome(BuildContext rootContext) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("📦 가맹점 주문 목록"),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: _franchiseOrders.isEmpty
+              ? const Center(child: Text("등록된 주문이 없습니다."))
+              : ListView.separated(
+            itemCount: _franchiseOrders.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (_, i) {
+              final order = _franchiseOrders[i];
+              final items = List<Map<String, dynamic>>.from(order['items']);
+              final isRead = order['is_read'] == true;
+              final clientName = order['client_name'] ?? '';
+              final dateLabel = order['order_date'].substring(5); // 'MM-DD'
+
+              return InkWell(
+                onTap: () => _showOrderDetailPopup(order),
+                onLongPress: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text("삭제 확인"),
+                      content: const Text("이 메시지를 삭제할까요?"),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("취소")),
+                        TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("삭제")),
+                      ],
+                    ),
+                  );
+                  if (confirm == true) {
+                    await ApiService.deleteFranchiseOrder(order['id']);
+                    setState(() {
+                      _franchiseOrders.removeAt(i);
+                      _unreadCount = _franchiseOrders.where((o) => !o['is_read']).length;
+                    });
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "$clientName · $dateLabel",
+                          style: TextStyle(
+                            fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
+                            color: isRead ? Colors.grey : Colors.black,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(context); // 팝업 먼저 닫고
+                          Future.delayed(Duration(milliseconds: 100), () {
+                            Navigator.push(
+                              rootContext,
+                              MaterialPageRoute(
+                                builder: (_) => OrderScreen(
+                                  token: context.read<AuthProvider>().user!.token,
+                                  selectedDate: DateTime.now(),
+                                  initialFranchiseItems: items,
+                                ),
+                              ),
+                            );
+                            ApiService.markOrderAsRead(order['id']);
+                          });
+                        },
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.teal,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                        ),
+                        child: const Text("전송"),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          if (_franchiseOrders.isNotEmpty)
+            TextButton(
+              onPressed: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text("전체 삭제 확인"),
+                    content: const Text("모든 메시지를 삭제하시겠습니까?"),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("취소")),
+                      TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("삭제")),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  for (var order in _franchiseOrders) {
+                    await ApiService.deleteFranchiseOrder(order['id']);
+                  }
+                  setState(() {
+                    _franchiseOrders.clear();
+                    _unreadCount = 0;
+                  });
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text("전체 메시지 삭제", style: TextStyle(color: Colors.red)),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("닫기"),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
+
+
+  void _showOrderDetailPopup(Map<String, dynamic> order) {
+    final items = List<Map<String, dynamic>>.from(order['items']);
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text("${order['client_name']} - 주문 상세"),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 300,
+          child: ListView(
+            children: items.map((item) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(child: Text(item['product_name'], style: TextStyle(fontSize: 16))),
+                    Text("x${item['quantity']}", style: TextStyle(fontSize: 16)),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text("닫기"))
+        ],
+      ),
+    );
+  }
+
   void _showFranchiseMessages() {
     showDialog(
       context: context,
@@ -364,15 +522,39 @@ class _HomeScreenState extends State<HomeScreen> {
               child: const Text("닫기"),
               onPressed: () => Navigator.pop(context),
             ),
-            ElevatedButton(
-              child: const Text("전송"),
-              onPressed: () async {
-                await ApiService.transferFranchiseOrder(order['id']);
-                await _loadFranchiseOrders(); // 뱃지 다시 계산
-                Navigator.pop(context); // 상세 닫기
-                Navigator.pop(context); // 목록 닫기
+            ElevatedButton.icon(
+              icon: const Icon(Icons.send, size: 18),
+              label: const Text("전송"),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+              onPressed: () {
+                Navigator.pop(context); // 팝업 닫기
+
+                // 약간의 delay를 주고 push (팝업 닫힘 효과 자연스럽게)
+                Future.delayed(Duration(milliseconds: 100), () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => OrderScreen(
+                        token: context.read<AuthProvider>().user!.token,
+                        selectedDate: DateTime.now(),
+                        initialFranchiseItems: List<Map<String, dynamic>>.from(items),
+                      ),
+                    ),
+                  );
+                });
+
+                // 읽음 처리
+                ApiService.markOrderAsRead(order['id']);
               },
+
+
+
             ),
+
+
+
+
+
           ],
         );
       },
@@ -485,7 +667,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: GestureDetector(
-              onTap: _showFranchiseMessages, // 알림 팝업 함수
+              onTap: () => _showFranchisePopupFromHome(context), // 알림 팝업 함수
               child: badges.Badge(
                 position: badges.BadgePosition.topEnd(top: -5, end: -5),
                 showBadge: _unreadCount > 0,

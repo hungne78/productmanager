@@ -179,3 +179,25 @@ def save_fcm_token(employee_id: int, token_data: FCMTokenIn, db: Session = Depen
     employee.fcm_token = token_data.token
     db.commit()
     return {"message": "FCM 토큰 저장 완료"}
+
+@router.patch("/{order_id}/mark_read")
+def mark_order_as_read(order_id: int, db: Session = Depends(get_db)):
+    order = db.query(FranchiseOrder).filter(FranchiseOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+    
+    order.is_read = True
+    db.commit()
+    return {"message": "읽음 처리 완료"}
+
+@router.delete("/{order_id}")
+def delete_franchise_order(order_id: int, db: Session = Depends(get_db)):
+    order = db.query(FranchiseOrder).filter(FranchiseOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+
+    # 관련 아이템도 같이 삭제
+    db.query(FranchiseOrderItem).filter(FranchiseOrderItem.order_id == order_id).delete()
+    db.delete(order)
+    db.commit()
+    return {"message": "주문 삭제 완료"}

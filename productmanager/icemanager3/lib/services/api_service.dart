@@ -29,6 +29,22 @@ class ApiService {
       print("❌ FCM 토큰 등록 중 예외 발생: $e");
     }
   }
+
+  static Future<void> markOrderAsRead(int orderId) async {
+    final response = await _dio.patch('/franchise_orders/$orderId/mark_read');
+    if (response.statusCode != 200) {
+      throw Exception("읽음 처리 실패");
+    }
+  }
+
+  static Future<void> deleteFranchiseOrder(int orderId) async {
+    final response = await _dio.delete('/franchise_orders/$orderId');
+    if (response.statusCode != 200) {
+      throw Exception("메시지 삭제 실패");
+    }
+  }
+
+
   static Future<Map<String, dynamic>> login(int id, String password) async {
     final url = Uri.parse("$baseUrl/login");
     final body = jsonEncode({"id": id, "password": password});

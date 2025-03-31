@@ -1,0 +1,56 @@
+# --- Python 관련 ---
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+*.env
+.env
+*.sqlite3
+*.db
+
+# --- FastAPI / PyQt 관련 ---
+*.log
+*.bak
+.idea/
+.vscode/
+*.swp
+
+# --- Virtual Environment ---
+venv/
+env/
+.venv/
+
+# --- Build / Packaging ---
+build/
+dist/
+*.egg-info/
+
+# --- Flutter / Dart 관련 ---
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+*.lock
+
+# --- Android Studio / Xcode ---
+android/.gradle/
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.podspec
+ios/Flutter/ephemeral/
+ios/Runner.xcworkspace/
+*.iml
+
+# --- Firebase 관련 (✅ 여기가 중요) ---
+**/firebase-key.json
+**/google-services.json
+**/GoogleService-Info.plist
+firebase-debug.log
+
+# --- OS 관련 ---
+.DS_Store
+Thumbs.db

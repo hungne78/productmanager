@@ -10,23 +10,37 @@ import 'dart:convert';
 import 'package:flutter_vibrate/flutter_vibrate.dart';
 import 'package:flutter/services.dart';
 import '../screens/home_screen.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
 
 class OrderScreen extends StatefulWidget {
   final String token;
   final DateTime selectedDate; // 주문 날짜
-  const OrderScreen({Key? key, required this.token, required this.selectedDate}) : super(key: key);
+  final List<Map<String, dynamic>>? initialFranchiseItems;
+  const OrderScreen({
+    Key? key,
+    required this.token,
+    required this.selectedDate,
+    this.initialFranchiseItems, // 👈 추가
+  }) : super(key: key);
 
+  static _OrderScreenState? of(BuildContext context) {
+    return context.findAncestorStateOfType<_OrderScreenState>();
+
+
+  }
   @override
   _OrderScreenState createState() => _OrderScreenState();
 }
 
 class _OrderScreenState extends State<OrderScreen> {
+  int _unreadCount = 0;
   int currentShipmentRound = 0; // ✅ 현재 출고 단계 저장
   int selectedShipmentRound = 0; // ✅ 드롭다운에서 선택된 출고 단계
   List<int> shipmentRounds = List.generate(10, (index) => index + 1); // ✅ 1차 ~ 10차 출고
   late WebSocketChannel channel;
   Map<int, bool> outOfStockItems = {}; // ✅ 재고 부족 품목 추적
+  List<Map<String, dynamic>> _franchiseOrders = [];
+
 
   Map<int, TextEditingController> quantityControllers = {};
   Map<int, FocusNode> focusNodes = {};
@@ -62,16 +76,37 @@ class _OrderScreenState extends State<OrderScreen> {
   @override
   void initState() {
     super.initState();
+    print("🧊 initialFranchiseItems: ${widget.initialFranchiseItems}");
     _fetchCurrentShipmentRound(); // ✅ 현재 출고 단계 가져오기
     _fetchAndSortProducts();
     _fetchWarehouseStock();
+    _loadOrderQuantities();
     _connectWebSocket(); // ✅ WebSocket 연결 추가
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _fetchEmployeeVehicleStock(authProvider.user?.id ?? 0); // 🔹 차량 재고 초기화
 
     _checkFirstOrderAndTimeRestriction();
+    _loadFranchiseOrders(); // ⬅️ 주문 메시지 불러오기
+    // ✅ 수량 복원 → 거래처 주문 반영 순서 보장
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (widget.initialFranchiseItems != null) {
+        applyFranchiseOrderItems(widget.initialFranchiseItems!);
+      }
+    });
+
 
   }
+
+  void _loadFranchiseOrders() async {
+    final employeeId = context.read<AuthProvider>().user!.id;
+    final result = await ApiService.fetchFranchiseOrders(employeeId);
+
+    setState(() {
+      _franchiseOrders = result;
+      _unreadCount = result.where((o) => o['is_read'] == false).length;
+    });
+  }
+
   Future<void> _checkFirstOrderAndTimeRestriction() async {    //서버의 시간을 가져와 오후 8시부터 오전 7시까지만 주문가능, 첫주문만 가능
     final today = widget.selectedDate;
 
@@ -104,6 +139,48 @@ class _OrderScreenState extends State<OrderScreen> {
       }
     }
   }
+
+  Future<void> _saveOrderQuantities() async {
+    final prefs = await SharedPreferences.getInstance();
+    final Map<String, String> raw = {
+      for (var entry in quantityControllers.entries)
+        entry.key.toString(): entry.value.text
+    };
+    await prefs.setString('order_quantities', jsonEncode(raw));
+  }
+  Future<void> _loadOrderQuantities() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('order_quantities');
+
+    if (raw != null) {
+      final Map<String, dynamic> decoded = jsonDecode(raw);
+      decoded.forEach((key, value) {
+        final int productId = int.parse(key);
+        quantityControllers.putIfAbsent(productId, () => TextEditingController(text: "0"));
+        quantityControllers[productId]!.text = value.toString();
+      });
+
+      setState(() {}); // ✅ UI 갱신
+    }
+  }
+
+  void applyFranchiseOrderItems(List<Map<String, dynamic>> items) {
+    for (var item in items) {
+      final productId = item['product_id'];
+      final quantity = item['quantity'];
+
+      quantityControllers.putIfAbsent(productId, () => TextEditingController(text: "0"));
+      final controller = quantityControllers[productId]!;
+
+      int current = int.tryParse(controller.text) ?? 0;
+      controller.text = (current + quantity).toString(); // ✅ 누적
+    }
+
+    _saveOrderQuantities(); // ✅ 저장도 같이
+    setState(() {});
+  }
+
+
 
 
   // ✅ 서버에서 현재 출고 단계를 가져오기
@@ -269,6 +346,8 @@ class _OrderScreenState extends State<OrderScreen> {
         setState(() {
           quantityControllers.clear();
         });
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('order_quantities'); // ✅ 저장된 수량도 삭제
         await _fetchWarehouseStock(); // ✅ 주문 후 창고 재고 업데이트
       }else if (response.statusCode == 403) {
         setState(() {
@@ -372,6 +451,175 @@ class _OrderScreenState extends State<OrderScreen> {
     );
   }
 
+  void _showFranchisePopup() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("📦 가맹점 주문 목록"),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: _franchiseOrders.isEmpty
+              ? const Padding(
+            padding: EdgeInsets.all(12.0),
+            child: Text("등록된 주문이 없습니다."),
+          )
+              : ListView.builder(
+            shrinkWrap: true,
+            itemCount: _franchiseOrders.length,
+            itemBuilder: (_, i) {
+              final order = _franchiseOrders[i];
+              final items = List<Map<String, dynamic>>.from(order['items']);
+              final isRead = order['is_read'] == true;
+
+              return InkWell(
+                onTap: () => _showOrderDetailPopup(order),
+                onLongPress: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text("삭제 확인"),
+                      content: const Text("이 메시지를 삭제할까요?"),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("취소")),
+                        TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("삭제")),
+                      ],
+                    ),
+                  );
+                  if (confirm == true) {
+                    await ApiService.deleteFranchiseOrder(order['id']);
+                    setState(() {
+                      _franchiseOrders.removeAt(i);
+                      _unreadCount = _franchiseOrders.where((o) => !o['is_read']).length;
+                    });
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "${order['client_name']}  ·  ${order['order_date'].substring(5)}차",
+                          style: TextStyle(
+                            fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
+                            color: isRead ? Colors.grey : Colors.black,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          applyFranchiseOrderItems(items);
+                          ApiService.markOrderAsRead(order['id']);
+                          Navigator.pop(context); // 팝업 닫기
+                        },
+                        icon: const Icon(Icons.send, size: 18),
+                        label: const Text("전송"),
+                        style: TextButton.styleFrom(foregroundColor: Colors.teal),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          if (_franchiseOrders.isNotEmpty)
+            TextButton(
+              onPressed: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text("전체 삭제 확인"),
+                    content: const Text("모든 메시지를 삭제하시겠습니까?"),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("취소")),
+                      TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("삭제")),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  for (var order in _franchiseOrders) {
+                    await ApiService.deleteFranchiseOrder(order['id']);
+                  }
+                  setState(() {
+                    _franchiseOrders.clear();
+                    _unreadCount = 0;
+                  });
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text("전체 메시지 삭제", style: TextStyle(color: Colors.red)),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("닫기"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showOrderDetailPopup(Map<String, dynamic> order) {
+    final items = List<Map<String, dynamic>>.from(order['items']);
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text("${order['client_name']} - 주문 상세"),
+        content: Container(
+          width: double.maxFinite,
+          constraints: BoxConstraints(maxHeight: 400),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: items.length,
+            itemBuilder: (_, i) {
+              final item = items[i];
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(item['product_name'], style: TextStyle(fontSize: 16)),
+                    ),
+                    Text("x${item['quantity']}", style: TextStyle(fontSize: 16)),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("닫기"),
+          )
+        ],
+      ),
+    );
+  }
+
+
+
+
+  void _resetQuantities() async {
+    setState(() {
+      for (var controller in quantityControllers.values) {
+        controller.text = "0";
+      }
+      outOfStockItems.clear();
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('order_quantities');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("🧹 모든 수량이 초기화되었습니다.")),
+    );
+  }
+
 
 
   @override
@@ -407,7 +655,7 @@ class _OrderScreenState extends State<OrderScreen> {
 
               // 🎯 제목
               // Text("🕒 서버시간 허용 여부: $_isOrderTimeAllowed, 첫 주문 여부: $_isFirstOrder"),
-
+              Spacer(),
               Text(
                 "주문 페이지",
                 style: TextStyle(
@@ -417,6 +665,33 @@ class _OrderScreenState extends State<OrderScreen> {
                 ),
               ),
 
+
+// 🔔 알림 아이콘 + 뱃지
+              Stack(
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.notifications, color: Colors.white),
+                    onPressed: _showFranchisePopup,
+                  ),
+                  if (_unreadCount > 0)
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Container(
+                        padding: EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Text(
+                          '$_unreadCount',
+                          style: TextStyle(color: Colors.white, fontSize: 10),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              SizedBox(width: 8), // 오른쪽 여백
               // 출고 단계 드롭다운
               Padding(
                 padding: const EdgeInsets.only(right: 12),
@@ -466,20 +741,39 @@ class _OrderScreenState extends State<OrderScreen> {
           // ✅ 주문 전송 버튼
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: (_orderLocked || isOrderBlocked)
-                    ? Colors.grey
-                    : Colors.teal,
-                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              ),
-              onPressed: (_orderLocked || isOrderBlocked)
-                  ? null
-                  : _sendOrderToServer,
-              icon: const Icon(Icons.send, color: Colors.white),
-              label: const Text("주문 전송", style: TextStyle(color: Colors.white)),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // ✅ 초기화 버튼
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey,
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  ),
+                  onPressed: _resetQuantities,
+                  icon: Icon(Icons.refresh, color: Colors.white),
+                  label: Text("초기화", style: TextStyle(color: Colors.white)),
+                ),
+                SizedBox(width: 16),
+
+                // ✅ 주문 전송 버튼
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: (_orderLocked || isOrderBlocked)
+                        ? Colors.grey
+                        : Colors.teal,
+                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  onPressed: (_orderLocked || isOrderBlocked)
+                      ? null
+                      : _sendOrderToServer,
+                  icon: const Icon(Icons.send, color: Colors.white),
+                  label: const Text("주문 전송", style: TextStyle(color: Colors.white)),
+                ),
+              ],
             ),
           ),
+
         ],
       ),
     );
@@ -584,6 +878,7 @@ class _OrderScreenState extends State<OrderScreen> {
             focusNode: focusNodes[productId],
             keyboardType: TextInputType.number,
             textAlign: TextAlign.center,
+            onChanged: (_) => _saveOrderQuantities(),
             decoration: InputDecoration(
               filled: true,
               fillColor: isOutOfStock ? Colors.red.withOpacity(0.2) : Colors.white, // ✅ 부족하면 배경색 변경
@@ -690,3 +985,4 @@ class _OrderScreenState extends State<OrderScreen> {
     );
   }
 }
+typedef OrderScreenState = _OrderScreenState;
