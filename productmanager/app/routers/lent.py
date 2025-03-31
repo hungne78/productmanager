@@ -7,6 +7,21 @@ from app.schemas.lent import LentCreate, LentOut
 from typing import List
 router = APIRouter()
 
+from pydantic import BaseModel
+class RentRequest(BaseModel):
+    freezer_id: int
+    client_id: int
+
+@router.post("/rent")
+def rent_freezer(req: RentRequest, db: Session = Depends(get_db)):
+    freezer = db.query(Lent).filter(Lent.id == req.freezer_id, Lent.client_id == 0).first()
+    if not freezer:
+        raise HTTPException(status_code=404, detail="이미 대여 중이거나 존재하지 않는 냉동고입니다.")
+    
+    freezer.client_id = req.client_id
+    db.commit()
+    return {"message": f"{freezer.serial_number} 대여 완료"}
+
 @router.post("/lent", response_model=LentOut)
 def create_lent(payload: LentCreate, db: Session = Depends(get_db)):
     # 필요 시, 클라이언트 존재 여부 등을 확인
@@ -20,6 +35,11 @@ def create_lent(payload: LentCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_lent)
     return new_lent
+@router.get("/company", response_model=List[LentOut])
+def get_company_freezers(db: Session = Depends(get_db)):
+    """ 회사 보유 냉동고 (client_id == 0) 목록 조회 """
+    return db.query(Lent).filter(Lent.client_id == 0).all()
+
 
 @router.get("/lent", response_model=list[LentOut])
 def list_lents(db: Session = Depends(get_db)):
@@ -76,4 +96,5 @@ def update_lent_by_id(lent_id: int, payload: LentCreate, db: Session = Depends(g
     db.commit()
     db.refresh(lent)
     return lent
+
 

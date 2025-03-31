@@ -9,11 +9,13 @@ from app.db.database import get_db
 from typing import List
 from app.models.employees import Employee
 from pydantic import BaseModel
-
+from app.utils.push_service import send_push 
+from app.models.clients import Client
 router = APIRouter()
 
 @router.post("/", response_model=FranchiseOrderOut)
 def create_franchise_order(order_data: FranchiseOrderCreate, db: Session = Depends(get_db)):
+    # ✅ 기존 주문 삭제
     existing = db.query(FranchiseOrder).filter(
         FranchiseOrder.client_id == order_data.client_id,
         FranchiseOrder.order_date == order_data.order_date,
@@ -25,6 +27,7 @@ def create_franchise_order(order_data: FranchiseOrderCreate, db: Session = Depen
         db.delete(existing)
         db.commit()
 
+    # ✅ 담당 영업사원 조회
     emp_id = db.query(EmployeeClient.employee_id).filter(
         EmployeeClient.client_id == order_data.client_id
     ).scalar()
@@ -32,6 +35,7 @@ def create_franchise_order(order_data: FranchiseOrderCreate, db: Session = Depen
     if not emp_id:
         raise HTTPException(status_code=404, detail="담당 영업사원을 찾을 수 없습니다.")
 
+    # ✅ 주문 생성
     new_order = FranchiseOrder(
         client_id=order_data.client_id,
         employee_id=emp_id,
@@ -49,15 +53,82 @@ def create_franchise_order(order_data: FranchiseOrderCreate, db: Session = Depen
             quantity=item.quantity
         ))
     db.commit()
-    return new_order
+
+    # ✅ 푸시 알림 전송
+    emp_id = db.query(EmployeeClient.employee_id).filter(
+        EmployeeClient.client_id == order_data.client_id
+    ).scalar()
+
+    if not emp_id:
+        raise HTTPException(status_code=404, detail="담당 영업사원을 찾을 수 없습니다.")
+
+    employee = db.query(Employee).filter(Employee.id == emp_id).first()
+    if not employee or not employee.fcm_token:
+        raise HTTPException(status_code=404, detail="담당자 정보 또는 FCM 토큰이 없습니다.")
+
+    client = db.query(Client).filter(Client.id == order_data.client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="거래처를 찾을 수 없습니다.")
+
+    send_push(
+        fcm_token=employee.fcm_token,
+        client_name=client.client_name,
+        client_id=client.id,
+        order_id=new_order.id
+    )
+
+    return {
+    "id": new_order.id,
+    "client_id": new_order.client_id,
+    "client_name": client.client_name if client else "알 수 없음",
+    "employee_id": new_order.employee_id,
+    "order_date": new_order.order_date,
+    "shipment_round": new_order.shipment_round,
+    "is_transferred": new_order.is_transferred,
+    "is_read": new_order.is_read,  # ✅ 추가
+    "created_at": new_order.created_at,  # ✅ 추가
+    "items": [
+        {
+            "product_id": item.product_id,
+            "product_name": item.product.product_name if item.product else "알 수 없음",
+            "quantity": item.quantity
+        }
+        for item in new_order.items
+    ]
+}
 
 
-@router.get("/franchise_orders/by_employee/{employee_id}", response_model=List[FranchiseOrderOut])
+
+@router.get("/by_employee/{employee_id}", response_model=List[FranchiseOrderOut])
 def get_franchise_orders_by_employee(employee_id: int, db: Session = Depends(get_db)):
-    return db.query(FranchiseOrder).filter(
+    orders = db.query(FranchiseOrder).filter(
         FranchiseOrder.employee_id == employee_id,
         FranchiseOrder.is_transferred == False
     ).all()
+
+    result = []
+    for order in orders:
+        client = db.query(Client).filter(Client.id == order.client_id).first()
+        result.append({
+            "id": order.id,
+            "client_id": order.client_id,
+            "client_name": client.client_name if client else "알 수 없음",
+            "employee_id": order.employee_id,
+            "order_date": order.order_date,
+            "shipment_round": order.shipment_round,
+            "is_transferred": order.is_transferred,
+            "is_read": order.is_read,
+            "created_at": order.created_at,
+            "items": [
+                {
+                    "product_id": item.product_id,
+                    "product_name": item.product.product_name if item.product else "알 수 없음",
+                    "quantity": item.quantity
+                }
+                for item in order.items
+            ]
+        })
+    return result
 
 
 @router.post("/orders/from_franchise/{franchise_order_id}")
@@ -94,7 +165,6 @@ def get_unread_orders(employee_id: int, db: Session = Depends(get_db)):
         FranchiseOrder.is_transferred == False,
         FranchiseOrder.is_read == False
     ).all()
-
 
 
 class FCMTokenIn(BaseModel):

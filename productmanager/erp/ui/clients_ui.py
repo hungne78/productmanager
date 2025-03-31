@@ -12,6 +12,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QSizePolicy
 import requests
 from datetime import datetime
+BASE_URL = "http://127.0.0.1:8000"
 global_token = get_auth_headers
 
 class LentEditorDialog(QDialog):
@@ -26,8 +27,9 @@ class LentEditorDialog(QDialog):
         layout = QVBoxLayout()
 
         # 🔹 냉동고 목록 테이블
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["브랜드", "사이즈", "시리얼", "년식"])
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["ID", "브랜드", "사이즈", "시리얼", "년식"])
+        self.table.setColumnHidden(0, True) 
         self.table.setMinimumHeight(180)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -54,15 +56,60 @@ class LentEditorDialog(QDialog):
         btn_layout = QHBoxLayout()
         save_btn = QPushButton("저장")
         cancel_btn = QPushButton("취소")
+        self.recall_btn = QPushButton("♻️ 회수")
         btn_layout.addWidget(save_btn)
         btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(self.recall_btn)
         layout.addLayout(btn_layout)
 
         save_btn.clicked.connect(self.save_data)
         cancel_btn.clicked.connect(self.reject)
-
+        self.recall_btn.clicked.connect(self.recall_freezer)
         self.setLayout(layout)
         self.load_existing_data()
+
+    def recall_freezer(self):
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "선택 오류", "냉동고를 선택하세요.")
+            return
+
+        id_item = self.table.item(row, 0)
+        if not id_item:
+            QMessageBox.critical(self, "ID 오류", "ID가 없습니다.")
+            return
+
+        id_text = id_item.text().strip()
+        if not id_text.isdigit():
+            QMessageBox.critical(self, "ID 오류", "ID가 숫자가 아닙니다.")
+            return
+
+        freezer_id = int(id_text)
+
+
+        confirm = QMessageBox.question(
+            self, "회수 확인", "선택한 냉동고를 회수(회사로 반환)하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm == QMessageBox.Yes:
+            try:
+                payload = {
+                    "brand": self.table.item(row, 1).text(),
+                    "size": self.table.item(row, 2).text(),
+                    "serial_number": self.table.item(row, 3).text(),
+                    "year": int(self.table.item(row, 4).text()),
+                    "client_id": 0  # ✅ 회수 처리 핵심
+                }
+                url = f"{BASE_URL}/lent/id/{freezer_id}"
+                resp = requests.put(url, json=payload)
+                if resp.status_code == 200:
+                    QMessageBox.information(self, "회수 완료", "냉동고가 회사로 회수되었습니다.")
+                    self.load_existing_data()
+                else:
+                    QMessageBox.warning(self, "회수 실패", resp.text)
+            except Exception as e:
+                QMessageBox.critical(self, "오류", str(e))
+
 
     def load_existing_data(self):
         try:
@@ -70,13 +117,12 @@ class LentEditorDialog(QDialog):
             if response and isinstance(response, list):
                 self.table.setRowCount(len(response))
                 for row, freezer in enumerate(response):
-                    # ✅ ID 저장
-                    item0 = QTableWidgetItem(freezer.get("brand", ""))
-                    item0.setData(Qt.UserRole, freezer.get("id"))  # freezer ID 저장
-                    self.table.setItem(row, 0, item0)
-                    self.table.setItem(row, 1, QTableWidgetItem(freezer.get("size", "")))
-                    self.table.setItem(row, 2, QTableWidgetItem(freezer.get("serial_number", "")))
-                    self.table.setItem(row, 3, QTableWidgetItem(str(freezer.get("year", ""))))
+                    self.table.setItem(row, 0, QTableWidgetItem(str(freezer["id"])))
+                    self.table.setItem(row, 1, QTableWidgetItem(freezer.get("brand", "")))
+                    self.table.setItem(row, 2, QTableWidgetItem(freezer.get("size", "")))
+                    self.table.setItem(row, 3, QTableWidgetItem(freezer.get("serial_number", "")))
+                    self.table.setItem(row, 4, QTableWidgetItem(str(freezer.get("year", ""))))
+
             else:
                 self.table.setRowCount(0)
         except Exception as e:
@@ -84,11 +130,14 @@ class LentEditorDialog(QDialog):
 
     def fill_form_from_table(self, item):
         row = item.row()
-        self.selected_lent_id = self.table.item(row, 0).data(Qt.UserRole)  # ✅ 선택한 냉동고 ID 저장
-        self.brand_edit.setText(self.table.item(row, 0).text())
-        self.size_edit.setText(self.table.item(row, 1).text())
-        self.serial_edit.setText(self.table.item(row, 2).text())
-        self.year_edit.setText(self.table.item(row, 3).text())
+        self.selected_lent_id = self.table.item(row, 0).data(Qt.UserRole) or self.table.item(row, 0).text()
+
+        # 인덱스 순서 주의! 1~4열에서 가져와야 함
+        self.brand_edit.setText(self.table.item(row, 1).text())
+        self.size_edit.setText(self.table.item(row, 2).text())
+        self.serial_edit.setText(self.table.item(row, 3).text())
+        self.year_edit.setText(self.table.item(row, 4).text())
+
 
     def save_data(self):
         data = {

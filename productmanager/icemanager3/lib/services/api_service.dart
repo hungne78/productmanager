@@ -17,10 +17,8 @@ class ApiService {
 
   static Future<void> registerFcmToken(int employeeId, String token) async {
     try {
-      final response = await _dio.post(
-        '/employees/$employeeId/fcm_token',
-        data: {'token': token},
-      );
+      final response = await _dio.post('/franchise_orders/fcm_token/$employeeId', data: {'token': token});
+
 
       if (response.statusCode == 200) {
         print("✅ FCM 토큰 등록 성공");

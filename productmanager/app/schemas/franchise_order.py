@@ -23,10 +23,12 @@ class FranchiseOrderItemOut(BaseModel):
 class FranchiseOrderOut(BaseModel):
     id: int
     client_id: int
+    client_name: str
     employee_id: int
     order_date: date
     shipment_round: int
     is_transferred: bool
+    is_read: bool
     created_at: datetime
     items: List[FranchiseOrderItemOut]
 

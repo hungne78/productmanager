@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
     QLabel, QLineEdit, QStackedWidget, QFrame, QAction, QDialog,
-    QFormLayout, QDialogButtonBox, QMenuBar, QMenu\
+    QFormLayout, QDialogButtonBox, QMenuBar, QMenu, QMessageBox, QTableWidget, QTableWidgetItem\
 )
 from employee_ui import EmployeesTab
 from clients_ui import ClientsTab
@@ -29,10 +29,12 @@ import requests
 from PyQt5.QtWidgets import QCalendarWidget, QInputDialog
 from PyQt5.QtWidgets import QGraphicsOpacityEffect
 from PyQt5.QtCore import QPropertyAnimation
+from services.api_services import get_auth_headers
 
+global_token = get_auth_headers # 전역 변수로 토큰을 저장
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 파일의 절대 경로
 ICONS_DIR = os.path.join(BASE_DIR, "assets/icons")  # icons 폴더 경로 설정
-
+BASE_URL = "http://127.0.0.1:8000" 
 MEMO_FILE = "memo.json"
 
 def load_erp_style():
@@ -619,6 +621,379 @@ class CompanyInfoDialog(QDialog):
             "bank_account": self.bank_edit.text(),       # ✅ 포함
         }
 
+class CompanyFreezerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("회사 냉동고 현황")
+        self.setMinimumSize(600, 400)
+
+        layout = QVBoxLayout()
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["ID", "브랜드", "사이즈", "시리얼", "년식"])
+        layout.addWidget(self.table)
+
+        # 버튼들
+        btn_layout = QHBoxLayout()
+        self.add_btn = QPushButton("➕ 등록")
+        self.edit_btn = QPushButton("✏️ 수정")
+        self.delete_btn = QPushButton("🗑 삭제")
+        self.rent_btn = QPushButton("📦 대여")
+        btn_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.edit_btn)
+        btn_layout.addWidget(self.delete_btn)
+        btn_layout.addWidget(self.rent_btn)
+        layout.addLayout(btn_layout)
+
+        self.setLayout(layout)
+        # ✅ 여기 추가!
+        self.add_btn.clicked.connect(self.add_freezer)
+        self.edit_btn.clicked.connect(self.edit_freezer)
+        self.delete_btn.clicked.connect(self.delete_freezer)
+        # 연결
+        self.rent_btn.clicked.connect(self.show_rent_dialog)
+        self.load_freezers()
+    def edit_freezer(self):
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "선택 오류", "수정할 냉동고를 선택하세요.")
+            return
+
+        freezer_data = {
+            "id": int(self.table.item(row, 0).text()),
+            "brand": self.table.item(row, 1).text(),
+            "size": self.table.item(row, 2).text(),
+            "serial_number": self.table.item(row, 3).text(),
+            "year": int(self.table.item(row, 4).text())
+        }
+
+        dialog = FreezerAddDialog(self)
+        dialog.brand_input.setText(freezer_data["brand"])
+        dialog.size_input.setText(freezer_data["size"])
+        dialog.serial_input.setText(freezer_data["serial_number"])
+        dialog.year_input.setText(str(freezer_data["year"]))
+
+        if dialog.exec_() == QDialog.Accepted:
+            payload = dialog.get_data()
+            payload["client_id"] = 0  # 회사 냉동고
+
+            try:
+                url = f"{BASE_URL}/lent/{freezer_data['id']}"
+                resp = requests.put(url, json=payload)
+                if resp.status_code == 200:
+                    QMessageBox.information(self, "수정 완료", "냉동고가 수정되었습니다.")
+                    self.load_freezers()
+                else:
+                    QMessageBox.warning(self, "수정 실패", resp.text)
+            except Exception as e:
+                QMessageBox.critical(self, "요청 오류", str(e))
+
+    def delete_freezer(self):
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "선택 오류", "삭제할 냉동고를 선택하세요.")
+            return
+
+        freezer_id = self.table.item(row, 0).text()
+        confirm = QMessageBox.question(self, "삭제 확인", f"냉동고 ID {freezer_id}를 삭제하시겠습니까?",
+                                    QMessageBox.Yes | QMessageBox.No)
+        if confirm == QMessageBox.Yes:
+            try:
+                resp = requests.delete(f"{BASE_URL}/lent/{freezer_id}")
+                if resp.status_code == 200:
+                    QMessageBox.information(self, "삭제 완료", "냉동고가 삭제되었습니다.")
+                    self.load_freezers()
+                else:
+                    QMessageBox.warning(self, "삭제 실패", resp.text)
+            except Exception as e:
+                QMessageBox.critical(self, "요청 오류", str(e))
+
+
+    def add_freezer(self):
+        dialog = FreezerAddDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            payload = dialog.get_data()
+            if not payload:
+                return  # ❗ get_data()에서 입력 오류가 있으면 등록 중단
+
+            payload["client_id"] = 0  # ✅ 안전하게 여기서 처리
+            try:
+                resp = requests.post(f"{BASE_URL}/lent/0", json=payload)
+                if resp.status_code in (200, 201):
+                    QMessageBox.information(self, "등록 성공", "냉동고가 등록되었습니다.")
+                    self.load_freezers()
+                else:
+                    QMessageBox.warning(self, "등록 실패", f"{resp.text}")
+            except Exception as e:
+                QMessageBox.critical(self, "요청 오류", str(e))
+
+
+    def show_rent_dialog(self):
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "선택 오류", "대여할 냉동고를 먼저 선택해주세요.")
+            return  # ❗ 선택 안 했으면 바로 return
+
+        try:
+            freezer_id = int(self.table.item(row, 0).text())
+        except Exception as e:
+            QMessageBox.critical(self, "ID 오류", f"냉동고 ID를 읽을 수 없습니다: {e}")
+            return
+
+        # ✅ 선택된 경우에만 거래처 ID 입력 요청
+        client_id, ok = QInputDialog.getInt(self, "대여 처리", "대여할 거래처 ID를 입력하세요:")
+        if ok:
+            url = f"{BASE_URL}/lent/rent"
+            payload = {"freezer_id": freezer_id, "client_id": client_id}
+            try:
+                resp = requests.post(url, json=payload)
+                if resp.status_code == 200:
+                    QMessageBox.information(self, "대여 완료", "냉동고가 거래처에 대여되었습니다.")
+                    self.load_freezers()
+                else:
+                    QMessageBox.warning(self, "대여 실패", resp.text)
+            except Exception as e:
+                QMessageBox.critical(self, "요청 오류", str(e))
+
+
+
+    def send_rent_request(self, freezer_id, client_id):
+        url = f"{BASE_URL}/freezers/rent"
+        payload = {"freezer_id": freezer_id, "client_id": client_id}
+        try:
+            resp = requests.post(url, json=payload, headers={"Authorization": f"Bearer {global_token}"})
+            if resp.status_code == 200:
+                QMessageBox.information(self, "성공", "냉동고 대여가 완료되었습니다.")
+                self.load_freezers()
+            else:
+                QMessageBox.warning(self, "실패", f"대여 실패: {resp.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"요청 중 오류 발생: {e}")
+    def load_freezers(self):
+        try:
+            resp = requests.get(f"{BASE_URL}/lent/company")
+            data = resp.json()
+
+            if not isinstance(data, list):
+                raise ValueError(f"❌ 잘못된 응답 형식: {data}")
+
+            self.table.setRowCount(len(data))
+            self.table.setColumnCount(5)
+            self.table.setHorizontalHeaderLabels(["ID", "브랜드", "사이즈", "시리얼", "년식"])
+            self.table.setColumnHidden(0, True)  # ✅ ID는 숨겨주기 (보이진 않지만 내부적으로 사용)
+
+            for row, item in enumerate(data):
+                self.table.setItem(row, 0, QTableWidgetItem(str(item.get("id", ""))))
+                self.table.setItem(row, 1, QTableWidgetItem(item.get("brand", "")))
+                self.table.setItem(row, 2, QTableWidgetItem(item.get("size", "")))
+                self.table.setItem(row, 3, QTableWidgetItem(item.get("serial_number", "")))
+                self.table.setItem(row, 4, QTableWidgetItem(str(item.get("year", ""))))
+        except Exception as e:
+            QMessageBox.critical(self, "불러오기 실패", f"냉동고 목록을 불러오는 중 오류:\n{e}")
+
+
+
+
+
+class FreezerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("회사 냉동고 현황")
+        self.setMinimumSize(600, 400)
+
+        layout = QVBoxLayout()
+
+        # 테이블
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["ID", "브랜드", "사이즈", "시리얼", "년식"])
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        layout.addWidget(self.table)
+
+        # 버튼들
+        btn_row = QHBoxLayout()
+        self.add_btn = QPushButton("➕ 등록")
+        self.edit_btn = QPushButton("✏️ 수정")
+        self.delete_btn = QPushButton("🗑 삭제")
+        self.rent_btn = QPushButton("📦 대여")
+
+        self.add_btn.clicked.connect(self.add_freezer)
+        self.edit_btn.clicked.connect(self.edit_freezer)
+        self.delete_btn.clicked.connect(self.delete_freezer)
+
+        btn_row.addWidget(self.add_btn)
+        btn_row.addWidget(self.edit_btn)
+        btn_row.addWidget(self.delete_btn)
+        btn_row.addWidget(self.rent_btn)
+
+        layout.addLayout(btn_row)
+        self.setLayout(layout)
+
+        self.load_freezers()
+
+    def load_freezers(self):
+        try:
+            resp = requests.get(f"{BASE_URL}/lent/company")
+            data = resp.json()
+            self.table.setRowCount(len(data))
+            for row, item in enumerate(data):
+                self.table.setItem(row, 0, QTableWidgetItem(str(item["id"])))
+                self.table.setItem(row, 1, QTableWidgetItem(item.get("brand", "")))
+                self.table.setItem(row, 2, QTableWidgetItem(item.get("size", "")))
+                self.table.setItem(row, 3, QTableWidgetItem(item.get("serial_number", "")))
+                self.table.setItem(row, 4, QTableWidgetItem(str(item.get("year", ""))))
+        except Exception as e:
+            print(f"❌ 냉동고 로딩 실패: {e}")
+
+    def add_freezer(self):
+        dialog = FreezerAddDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            payload = dialog.get_data()
+            try:
+                resp = requests.post(f"{BASE_URL}/lent", json=payload)
+                if resp.status_code in (200, 201):
+                    QMessageBox.information(self, "등록 성공", "냉동고가 등록되었습니다.")
+                    self.load_freezers()
+                else:
+                    QMessageBox.warning(self, "등록 실패", f"{resp.text}")
+            except Exception as e:
+                QMessageBox.critical(self, "요청 오류", str(e))
+
+
+    def edit_freezer(self):
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "선택 오류", "수정할 냉동고를 선택하세요.")
+            return
+
+        freezer_data = {
+            "id": int(self.table.item(row, 0).text()),
+            "brand": self.table.item(row, 1).text(),
+            "size": self.table.item(row, 2).text(),
+            "serial_number": self.table.item(row, 3).text(),
+            "year": int(self.table.item(row, 4).text())
+        }
+        self.show_freezer_edit_dialog(mode="edit", freezer_data=freezer_data)
+
+    def delete_freezer(self):
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "선택 오류", "삭제할 냉동고를 선택하세요.")
+            return
+
+        freezer_id = self.table.item(row, 0).text()
+        confirm = QMessageBox.question(self, "삭제 확인", f"냉동고 ID {freezer_id}를 삭제할까요?",
+                                       QMessageBox.Yes | QMessageBox.No)
+        if confirm == QMessageBox.Yes:
+            try:
+                resp = requests.delete(f"{BASE_URL}/lent/{freezer_id}")
+                if resp.status_code == 200:
+                    QMessageBox.information(self, "성공", "냉동고가 삭제되었습니다.")
+                    self.load_freezers()
+                else:
+                    QMessageBox.warning(self, "오류", f"삭제 실패: {resp.text}")
+            except Exception as e:
+                QMessageBox.critical(self, "에러", f"삭제 요청 실패: {e}")
+
+    def show_freezer_edit_dialog(self, mode="add", freezer_data=None):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("냉동고 등록" if mode == "add" else "냉동고 수정")
+        layout = QFormLayout()
+
+        # ❗ freezer_data가 None일 때 .get 쓰면 오류. 아래처럼 분기 처리해야 안전함
+        brand_input = QLineEdit(freezer_data["brand"] if freezer_data else "")
+        size_input = QLineEdit(freezer_data["size"] if freezer_data else "")
+        serial_input = QLineEdit(freezer_data["serial_number"] if freezer_data else "")
+        year_input = QLineEdit(str(freezer_data["year"]) if freezer_data else "")
+
+        layout.addRow("브랜드:", brand_input)
+        layout.addRow("사이즈:", size_input)
+        layout.addRow("시리얼 번호:", serial_input)
+        layout.addRow("년식:", year_input)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        layout.addWidget(buttons)
+        dialog.setLayout(layout)
+
+        # 🔗 연결
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+
+        # ✅ 여기가 반드시 실행되어야 팝업이 보입니다
+        result = dialog.exec_()
+
+        if result == QDialog.Accepted:
+            payload = {
+                "brand": brand_input.text(),
+                "size": size_input.text(),
+                "serial_number": serial_input.text(),
+                "year": int(year_input.text())
+            }
+
+            try:
+                if mode == "add":
+                    payload["client_id"] = 0
+                    requests.post(f"{BASE_URL}/lent", json=payload)
+                else:
+                    requests.put(f"{BASE_URL}/id/{freezer_data['id']}", json=payload)
+
+                self.load_freezers()
+            except Exception as e:
+                QMessageBox.critical(self, "에러", str(e))
+
+           
+class FreezerAddDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("냉동고 등록")
+        self.setFixedSize(300, 220)
+
+        layout = QFormLayout()
+
+        self.brand_input = QLineEdit()
+        self.size_input = QLineEdit()
+        self.serial_input = QLineEdit()
+        self.year_input = QLineEdit()
+
+        layout.addRow("브랜드:", self.brand_input)
+        layout.addRow("사이즈:", self.size_input)
+        layout.addRow("시리얼:", self.serial_input)
+        layout.addRow("년식:", self.year_input)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout.addWidget(buttons)
+        self.setLayout(layout)
+
+    def get_data(self):
+        brand = self.brand_input.text().strip()
+        size = self.size_input.text().strip()
+        serial = self.serial_input.text().strip()
+        year_text = self.year_input.text().strip()
+
+        # ✅ 빈 필드 검사
+        if not brand or not size or not serial or not year_text:
+            QMessageBox.warning(self, "입력 오류", "모든 항목을 입력해주세요.")
+            return None
+
+        # ✅ year 형식 검사
+        try:
+            year = int(year_text)
+        except ValueError:
+            QMessageBox.warning(self, "입력 오류", "년식은 숫자만 입력 가능합니다.")
+            return None
+
+        return {
+            "brand": brand,
+            "size": size,
+            "serial_number": serial,
+            "year": year
+        }
+
+    
 class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -825,7 +1200,19 @@ class MainApp(QMainWindow):
         clock_row.addWidget(self.calendar_toggle_btn)
         clock_row.addStretch()
 
-        
+        # ✅ 회사 냉동고 버튼
+        self.view_freezers_button = QPushButton("🏢 회사 냉동고")
+        self.view_freezers_button.setFixedSize(160, 40)
+        self.view_freezers_button.setStyleSheet("""
+            font-size: 13px;
+            background-color: #F0F4F8;
+            border: 1px solid #CBD5E0;
+            border-radius: 8px;
+        """)
+        self.view_freezers_button.clicked.connect(self.show_company_freezers)
+        clock_row.addSpacing(8)
+        clock_row.addWidget(self.view_freezers_button)
+                
         
         self.sales_label = QLabel("📊 매출 정보 불러오는 중...")
         self.sales_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -925,6 +1312,11 @@ class MainApp(QMainWindow):
 
 
         self.memo_dict = {}  # 날짜: 메모 저장용 딕셔너리
+
+    def show_company_freezers(self):
+        dlg = CompanyFreezerDialog(self)
+        dlg.exec_()
+
 
     def fade_in_sales_label(self):
         self.opacity_effect = QGraphicsOpacityEffect()

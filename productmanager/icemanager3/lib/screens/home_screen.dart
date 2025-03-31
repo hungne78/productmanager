@@ -188,14 +188,31 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // ✅ 포그라운드 메시지 수신 리스너
-      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
         print("📩 포그라운드 알림 수신: ${message.notification?.title}");
-        if (message.notification != null) {
+
+        final type = message.data['type'];
+
+        if (type == 'new_franchise_order') {
+          // ✅ 프랜차이즈 주문이라면 리스트 새로고침
+          final newOrders = await ApiService.fetchFranchiseOrders(
+            context.read<AuthProvider>().user!.id,
+          );
+
+          // ✅ UI에 반영
+          setState(() {
+            _franchiseOrders = newOrders;
+            _unreadCount = newOrders.where((o) => o['is_read'] == false).length;
+          });
+          print("📦 주문 데이터 수신: $newOrders");
+
+          // ✅ 알림도 띄우기
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("${message.notification!.title}\n${message.notification!.body}")),
+            SnackBar(content: Text("🧊 새로운 점주 주문이 도착했습니다!")),
           );
         }
       });
+
     } else {
       print("🚫 알림 권한 거부됨: ${settings.authorizationStatus}");
     }
@@ -327,7 +344,8 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       builder: (_) {
-        final items = order['items'] as List<dynamic>;
+        final items = (order['items'] as List?) ?? [];
+
         return AlertDialog(
           title: Text("주문 상세 - ${order['client_name']}"),
           content: Column(
