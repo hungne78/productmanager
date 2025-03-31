@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, ForeignKey, Date, DateTime, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.db.base import Base
-
+from app.utils.time_utils import get_kst_now
 class FranchiseOrder(Base):
     __tablename__ = "franchise_orders"
 
@@ -12,7 +12,8 @@ class FranchiseOrder(Base):
     order_date = Column(Date, nullable=False)
     shipment_round = Column(Integer, default=0)
     is_transferred = Column(Boolean, default=False)  # 서버 전송 여부
-    created_at = Column(DateTime, default=datetime.utcnow)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=get_kst_now)  # ✅ 한국시간으로 저장
 
     items = relationship("FranchiseOrderItem", back_populates="franchise_order")
 

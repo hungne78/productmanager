@@ -20,7 +20,7 @@ class VehicleStockScreen extends StatefulWidget {
 class _VehicleStockScreenState extends State<VehicleStockScreen> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _stockData = []; // ✅ 데이터 구조 변경 (List<Map<String, dynamic>> 사용)
-
+  List<Map<String, dynamic>> _allStockData = []; // 전체 데이터
   @override
   void initState() {
     super.initState();
@@ -29,10 +29,23 @@ class _VehicleStockScreenState extends State<VehicleStockScreen> {
 
   Future<void> _loadVehicleStock() async {
     try {
-      final stockData = await ApiService.fetchVehicleStock(widget.token, widget.employeeId);
+      final rawStockData = await ApiService.fetchVehicleStock(widget.token, widget.employeeId);
+
+      // 🔹 전체 저장
+      _allStockData = rawStockData;
+
+      // 🔹 0 초과만 화면에 표시
+      final filtered = rawStockData.where((item) {
+        final q = item['quantity'];
+        if (q == null) return false;
+        if (q is int) return q > 0;
+        if (q is double) return q > 0;
+        if (q is String) return int.tryParse(q) != null && int.parse(q) > 0;
+        return false;
+      }).toList();
 
       setState(() {
-        _stockData = stockData;
+        _stockData = filtered;
         _isLoading = false;
       });
     } catch (e) {
@@ -44,6 +57,8 @@ class _VehicleStockScreenState extends State<VehicleStockScreen> {
       );
     }
   }
+
+
 
   // ✅ 차량 재고 합계 계산
   int get totalStockQuantity {
@@ -180,12 +195,12 @@ class _VehicleStockScreenState extends State<VehicleStockScreen> {
 
 
   Widget _buildSummaryRow() {
-    if (_stockData.isEmpty) return const SizedBox();
+    if (_allStockData.isEmpty) return const SizedBox(); // ✅ 수정
 
     int totalQuantity = 0;
     final Map<String, int> categoryTotals = {};
 
-    for (var item in _stockData) {
+    for (var item in _allStockData) { // ✅ 여기만 변경
       final category = item['category']?.toString() ?? '기타';
       final rawQty = item['quantity'];
       int qty = 0;

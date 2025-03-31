@@ -20,7 +20,7 @@ class Employee(Base):
     role = Column(String(20), default="sales")
     birthday = Column(Date, nullable=True)
     address = Column(String(255), nullable=True)
-
+    fcm_token = Column(String, nullable=True)  # 🔥 요거 추가
     # ✅ KST 기준으로 생성/수정 시간 저장
     created_at = Column(DateTime, default=get_kst_now)
     updated_at = Column(DateTime, default=get_kst_now, onupdate=get_kst_now)

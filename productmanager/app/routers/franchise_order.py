@@ -7,6 +7,8 @@ from app.models.products import Product
 from app.schemas.franchise_order import FranchiseOrderCreate, FranchiseOrderOut
 from app.db.database import get_db
 from typing import List
+from app.models.employees import Employee
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -84,3 +86,25 @@ def transfer_franchise_order(franchise_order_id: int, db: Session = Depends(get_
     db.commit()
 
     return {"message": "주문 전송 완료", "order_id": new_order.id}
+
+@router.get("/unread/{employee_id}", response_model=List[FranchiseOrderOut])
+def get_unread_orders(employee_id: int, db: Session = Depends(get_db)):
+    return db.query(FranchiseOrder).filter(
+        FranchiseOrder.employee_id == employee_id,
+        FranchiseOrder.is_transferred == False,
+        FranchiseOrder.is_read == False
+    ).all()
+
+
+class FCMTokenIn(BaseModel):
+    token: str
+
+@router.post("/fcm_token/{employee_id}")
+def save_fcm_token(employee_id: int, token_data: FCMTokenIn, db: Session = Depends(get_db)):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        raise HTTPException(status_code=404, detail="직원 정보가 없습니다.")
+
+    employee.fcm_token = token_data.token
+    db.commit()
+    return {"message": "FCM 토큰 저장 완료"}

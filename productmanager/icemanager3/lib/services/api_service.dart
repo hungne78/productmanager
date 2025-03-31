@@ -15,7 +15,22 @@ class ApiService {
     receiveTimeout: const Duration(seconds: 10),
   ));
 
+  static Future<void> registerFcmToken(int employeeId, String token) async {
+    try {
+      final response = await _dio.post(
+        '/employees/$employeeId/fcm_token',
+        data: {'token': token},
+      );
 
+      if (response.statusCode == 200) {
+        print("✅ FCM 토큰 등록 성공");
+      } else {
+        print("❌ FCM 토큰 등록 실패: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("❌ FCM 토큰 등록 중 예외 발생: $e");
+    }
+  }
   static Future<Map<String, dynamic>> login(int id, String password) async {
     final url = Uri.parse("$baseUrl/login");
     final body = jsonEncode({"id": id, "password": password});
@@ -214,6 +229,17 @@ class ApiService {
     }
     throw Exception("등록 실패: ${response.statusCode}");
   }
+  static Future<void> transferFranchiseOrder(int orderId) async {
+    try {
+      final response = await _dio.post('/franchise_orders/transfer/$orderId');
+      if (response.statusCode != 200) {
+        throw Exception('전송 실패: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ 전송 실패: $e');
+      rethrow;
+    }
+  }
 
 
   static Future<http.Response> updateClientOutstanding(String token, int clientId, Map<String, dynamic> data) async {
@@ -326,6 +352,19 @@ class ApiService {
     return response;
   }
 
+  static Future<List<Map<String, dynamic>>> fetchFranchiseOrders(int employeeId) async {
+    try {
+      final response = await _dio.get('/franchise_orders/by_employee/$employeeId');
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(response.data);
+      } else {
+        throw Exception('서버 응답 오류: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ 점주 주문 목록 불러오기 실패: $e');
+      return [];
+    }
+  }
 
 
 

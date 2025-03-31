@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import QWidget, QHBoxLayout, QHBoxLayout, QPushButton, QTab
     QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QComboBox, QVBoxLayout, QGridLayout, QScrollArea, QDateEdit
 import os
 import sys
-from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtCore import Qt, QDate, QTimer
 from PyQt5.QtGui import QFont, QResizeEvent,QFontMetrics, QColor, QStandardItem
 import requests
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
@@ -125,7 +125,25 @@ class OrderLeftWidget(QWidget):
         self.setLayout(layout)
          # ✅ 현재 출고 단계 불러오기
         self.fetch_current_shipment_round()
+        self.setup_date_refresh_timer()
     
+    def setup_date_refresh_timer(self):
+        """
+        자정이 지나면 QDateEdit의 최대 날짜를 갱신하기 위한 타이머
+        """
+        self.date_refresh_timer = QTimer(self)
+        self.date_refresh_timer.timeout.connect(self.update_max_date)
+        self.date_refresh_timer.start(60 * 1000)  # 1분마다 체크
+
+    def update_max_date(self):
+        """
+        현재 날짜 기준으로 최대 날짜를 갱신
+        """
+        current_date = QDate.currentDate()
+        if self.order_date_picker.maximumDate() != current_date:
+            self.order_date_picker.setMaximumDate(current_date)
+            print(f"📅 날짜 제한 갱신됨: {current_date.toString('yyyy-MM-dd')}")
+        
     def fetch_orders_for_current_shipment(self):
         """
         현재(시스템에서 받아둔) 출고 차수의 주문을 전직원 대상으로 조회하여 합산 후 표시한다.

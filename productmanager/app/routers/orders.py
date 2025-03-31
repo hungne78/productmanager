@@ -15,6 +15,7 @@ from app.models.orders import OrderLock
 from sqlalchemy import func
 from typing import Optional
 from datetime import datetime
+from app.models import Brand  # 브랜드 모델 import
 import pytz
 import redis
 
@@ -359,9 +360,11 @@ def get_order_items_by_employee_date(employee_id: int, order_date: str, db: Sess
             OrderItem.quantity,
             Product.product_name,
             Product.category,
-            Product.brand_id
+            Product.brand_id,
+            Brand.name.label("brand_name")
         )
         .join(Product, Product.id == OrderItem.product_id)
+        .join(Brand, Product.brand_id == Brand.id, isouter=True)  # ✅ 브랜드 테이블 조인 (LEFT OUTER JOIN)
         .filter(OrderItem.order_id == order.id)
         .all()
     )
@@ -400,9 +403,17 @@ def get_order_items_by_employee_date(employee_id: int, order_date: str, db: Sess
     # ✅ `List[dict]`로 변환하여 FastAPI 응답 형식과 맞춤
     for category, brands in category_brand_dict.items():
         for brand_id, products in brands.items():
+            brand_name = None
+            # 🔍 해당 브랜드 이름 찾기 (products 리스트 중 첫 번째에서 가져옴)
+            for item in order_items:
+                if item.brand_id == brand_id:
+                    brand_name = item.brand_name
+                    break
+
             formatted_result["items"].append({
                 "category": category,
                 "brand_id": brand_id,
+                "brand_name": brand_name or "브랜드 없음",  # ✅ 추가됨!
                 "products": products
             })
 

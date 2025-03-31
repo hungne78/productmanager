@@ -54,7 +54,9 @@ dependencies:
   web_socket_channel: ^2.4.0
   device_info_plus: ^10.0.0
   permission_handler: ^11.0.1
-
+  badges: ^3.0.2
+  firebase_core: ^2.0.0
+  firebase_messaging: ^14.0.0
 #  esc_pos_bluetooth: ^0.4.1
 dev_dependencies:
   flutter_test:

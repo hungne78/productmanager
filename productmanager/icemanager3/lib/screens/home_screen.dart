@@ -20,7 +20,8 @@ import 'package:charset_converter/charset_converter.dart';
 import 'dart:io';
 import '../screens/settings_screen.dart';
 import '../screens/printer.dart';
-
+import 'package:badges/badges.dart' as badges;
+import 'package:firebase_messaging/firebase_messaging.dart';
 bool _hasLoadedProducts = false;
 
 class WeatherService {
@@ -148,7 +149,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _weatherData = [];
   bool _isLoading = true; // ✅ 로딩 상태 추가
   double _totalMonthlySales = 0; // ✅ 전체 매출 총합
-
+  int _unreadCount = 0;
+  List<Map<String, dynamic>> _franchiseOrders = [];
 
   @override
   void initState() {
@@ -157,12 +159,47 @@ class _HomeScreenState extends State<HomeScreen> {
       _hasLoadedProducts = true;
       _updateItemList(); // ✅ 딱 한 번만 실행됨
     }
-
+    _initializeFCM(); // 여기서 FCM 초기화
+    _loadFranchiseOrders(); // 기존 기능 유지
     _fetchSalesData();
     _loadWeather();
 
   }
+  Future<void> _initializeFCM() async {
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
 
+    // ✅ 알림 권한 요청 (Android 13+)
+    NotificationSettings settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+      print("✅ 알림 권한 허용됨");
+
+      // ✅ 토큰 받아서 서버 전송
+      final token = await messaging.getToken();
+      print("📲 FCM 토큰: $token");
+
+      final user = context.read<AuthProvider>().user;
+      if (user != null && token != null) {
+        await ApiService.registerFcmToken(user.id, token);
+      }
+
+      // ✅ 포그라운드 메시지 수신 리스너
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        print("📩 포그라운드 알림 수신: ${message.notification?.title}");
+        if (message.notification != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("${message.notification!.title}\n${message.notification!.body}")),
+          );
+        }
+      });
+    } else {
+      print("🚫 알림 권한 거부됨: ${settings.authorizationStatus}");
+    }
+  }
   // 🔹 모든 직원의 이번 달 매출 가져오기
   Future<void> _fetchSalesData() async {
     print("📡 [Flutter] 매출 데이터 요청 시작...");
@@ -254,6 +291,75 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
   }
+  void _showFranchiseMessages() {
+    showDialog(
+      context: context,
+      builder: (_) {
+        final unreadOrders = _franchiseOrders.where((o) => !o['is_read']).toList();
+        return AlertDialog(
+          title: const Text("거래처 주문 메시지"),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: unreadOrders.length,
+              itemBuilder: (_, index) {
+                final order = unreadOrders[index];
+                return ListTile(
+                  title: Text(order['client_name'] ?? '알 수 없음'),
+                  subtitle: Text("날짜: ${order['order_date']}"),
+                  onTap: () => _showFranchiseOrderDetail(order),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              child: const Text("닫기"),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  void _showFranchiseOrderDetail(Map<String, dynamic> order) {
+    showDialog(
+      context: context,
+      builder: (_) {
+        final items = order['items'] as List<dynamic>;
+        return AlertDialog(
+          title: Text("주문 상세 - ${order['client_name']}"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("주문일: ${order['order_date']}"),
+              const SizedBox(height: 12),
+              ...items.map((item) => ListTile(
+                title: Text(item['product_name']),
+                trailing: Text("${item['quantity']}개"),
+              )),
+            ],
+          ),
+          actions: [
+            TextButton(
+              child: const Text("닫기"),
+              onPressed: () => Navigator.pop(context),
+            ),
+            ElevatedButton(
+              child: const Text("전송"),
+              onPressed: () async {
+                await ApiService.transferFranchiseOrder(order['id']);
+                await _loadFranchiseOrders(); // 뱃지 다시 계산
+                Navigator.pop(context); // 상세 닫기
+                Navigator.pop(context); // 목록 닫기
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
 
 
   void _launchStore() async {
@@ -264,6 +370,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (!await launchUrl(url)) {
       throw "앱스토어나 플레이스토어를 열 수 없습니다.";
+    }
+  }
+  Future<void> _loadFranchiseOrders() async {
+    try {
+      final employeeId = Provider.of<AuthProvider>(context, listen: false).user?.id ?? 0;
+      final orders = await ApiService.fetchFranchiseOrders(employeeId);
+      setState(() {
+        _franchiseOrders = orders;
+        _unreadCount = orders.where((o) => o['is_read'] == false).length;
+      });
+    } catch (e) {
+      print("❌ 프랜차이즈 주문 로딩 실패: $e");
     }
   }
 
@@ -345,6 +463,28 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
 
         actions: [
+          // 🔔 프랜차이즈 주문 뱃지 버튼
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: _showFranchiseMessages, // 알림 팝업 함수
+              child: badges.Badge(
+                position: badges.BadgePosition.topEnd(top: -5, end: -5),
+                showBadge: _unreadCount > 0,
+                badgeContent: Text(
+                  '$_unreadCount',
+                  style: const TextStyle(color: Colors.white, fontSize: 10),
+                ),
+                badgeStyle: badges.BadgeStyle(
+                  badgeColor: Colors.red,
+                  padding: const EdgeInsets.all(6),
+                ),
+                child: const Icon(Icons.notifications, color: Colors.white),
+              ),
+            ),
+          ),
+
+          // 🔄 상품 수신 버튼
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: _isLoading
@@ -359,8 +499,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 : ElevatedButton.icon(
               onPressed: _updateItemList,
               icon: const Icon(Icons.refresh, size: 18, color: Colors.white),
-              label: const Text("상품수신",
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
+              label: const Text(
+                "상품수신",
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.deepPurple,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -369,6 +511,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
+
       ),
 
 
@@ -919,9 +1062,12 @@ Future<Map<String, dynamic>> _fetchEmployeeClients(String token, int employeeId)
 
 void _showDateSelectionDialog(BuildContext context, String token) async {
   try {
-    // ✅ 서버 시간을 먼저 가져오기
     final serverNow = await ApiService.fetchServerTime(token);
-    final onlyDate = DateTime(serverNow.year, serverNow.month, serverNow.day);
+    final today = DateTime(serverNow.year, serverNow.month, serverNow.day);
+    final tomorrow = today.add(Duration(days: 1));
+
+    // 20시 이후면 내일도 선택 가능
+    final bool allowTomorrow = serverNow.hour >= 20;
 
     showDialog(
       context: context,
@@ -931,27 +1077,39 @@ void _showDateSelectionDialog(BuildContext context, String token) async {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text("현재 날짜로만 주문할 수 있습니다."),
+              const Text("주문할 날짜를 선택하세요."),
               const SizedBox(height: 10),
-              Text("${onlyDate.year}년 ${onlyDate.month}월 ${onlyDate.day}일", style: TextStyle(fontWeight: FontWeight.bold)),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => OrderScreen(token: token, selectedDate: today),
+                    ),
+                  );
+                },
+                child: Text("오늘 (${today.month}월 ${today.day}일)"),
+              ),
+              if (allowTomorrow)
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => OrderScreen(token: token, selectedDate: tomorrow),
+                      ),
+                    );
+                  },
+                  child: Text("내일 (${tomorrow.month}월 ${tomorrow.day}일)"),
+                ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
               child: const Text("취소"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => OrderScreen(token: token, selectedDate: onlyDate),
-                  ),
-                );
-              },
-              child: const Text("확인"),
             ),
           ],
         );
@@ -964,3 +1122,4 @@ void _showDateSelectionDialog(BuildContext context, String token) async {
     );
   }
 }
+

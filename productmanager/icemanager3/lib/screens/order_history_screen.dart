@@ -48,7 +48,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
               'product_name': product['product_name'] ?? "상품 정보 없음",
               'quantity': product['quantity'] ?? 0,
               'category': order['category'] ?? "카테고리 없음",
-              'brand_id': order['brand_id']?.toString() ?? "브랜드 없음",
+              'brand_name': order['brand_name']?.toString() ?? "브랜드 없음",
             });
           }
         }
@@ -111,43 +111,72 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
 
   /// 🔹 주문 내역을 표시하는 UI
   Widget _buildOrderHistoryTable() {
-    final isFolded = MediaQuery.of(context).size.width < 800; // ✅ 폴드 여부 확인
-    final int columns = isFolded ? 6 : 12; // ✅ 화면 크기에 따라 칸 개수 설정
+    List<TableRow> rows = [];
 
-    List<Widget> rows = [];
-    Map<String, Map<String, List<Map<String, dynamic>>>> categorizedOrders = {};
+    // 🔹 헤더 추가
+    rows.add(
+      TableRow(
+        decoration: BoxDecoration(color: Colors.grey.shade300),
+        children: [
+          _buildHeaderCell("상품명"),
+          _buildHeaderCell("수량"),
+          _buildHeaderCell("카테고리"),
+          _buildHeaderCell("브랜드"),
+        ],
+      ),
+    );
 
+    // 🔹 데이터 추가
     for (var order in _orderHistory) {
-      String category = order['category'] ?? "기타";
-      String brandId = (order['brand_id'] ?? 0).toString(); // ✅ int → String 변환
-
-      categorizedOrders.putIfAbsent(category, () => {});
-      categorizedOrders[category]!.putIfAbsent(brandId, () => []);
-      categorizedOrders[category]![brandId]!.add(order);
+      rows.add(
+        TableRow(
+          decoration: BoxDecoration(color: Colors.white),
+          children: [
+            _buildTableCell(order['product_name']),
+            _buildTableCell(order['quantity'].toString(), align: TextAlign.center),
+            _buildTableCell(order['category']),
+            _buildTableCell(order['brand_name']),
+          ],
+        ),
+      );
     }
 
+    return Table(
+      columnWidths: const {
+        0: FlexColumnWidth(3), // 상품명
+        1: FlexColumnWidth(1), // 수량
+        2: FlexColumnWidth(2), // 카테고리
+        3: FlexColumnWidth(2), // 브랜드
+      },
+      border: TableBorder.all(color: Colors.grey.shade400, width: 0.5),
+      defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      children: rows,
+    );
+  }
 
-    categorizedOrders.forEach((category, brands) {
-      brands.forEach((brandId, products) { // ✅ brand_id.toString()을 사용하여 오류 방지
-        List<Widget> rowChildren = [];
+  Widget _buildHeaderCell(String text) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      alignment: Alignment.center,
+      child: Text(
+        text,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+      ),
+    );
+  }
 
-        for (var product in products) {
-          if (rowChildren.length >= columns) {
-            rows.add(Row(children: rowChildren));
-            rowChildren = [];
-          }
-          rowChildren.add(Expanded(child: _buildOrderCell(product['product_name'])));
-          rowChildren.add(Expanded(child: _buildOrderCell(product['quantity'].toString())));
-        }
-
-        if (rowChildren.isNotEmpty) {
-          rows.add(Row(children: rowChildren));
-        }
-      });
-    });
-
-
-    return Column(children: rows);
+  Widget _buildTableCell(String text, {TextAlign align = TextAlign.left}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      alignment: Alignment.centerLeft,
+      child: Text(
+        text,
+        overflow: TextOverflow.ellipsis,
+        maxLines: 1,
+        textAlign: align,
+        style: const TextStyle(fontSize: 13),
+      ),
+    );
   }
 
   /// 🔹 주문 내역 셀 디자인
