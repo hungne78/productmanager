@@ -1190,66 +1190,111 @@ void _showOrderDateSelectionDialog(BuildContext context, String token) {
   );
 }
 
-void _showClientSelectionDialog(BuildContext context, String token, int employeeId) async {
-  List<dynamic> clients = [];
-  bool isLoading = true;
-  String? errorMessage;
-
+void _showClientSelectionDialog(BuildContext context, String token, int employeeId) {
   showDialog(
     context: context,
-    barrierDismissible: false,
+    barrierDismissible: true,
     builder: (BuildContext ctx) {
-      return StatefulBuilder(
-        builder: (context, setState) {
-          if (isLoading) {
-            _fetchEmployeeClients(token, employeeId).then((result) {
-              setState(() {
-                clients = result['clients'];
-                isLoading = false;
-                errorMessage = result['error'];
-              });
-            });
-          }
+      return Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _fetchEmployeeClients(token, employeeId),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Padding(
+                padding: const EdgeInsets.all(32),
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2.5)),
+              );
+            }
 
-          return AlertDialog(
-            title: const Text("거래처 선택"),
-            content: isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : errorMessage != null
-                ? Text(errorMessage!)
-                : SingleChildScrollView(
+            if (snapshot.hasError || snapshot.data == null || snapshot.data!['clients'] == null) {
+              return Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.warning_amber_rounded, size: 48, color: Colors.redAccent),
+                    SizedBox(height: 16),
+                    Text("거래처 정보를 불러올 수 없습니다.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                    SizedBox(height: 20),
+                    TextButton.icon(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: Icon(Icons.close),
+                      label: Text("닫기"),
+                    )
+                  ],
+                ),
+              );
+            }
+
+            final clients = snapshot.data!['clients'];
+
+            return Container(
+              padding: EdgeInsets.fromLTRB(20, 24, 20, 16),
+              constraints: BoxConstraints(maxHeight: 500),
               child: Column(
-                children: clients.map((client) {
-                  return ListTile(
-                    title: Text(client['client_name']),
-                    onTap: () {
-                      Navigator.of(ctx).pop();
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => SalesScreen(
-                            token: token,
-                            client: client,
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                }).toList(),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.storefront_rounded, color: Colors.indigo, size: 24),
+                      SizedBox(width: 8),
+                      Text("거래처 선택",
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                    ],
+                  ),
+                  SizedBox(height: 12),
+                  Divider(thickness: 1),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: clients.length,
+                      separatorBuilder: (_, __) => Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final client = clients[index];
+                        return ListTile(
+                          leading: Icon(Icons.person_outline, color: Colors.grey[700]),
+                          title: Text(client['client_name'],
+                              style: TextStyle(fontWeight: FontWeight.w500)),
+                          trailing: Icon(Icons.chevron_right, color: Colors.grey[500]),
+                          onTap: () {
+                            Navigator.of(ctx).pop();
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => SalesScreen(
+                                  token: token,
+                                  client: client,
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: Icon(Icons.cancel_outlined, color: Colors.grey[600]),
+                      label: Text("취소", style: TextStyle(color: Colors.grey[700])),
+                    ),
+                  )
+                ],
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("취소"),
-              ),
-            ],
-          );
-        },
+            );
+          },
+        ),
       );
     },
   );
 }
+
 
 Future<Map<String, dynamic>> _fetchEmployeeClients(String token, int employeeId) async {
   try {
@@ -1265,53 +1310,90 @@ void _showDateSelectionDialog(BuildContext context, String token) async {
     final serverNow = await ApiService.fetchServerTime(token);
     final today = DateTime(serverNow.year, serverNow.month, serverNow.day);
     final tomorrow = today.add(Duration(days: 1));
-
-    // 20시 이후면 내일도 선택 가능
     final bool allowTomorrow = serverNow.hour >= 20;
 
     showDialog(
       context: context,
       builder: (BuildContext ctx) {
-        return AlertDialog(
-          title: const Text("주문 날짜 선택"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text("주문할 날짜를 선택하세요."),
-              const SizedBox(height: 10),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => OrderScreen(token: token, selectedDate: today),
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+            constraints: BoxConstraints(maxWidth: 340),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.calendar_today_rounded, color: Colors.indigo),
+                    SizedBox(width: 8),
+                    Text(
+                      "주문 날짜 선택",
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo),
                     ),
-                  );
-                },
-                child: Text("오늘 (${today.month}월 ${today.day}일)"),
-              ),
-              if (allowTomorrow)
-                ElevatedButton(
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  "주문할 날짜를 선택해주세요.",
+                  style: TextStyle(fontSize: 15, color: Colors.grey[700]),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  icon: const Icon(Icons.today, color: Colors.white),
+                  label: Text("오늘 (${today.month}월 ${today.day}일)",
+                      style: const TextStyle(color: Colors.white, fontSize: 16)),
                   onPressed: () {
                     Navigator.pop(ctx);
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => OrderScreen(token: token, selectedDate: tomorrow),
+                        builder: (_) => OrderScreen(token: token, selectedDate: today),
                       ),
                     );
                   },
-                  child: Text("내일 (${tomorrow.month}월 ${tomorrow.day}일)"),
                 ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("취소"),
+                if (allowTomorrow) ...[
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    icon: const Icon(Icons.calendar_month, color: Colors.white),
+                    label: Text("내일 (${tomorrow.month}월 ${tomorrow.day}일)",
+                        style: const TextStyle(color: Colors.white, fontSize: 16)),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => OrderScreen(token: token, selectedDate: tomorrow),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.cancel_outlined, size: 18),
+                    label: const Text("취소"),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );
@@ -1322,4 +1404,5 @@ void _showDateSelectionDialog(BuildContext context, String token) async {
     );
   }
 }
+
 

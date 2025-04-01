@@ -858,7 +858,7 @@ class _OrderScreenState extends State<OrderScreen> {
   Widget _buildDataCell(String text) {
     return Expanded(
       child: Center(
-        child: Text(text, style: TextStyle(fontSize: 12), textAlign: TextAlign.center),
+        child: Text(text, style: TextStyle(fontSize: 14), textAlign: TextAlign.center),
       ),
     );
   }

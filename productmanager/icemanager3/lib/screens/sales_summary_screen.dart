@@ -3,6 +3,8 @@ import '../services/sales_service.dart';
 import 'dart:convert'; // ✅ UTF-8 디코딩을 위해 필요
 import '../config.dart';
 import '../screens/home_screen.dart';
+import 'package:intl/intl.dart';
+
 
 final String baseUrl = BASE_URL;
 
@@ -354,7 +356,7 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
       ),
     );
   }
-
+  
   /// 3. 매출 데이터 테이블 (스타일 적용)
   Widget _buildSalesTable(List<dynamic> data) {
     List<DataRow> rows = _getRows(data);
@@ -467,21 +469,26 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
       ];
     }
   }
-  /// ✅ 테이블 헤더 텍스트 스타일
+
   Widget _buildHeaderText(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+    return Center(
       child: Text(
         text,
-        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 15,
+        ),
         textAlign: TextAlign.center,
       ),
     );
   }
-  /// ✅ 데이터 행 스타일 적용 함수
-  /// ✅ 데이터 행 스타일 적용 함수
+
+
+
+  final formatter = NumberFormat("#,###");
   List<DataRow> _getRows(List<dynamic> data) {
-    List<DataColumn> columns = _getColumns(); // ✅ 컬럼 개수 가져오기
+    List<DataColumn> columns = _getColumns();
 
     return List.generate(data.length, (index) {
       var row = data[index];
@@ -490,56 +497,70 @@ class _SalesSummaryScreenState extends State<SalesSummaryScreen> {
       String outstanding = _getOutstanding(clientName);
       int totalSales = (row["total_sales"] as num? ?? 0).toInt();
 
-      // ✅ "일매출" 선택 시, 매출이 0인 거래처는 제외
       if (selectedType == "일매출" && totalSales == 0) {
-        return null; // 매출이 0이면 리스트에 추가하지 않음
+        return null;
       }
 
       List<DataCell> cells = [];
 
+      Widget buildNumberCell(dynamic value, {bool isMoney = false}) {
+        final parsed = num.tryParse(value.toString()) ?? 0;
+        final text = isMoney ? "₩${formatter.format(parsed)}" : formatter.format(parsed);
+
+        return Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            text,
+            style: TextStyle(
+              color: parsed.isNegative ? Colors.red : (parsed == 0 ? Colors.grey : Colors.black87),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        );
+      }
+
       if (selectedType == "일매출") {
         cells = [
           DataCell(Text("${index + 1}")),
-          DataCell(Text(clientName)),
-          DataCell(Text(row["total_boxes"]?.toString() ?? "0")),
-          DataCell(Text(outstanding)),
-          DataCell(Text(totalSales.toString())),
+          DataCell(Text(clientName, style: const TextStyle(fontWeight: FontWeight.w500))),
+          DataCell(buildNumberCell(row["total_boxes"])),
+          DataCell(buildNumberCell(outstanding, isMoney: true)),
+          DataCell(buildNumberCell(totalSales, isMoney: true)),
         ];
       } else if (selectedType == "월매출") {
-        cells.add(DataCell(Text(clientName)));
-
+        cells.add(DataCell(Text(clientName, style: const TextStyle(fontWeight: FontWeight.w500))));
         for (int i = 1; i <= 31; i++) {
           String key = "$i";
-          cells.add(DataCell(Text(row.containsKey(key) ? row[key].toString() : "0"))); // ✅ 날짜별 매출 유지
+          cells.add(DataCell(buildNumberCell(row[key] ?? 0, isMoney: true)));
         }
-
-        cells.add(DataCell(Text(row["total_boxes"]?.toString() ?? "0")));
-        cells.add(DataCell(Text(outstanding)));
-        cells.add(DataCell(Text(totalSales.toString())));
+        cells.add(DataCell(buildNumberCell(row["total_boxes"])));
+        cells.add(DataCell(buildNumberCell(outstanding, isMoney: true)));
+        cells.add(DataCell(buildNumberCell(totalSales, isMoney: true)));
       } else {
         cells = [
           DataCell(Text("${index + 1}")),
-          DataCell(Text(clientName)),
-          DataCell(Text(row["total_boxes"]?.toString() ?? "0")),
-          DataCell(Text(row["total_refunds"]?.toString() ?? "0")),
-          DataCell(Text(totalSales.toString())),
+          DataCell(Text(clientName, style: const TextStyle(fontWeight: FontWeight.w500))),
+          DataCell(buildNumberCell(row["total_boxes"])),
+          DataCell(buildNumberCell(row["total_refunds"], isMoney: true)),
+          DataCell(buildNumberCell(totalSales, isMoney: true)),
         ];
       }
 
       while (cells.length < columns.length) {
-        cells.add(DataCell(Text("")));
+        cells.add(const DataCell(Text("")));
       }
 
-      return DataRow(
+      DataRow(
         color: MaterialStateProperty.resolveWith<Color?>(
               (Set<MaterialState> states) {
-            if (index.isEven) return Colors.grey[200];
-            return Colors.white;
+            // 짝수 줄: 연한 블루그레이, 홀수 줄: 흰색
+            return index.isEven ? Colors.blueGrey.shade50 : Colors.white;
           },
         ),
         cells: cells,
       );
-    }).whereType<DataRow>().toList(); // ✅ null 값 필터링
+
+    }).whereType<DataRow>().toList();
   }
 
 

@@ -155,7 +155,15 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
               child: ElevatedButton.icon(
                 onPressed: _updateVehicleData,
                 icon: Icon(Icons.save, color: Colors.white),
-                label: Text("차량 정보 업데이트", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                label: Text(
+                  "차량 정보 업데이트",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
