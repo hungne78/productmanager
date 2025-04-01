@@ -203,6 +203,43 @@ def get_products_for_others(
 
     return categorized_products
 
+from collections import defaultdict
+
+@router.get("/frpublic", response_model=dict)
+def get_products_for_others(
+    brand_name: Optional[str] = None,
+    name: Optional[str] = None,
+    barcode: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(Product).filter(Product.is_active == 1)
+
+    if brand_name:
+        brand_obj = db.query(Brand).filter(Brand.name == brand_name).first()
+        if brand_obj:
+            query = query.filter(Product.brand_id == brand_obj.id)
+        else:
+            return {}
+
+    if name:
+        query = query.filter(Product.product_name.ilike(f"%{name}%"))
+
+    if barcode:
+        query = query.filter(Product.barcode == barcode)
+
+    products = query.all()
+    if not products:
+        return {}
+
+    grouped = defaultdict(lambda: defaultdict(list))
+    for product in products:
+        category = product.category or "미분류"
+        brand = product.brand.name if product.brand else "기타"
+        p_dict = convert_product_to_kst(product)
+        grouped[category][brand].append(p_dict)
+
+    return grouped
+
 # ======================================
 # 필요에 따라: 바코드로 상품 찾기 (ProductBarcode 활용)
 # ======================================

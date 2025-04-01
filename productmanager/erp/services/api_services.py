@@ -223,6 +223,7 @@ def api_update_client(token, client_id, data):
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
+    
 
     try:
         resp = requests.put(url, json=data, headers=headers)

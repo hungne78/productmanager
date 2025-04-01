@@ -29,7 +29,7 @@ class _FranchiseDateSelectScreenState extends State<FranchiseDateSelectScreen> {
       final nowTime = TimeOfDay.fromDateTime(now);
       setState(() {
         serverDate = now;
-        isTodayAllowed = nowTime.hour < 7; // 오전 7시 이전만 오늘 주문 허용
+        isTodayAllowed = nowTime.hour < 7;
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -41,10 +41,21 @@ class _FranchiseDateSelectScreenState extends State<FranchiseDateSelectScreen> {
   void _selectDate(DateTime date, int shipmentRound) async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
 
-    // 상품 불러오기
-    final products = await ApiService.fetchProductList(auth.clientId!);
-    Provider.of<ProductProvider>(context, listen: false).setProducts(products);
+    // 1️⃣ UI용 그룹 데이터
+    final grouped = await ApiService.fetchGroupedByCategoryAndBrand();
 
+    // 2️⃣ 수량 계산용 flat 리스트
+    final flat = await ApiService.fetchProductList(auth.clientId!);
+
+    // 3️⃣ Provider에 데이터 저장
+    // final grouped = await ApiService.fetchGroupedByCategoryAndBrand();
+    final categoryOrder = await ApiService.fetchCategoryOrder();
+    final brandOrder = await ApiService.fetchBrandOrder();
+    // final flat = grouped.values.expand((b) => b.values.expand((list) => list)).toList();
+
+    final productProvider = Provider.of<ProductProvider>(context, listen: false);
+    productProvider.setGroupedCategoryBrand(grouped, categoryOrder, brandOrder);
+    await Future.delayed(Duration(milliseconds: 100)); // UI 반영 대기
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -56,36 +67,92 @@ class _FranchiseDateSelectScreenState extends State<FranchiseDateSelectScreen> {
     );
   }
 
+
+
   @override
   Widget build(BuildContext context) {
     if (serverDate == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     final today = serverDate!;
     final tomorrow = today.add(const Duration(days: 1));
 
     return Scaffold(
-      appBar: AppBar(title: const Text("주문 날짜 선택")),
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        title: const Text("주문 날짜 선택"),
+        centerTitle: true,
+        backgroundColor: Colors.indigo,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Text("📆 주문 가능한 날짜를 선택하세요:", style: TextStyle(fontSize: 16)),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+            Text("📅 주문 날짜를 선택해주세요",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.indigo[800],
+                )),
+            const SizedBox(height: 24),
+
             if (isTodayAllowed)
-              ElevatedButton.icon(
-                icon: const Icon(Icons.today),
-                label: Text("오늘 (${_format(today)}) - 1차 출고"),
-                onPressed: () => _selectDate(today, 1),
+              _buildDateCard(
+                context,
+                title: "오늘",
+                subtitle: _format(today),
+                icon: Icons.today,
+                color: Colors.indigo,
+                onTap: () => _selectDate(today, 1),
               ),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.calendar_today),
-              label: Text("내일 (${_format(tomorrow)}) - 0차 출고"),
-              onPressed: () => _selectDate(tomorrow, 0),
+            _buildDateCard(
+              context,
+              title: "내일",
+              subtitle: _format(tomorrow),
+              icon: Icons.calendar_today,
+              color: Colors.teal,
+              onTap: () => _selectDate(tomorrow, 0),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDateCard(BuildContext context,
+      {required String title,
+        required String subtitle,
+        required IconData icon,
+        required Color color,
+        required VoidCallback onTap}) {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.only(bottom: 16),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+        leading: Icon(icon, size: 32, color: color),
+        title: Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+        ),
+        trailing: ElevatedButton(
+          onPressed: onTap,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: color,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          child: const Text("선택"),
         ),
       ),
     );

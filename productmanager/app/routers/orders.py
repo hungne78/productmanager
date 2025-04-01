@@ -18,7 +18,7 @@ from datetime import datetime
 from app.models import Brand  # 브랜드 모델 import
 import pytz
 import redis
-
+from pathlib import Path
 import json
 
 router = APIRouter()
@@ -28,6 +28,19 @@ redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
 # ✅ WebSocket 연결 관리
 active_websockets = []
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+@router.get("/category")
+def get_category_order():
+    file = BASE_DIR / "category_order_server.json"
+    return json.load(open(file, encoding="utf-8"))
+
+@router.get("/brand")
+def get_brand_order():
+    file = BASE_DIR / "brand_order_server.json"
+    return json.load(open(file, encoding="utf-8"))
 
 
 @router.get("/server-time")
