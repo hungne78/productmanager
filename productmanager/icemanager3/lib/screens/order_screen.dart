@@ -7,7 +7,7 @@ import '../auth_provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
 import 'dart:convert';
-import 'package:flutter_vibrate/flutter_vibrate.dart';
+// import 'package:flutter_vibrate/flutter_vibrate.dart';
 import 'package:flutter/services.dart';
 import '../screens/home_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -33,6 +33,7 @@ class OrderScreen extends StatefulWidget {
 }
 
 class _OrderScreenState extends State<OrderScreen> {
+  double _fontSize = 12.0;
   int _unreadCount = 0;
   int currentShipmentRound = 0; // ✅ 현재 출고 단계 저장
   int selectedShipmentRound = 0; // ✅ 드롭다운에서 선택된 출고 단계
@@ -637,90 +638,127 @@ class _OrderScreenState extends State<OrderScreen> {
             boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
           ),
           padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Stack(
+            alignment: Alignment.center,
             children: [
-              // ← 홈버튼
-              IconButton(
-                icon: Icon(Icons.home, color: Colors.white),
-                onPressed: () {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => HomeScreen(token: context.read<AuthProvider>().user!.token),
-                    ),
-                  );
-                },
-              ),
-
-              // 🎯 제목
-              // Text("🕒 서버시간 허용 여부: $_isOrderTimeAllowed, 첫 주문 여부: $_isFirstOrder"),
-              Spacer(),
-              Text(
-                "주문 페이지",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+              // 중앙 텍스트
+              const Center(
+                child: Text(
+                  "주문 페이지",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
-
-
-// 🔔 알림 아이콘 + 뱃지
-              Stack(
+              // 양 옆 구성
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  IconButton(
-                    icon: Icon(Icons.notifications, color: Colors.white),
-                    onPressed: _showFranchisePopup,
-                  ),
-                  if (_unreadCount > 0)
-                    Positioned(
-                      right: 6,
-                      top: 6,
-                      child: Container(
-                        padding: EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          '$_unreadCount',
-                          style: TextStyle(color: Colors.white, fontSize: 10),
+                  // 왼쪽: 홈버튼 + 폰트 드롭다운
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.home, color: Colors.white),
+                        onPressed: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => HomeScreen(token: context.read<AuthProvider>().user!.token),
+                            ),
+                          );
+                        },
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4.0), // 👉 약간 오른쪽 이동
+                        child: DropdownButton<int>(
+                          value: _fontSize.toInt(),
+                          dropdownColor: Colors.black,
+                          underline: SizedBox(),
+                          iconEnabledColor: Colors.white,
+                          style: const TextStyle(color: Colors.white), // ✅ 드롭다운 글자 색 흰색
+                          items: List.generate(9, (i) {
+                            final size = 12 + i;
+                            return DropdownMenuItem(
+                              value: size,
+                              child: Text(
+                                "$size pt",
+                                style: TextStyle(fontSize: 14, color: Colors.white), // ✅ 목록은 검정 글씨 유지
+                              ),
+                            );
+                          }),
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() {
+                                _fontSize = val.toDouble();
+                              });
+                            }
+                          },
                         ),
                       ),
-                    ),
+                    ],
+                  ),
+
+                  // 오른쪽: 알림 + 출고단계
+                  Row(
+                    children: [
+                      Stack(
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.notifications, color: Colors.white),
+                            onPressed: _showFranchisePopup,
+                          ),
+                          if (_unreadCount > 0)
+                            Positioned(
+                              right: 6,
+                              top: 6,
+                              child: Container(
+                                padding: EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Text(
+                                  '$_unreadCount',
+                                  style: TextStyle(color: Colors.white, fontSize: 10),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: DropdownButton<int>(
+                          value: selectedShipmentRound,
+                          items: [
+                            DropdownMenuItem<int>(
+                              value: currentShipmentRound,
+                              child: Text(
+                                "${currentShipmentRound + 1}차 출고",
+                                style: const TextStyle(color: Colors.black),
+                              ),
+                            ),
+                          ],
+                          onChanged: null,
+                          dropdownColor: Colors.white,
+                          iconEnabledColor: Colors.white,
+                          underline: SizedBox(),
+                          disabledHint: Text(
+                            "${currentShipmentRound + 1}차 출고",
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
                 ],
               ),
-              SizedBox(width: 8), // 오른쪽 여백
-              // 출고 단계 드롭다운
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: DropdownButton<int>(
-                  value: selectedShipmentRound,
-                  items: [
-                    DropdownMenuItem<int>(
-                      value: currentShipmentRound,
-                      child: Text(
-                        "${currentShipmentRound + 1}차 출고",
-                        style: const TextStyle(color: Colors.black),
-                      ),
-                    ),
-                  ],
-                  onChanged: null, // ✅ 읽기 전용 처리
-                  dropdownColor: Colors.white,
-                  iconEnabledColor: Colors.white,
-                  underline: SizedBox(),
-                  disabledHint: Text(
-                    "${currentShipmentRound + 1}차 출고",
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-              ),
-
             ],
           ),
         ),
       ),
+
 
       body: Column(
         children: [
@@ -858,10 +896,15 @@ class _OrderScreenState extends State<OrderScreen> {
   Widget _buildDataCell(String text) {
     return Expanded(
       child: Center(
-        child: Text(text, style: TextStyle(fontSize: 14), textAlign: TextAlign.center),
+        child: Text(
+          text,
+          style: TextStyle(fontSize: _fontSize),
+          textAlign: TextAlign.center,
+        ),
       ),
     );
   }
+
 
   Widget _buildQuantityInputField(int productId) {
     focusNodes.putIfAbsent(productId, () => FocusNode());

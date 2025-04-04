@@ -36,6 +36,9 @@
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
+	<key>NSLocationWhenInUseUsageDescription</key>
+    <string>현재 위치를 기반으로 인쇄 버튼 활성화를 결정합니다.</string>
+
 	<string>Main</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

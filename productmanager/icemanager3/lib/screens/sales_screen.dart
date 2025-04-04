@@ -25,6 +25,9 @@ import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:image/image.dart' as img;
 import 'package:url_launcher/url_launcher.dart';
 import '../bluetooth_printer_provider.dart';
+import '../services/location_service.dart'; // 새로 만든 파일 임포트
+import 'package:geolocator/geolocator.dart'; // 위치 권한 확인용
+import 'package:geocoding/geocoding.dart';   // 주소 → 좌표 변환용
 
 AndroidDeviceInfo? androidInfo;
 
@@ -40,6 +43,9 @@ class SalesScreen extends StatefulWidget {
 }
 
 class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
+  bool _canPrint = false; // 거래처 주소 반경 800m 안인지 여부
+  bool _checkInProgress = true; // 거리 확인 진행중(로딩 표시 등)
+
   late Map<String, dynamic> client; // ✅ 변경 가능하도록 설정
   late TextEditingController paymentController;
   late FocusNode paymentFocusNode;
@@ -85,6 +91,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _checkGpsPermissionAndDistance(); // ➊ 거리 확인 함수 호출
 
     // HID/기타 초기화
     _loadScannerMode();
@@ -113,6 +120,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
         });
       }
     });
+
 
     // ✅ ProductProvider에서 상품 목록을 가져오도록 설정
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -190,7 +198,58 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       });
     }
   }
+  /// ➊ 위치 권한 요청 → 거래처 주소 좌표화 → 거리 계산
+  /// 주소 못 찾으면 인쇄 버튼을 활성화
+  Future<void> _checkGpsPermissionAndDistance() async {
+    setState(() {
+      _checkInProgress = true;
+      _canPrint = false;
+    });
 
+    // 1) 위치 권한 확인
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    // 혹시 거부되었어도, “GPS 없으면 그냥 인쇄 허용” 로직으로 처리
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      setState(() {
+        _canPrint = true;  // 어차피 거리 판별 불가 → 인쇄 허용
+        _checkInProgress = false;
+      });
+      return;
+    }
+
+    // 2) 주소 → 거리 계산
+    final addr = widget.client['address'] ?? ""; // 거래처 주소
+    if (addr.isEmpty) {
+      // 주소가 비어있으면 그냥 인쇄 허용
+      setState(() {
+        _canPrint = true;
+        _checkInProgress = false;
+      });
+      return;
+    }
+
+    // 3) 새로 만든 LocationService 이용
+    double? dist = await LocationService.distanceFromCurrentPosition(addr);
+
+    if (dist == null) {
+      // 주소 못 찾은 경우 → 인쇄 허용
+      setState(() {
+        _canPrint = true;
+        _checkInProgress = false;
+      });
+    } else {
+      // 4) 800m 이내인지 확인
+      bool withinRange = dist <= 800.0;
+      setState(() {
+        _canPrint = withinRange;
+        _checkInProgress = false;
+      });
+    }
+  }
   Future<void> _tryReconnectToLastDevice() async {
     final prefs = await SharedPreferences.getInstance();
     final lastPrinterId = prefs.getString('last_printer_id');
@@ -712,35 +771,97 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
               },
 
               child: GestureDetector(
-                onLongPress: _showClearConfirm,
+                onLongPress: _showClearConfirm, // 길게 누르면 초기화 팝업
                 child: Column(
                   children: [
-                    _buildClientInfoTable(), // 거래처 정보
-                    Expanded(child: _buildScannedItemsTable()), // 스캔된 상품 목록
-                    _buildSummaryRow(), // 합계
+                    // 거래처 정보
+                    _buildClientInfoTable(),
+
+                    // 상품 테이블 (헤더 항상 표시)
+                    Expanded(
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.95),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Column(
+                          children: [
+                            // ── 테이블 헤더 (항상 보임)
+                            Container(
+                              color: Colors.indigo, // 헤더 배경색
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
+                                children: [
+                                  // 상품명
+                                  _buildHeaderCell("상품명", flex: 3),
+                                  // 박스수
+                                  _buildHeaderCell("박스수", flex: 2),
+                                  // 박스당수량
+                                  _buildHeaderCell("박스당수", flex: 2),
+                                  // 단가
+                                  _buildHeaderCell("단가", flex: 2),
+                                  // 합계
+                                  _buildHeaderCell("합계", flex: 2),
+                                ],
+                              ),
+                            ),
+
+                            // ── 실제 목록
+                            Expanded(
+                              child: _buildItemsListView(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // 합계/반품/순매출
+                    _buildSummaryRow(),
+
+                    // 하단 버튼들
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 10),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          _buildModernButton("판매", Icons.shopping_cart,
-                              _isReturnMode ? Colors.grey.shade300 : Colors.blue,
-                                  () {
-                                setState(() => _isReturnMode = false);
-                              }),
                           _buildModernButton(
-                              "반품",
-                              Icons.replay,
-                              _isReturnMode
-                                  ? Colors.red
-                                  : Colors.grey.shade400, () {
-                            setState(() => _isReturnMode = true);
-                          }),
-                          _buildModernButton("스캔", Icons.camera_alt, Colors.teal,
-                              _scanBarcodeCamera),
+                            "판매",
+                            Icons.shopping_cart,
+                            _isReturnMode ? Colors.grey.shade300 : Colors.blue,
+                                () {
+                              setState(() => _isReturnMode = false);
+                            },
+                          ),
                           _buildModernButton(
-                              "인쇄", Icons.print, Colors.indigo, _showPaymentDialog),
+                            "반품",
+                            Icons.replay,
+                            _isReturnMode ? Colors.red : Colors.grey.shade400,
+                                () {
+                              setState(() => _isReturnMode = true);
+                            },
+                          ),
+                          _buildModernButton(
+                            "스캔",
+                            Icons.camera_alt,
+                            Colors.teal,
+                            _scanBarcodeCamera,
+                          ),
+                          _buildModernButton(
+                            "인쇄",
+                            Icons.print,
+                            Colors.indigo,
+                            (_checkInProgress || !_canPrint)
+                                ? null
+                                : () {
+                              _showPaymentDialog(); // async이더라도 래핑되었기 때문에 OK
+                            },
+                          ),
+
+
                         ],
                       ),
                     ),
@@ -753,7 +874,6 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       ),
     );
   }
-
   img.Image threshold(img.Image src, {int threshold = 160}) {
     final output = img.Image.from(src);
     for (int y = 0; y < output.height; y++) {
@@ -769,7 +889,96 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     }
     return output;
   }
+  Widget _buildItemsListView() {
+    // 어떤 리스트를 그릴지
+    final items = _isReturnMode ? _returnedItems : _scannedItems;
+    if (items.isEmpty) {
+      return const Center(
+        child: Text("스캔된 상품이 없습니다.", style: TextStyle(fontSize: 14)),
+      );
+    }
 
+    return ListView.builder(
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+
+        final productName = item['name'] ?? "이름없음";
+        final boxCount = (item['box_count'] ?? 0);
+        final boxQty = (item['box_quantity'] ?? 1);
+        final clientPrice = (item['client_price'] ?? 0).toDouble();
+
+        // "판매" 모드면 boxCount * boxQty * clientPrice
+        // "반품" 모드면 boxCount * 1 * clientPrice (박스당수량 무시)
+        double totalPrice;
+        if (_isReturnMode) {
+          totalPrice = boxCount * clientPrice;
+        } else {
+          totalPrice = boxCount * boxQty * clientPrice;
+        }
+
+        return InkWell(
+          onTap: () => _selectItem(index),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: (selectedIndex == index)
+                  ? Colors.blue.withOpacity(0.2)
+                  : Colors.transparent,
+              border: Border(
+                bottom: BorderSide(color: Colors.grey.shade300),
+              ),
+            ),
+            child: Row(
+              children: [
+                // 상품명
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    productName,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+                // 박스수
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    boxCount.toString(),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+                // 박스당수
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    boxQty.toString(),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+                // 단가
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    "${clientPrice.toStringAsFixed(0)}(${item['price_type'] ?? ''})",
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                // 합계
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    formatter.format(totalPrice),
+                    style: const TextStyle(fontSize: 12),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
   Future<void> _printReceiptImage(
       Map<String, dynamic> companyInfo, {
         required int todayPayment,
@@ -1378,26 +1587,29 @@ Tel: ${companyInfo['phone']}
   }
 
   Widget _buildSummaryRow() {
-    double sum = 0;
+    // 판매 합계
+    int scannedBoxes = 0;
+    double scannedSum = 0;
     for (var item in _scannedItems) {
-      sum += (item['box_count'] ?? 0) *
-          (item['box_quantity'] ?? 1) *
-          (item['client_price'] ?? 0);
+      final boxCountNum = item['box_count'] ?? 0; // num 또는 dynamic
+      final int boxCount = boxCountNum.toInt();   // int로 변환
+
+      final boxQty = (item['box_quantity'] ?? 1);
+      final clientPrice = (item['client_price'] ?? 0).toDouble();
+      scannedBoxes += boxCount;
+      scannedSum += (boxCount * boxQty * clientPrice);
     }
 
-    double returnSum = 0;
+    // 반품 합계
+    double returnedSum = 0;
     for (var item in _returnedItems) {
-      final int boxCount = item['box_count'] ?? 0;
-      final int boxQty = item['box_quantity'] ?? 1;
-      final double basePrice = (item['default_price'] ?? 0).toDouble();
-      final double clientPrice = (item['client_price'] ?? 0).toDouble();
-
-      // 편의상, return 금액 = boxCount * boxQty * basePrice * clientPrice(%) ...
-      // 필요에 따라 공식 수정
-      returnSum += boxCount * boxQty * basePrice * (clientPrice * 0.01);
+      final boxCount = (item['box_count'] ?? 0);
+      final clientPrice = (item['client_price'] ?? 0).toDouble();
+      // 반품은 박스당수량 무시
+      returnedSum += (boxCount * clientPrice);
     }
 
-    final netSum = sum - returnSum;
+    final netSum = scannedSum - returnedSum;
 
     return Container(
       color: Colors.grey.shade100,
@@ -1406,7 +1618,8 @@ Tel: ${companyInfo['phone']}
         children: [
           Expanded(
             child: Text(
-              "합계: ${formatter.format(sum)} 원  |  반품: ${formatter.format(returnSum)} 원",
+              "판매박스: $scannedBoxes | "
+                  " 판매: ${formatter.format(scannedSum)}원  |  반품: ${formatter.format(returnedSum)}원",
               style: const TextStyle(fontSize: 14),
             ),
           ),
@@ -1541,12 +1754,7 @@ Tel: ${companyInfo['phone']}
     }
   }
 
-  Widget _buildModernButton(
-      String label,
-      IconData icon,
-      Color color,
-      VoidCallback onPressed,
-      ) {
+  Widget _buildModernButton(String label, IconData icon, Color color, VoidCallback? onPressed) {
     return ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
@@ -1558,12 +1766,16 @@ Tel: ${companyInfo['phone']}
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 16),
+          Icon(icon, size: 16, color: Colors.white),
           const SizedBox(height: 3),
           Text(
             label,
-            style: const TextStyle(fontSize: 13),
+            style: const TextStyle(
+              fontSize: 13,
+              color: Colors.white, // ✅ 텍스트 색상 흰색 지정
+            ),
           ),
+
         ],
       ),
     );
