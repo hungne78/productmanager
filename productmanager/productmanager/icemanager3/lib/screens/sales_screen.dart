@@ -1062,8 +1062,6 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
           pad(total, 9);               // 합계: 9칸 (예: 15,900원)
   }
 
-
-
   Future<void> _printReceiptImageFlexible(
       Map<String, dynamic> companyInfo, {
         required int todayPayment,
