@@ -2,6 +2,7 @@
 
 import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
@@ -10,7 +11,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy
 )
 from PyQt5.QtCore import Qt
-
+from config import BASE_URL
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # api_services import

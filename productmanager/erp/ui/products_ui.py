@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
-    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QDialog, QVBoxLayout, QListWidget, QComboBox, QGroupBox,QPlainTextEdit,QFileDialog
+    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QDialog, QVBoxLayout, QListWidget, QComboBox, QGroupBox,QPlainTextEdit,QFileDialog, QListWidgetItem
 import sys
 import os
 
@@ -18,7 +18,7 @@ import json
 import pandas as pd
 from datetime import datetime
 from PyQt5.QtWidgets import QProgressDialog
-
+from config import BASE_URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 class ProductDialog(QDialog):
@@ -116,7 +116,7 @@ class ProductDialog(QDialog):
     def refresh_brand_names(self):
         try:
             resp = requests.get(
-                "http://127.0.0.1:8000/brands/",
+                f"{BASE_URL}/brands/",
                 headers={"Authorization": f"Bearer {global_token}"}
             )
             if resp.status_code == 200:
@@ -251,7 +251,7 @@ class BrandManagerDialog(QDialog):
     def load_brands(self):
         try:
             resp = requests.get(
-                "http://127.0.0.1:8000/brands/",
+                f"{BASE_URL}/brands/",
                 headers={"Authorization": f"Bearer {global_token}"}
             )
             if resp.status_code == 200:
@@ -282,7 +282,7 @@ class BrandManagerDialog(QDialog):
 
         try:
             resp = requests.put(
-                f"http://127.0.0.1:8000/brands/{brand_id}",
+                f"{BASE_URL}/brands/{brand_id}",
                 headers={"Authorization": f"Bearer {global_token}"},
                 json={"name": new_name}
             )
@@ -310,7 +310,7 @@ class BrandManagerDialog(QDialog):
 
         try:
             resp = requests.delete(
-                f"http://127.0.0.1:8000/brands/{brand_id}",
+                f"{BASE_URL}/brands/{brand_id}",
                 headers={"Authorization": f"Bearer {global_token}"}
             )
             if resp.status_code == 200:
@@ -387,7 +387,7 @@ class ProductLeftPanel(BaseLeftTableWidget):
                 return
             try:
                 resp = requests.post(
-                    "http://127.0.0.1:8000/brands/",
+                    f"{BASE_URL}/brands/",
                     headers={"Authorization": f"Bearer {global_token}"},
                     json={"name": name}
                 )
@@ -1027,7 +1027,7 @@ QHeaderView::section {
         서버로부터 /purchases/monthly_purchases/{product_id}/{year} 라우트 호출해
         [10,0,5,20,...12개] 형태를 반환받는다.
         """
-        url = f"http://127.0.0.1:8000/purchases/monthly_purchases/{product_id}/{year}"
+        url = f"{BASE_URL}/purchases/monthly_purchases/{product_id}/{year}"
         headers = {"Authorization": f"Bearer {global_token}"}
         try:
             resp = requests.get(url, headers=headers)

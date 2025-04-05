@@ -2,6 +2,7 @@ from PyQt5.QtWidgets import QWidget, QHBoxLayout, QPushButton, QTableWidget, QTa
     QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QInputDialog,QVBoxLayout, QListWidget, QDialog, QGroupBox, QDateEdit, QPushButton
 import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import requests
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor
@@ -9,8 +10,9 @@ from datetime import datetime
 import json
 from PyQt5.QtWidgets import QSizePolicy
 from PyQt5.QtGui import QFont
+from config import BASE_URL
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 
 
 from services.api_services import api_fetch_employees_, api_create_employee, api_update_employee, api_delete_employee, \
@@ -18,7 +20,7 @@ from services.api_services import api_fetch_employees_, api_create_employee, api
 from baselefttabwidget import BaseLeftTableWidget
 
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
-BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL
+
 
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, 
@@ -396,7 +398,7 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         year = now.year
         month = now.month
 
-        url = "http://127.0.0.1:8000/sales/employee_clients_sales"
+        url = f"{BASE_URL}/sales/employee_clients_sales"
         headers = {"Authorization": f"Bearer {global_token}"}
         params = {"employee_id": emp_id, "year": year, "month": month}
 

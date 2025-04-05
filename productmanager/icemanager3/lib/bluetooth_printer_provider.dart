@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:fluttertoast/fluttertoast.dart';
 class BluetoothPrinterProvider with ChangeNotifier {
   BluetoothDevice? _selectedDevice;
   BluetoothCharacteristic? _writeCharacteristic;
@@ -57,7 +58,7 @@ class BluetoothPrinterProvider with ChangeNotifier {
 
           // 간단 테스트: 프린터에 임의 문구 전송
           try {
-            await c.write(utf8.encode("Hello Printer\n"));
+            // await c.write(utf8.encode("Hello Printer\n"));
             print("🎉 프린터 WRITE 성공 → Characteristic: ${c.uuid}");
             foundWriteChar = c;
             break; // 찾았으면 탈출
@@ -87,14 +88,23 @@ class BluetoothPrinterProvider with ChangeNotifier {
 
   /// 🔹 저장된 프린터 ID로 자동 연결 시도
   Future<void> attemptReconnect(String deviceId) async {
-    List<BluetoothDevice> connectedDevices = await FlutterBluePlus.connectedDevices;
-    for (var device in connectedDevices) {
-      if (device.id.toString() == deviceId) {
-        connectToDevice(device);
-        return;
+    print("🔄 [자동 재연결] 시도: $deviceId");
+
+    FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
+
+    FlutterBluePlus.scanResults.listen((results) async {
+      for (var result in results) {
+        final device = result.device;
+        if (device.id.toString() == deviceId) {
+          await FlutterBluePlus.stopScan();  // 스캔 중단
+          print("✅ 이전 프린터 발견, 자동 연결 중...");
+          await connectToDevice(device);
+          return;
+        }
       }
-    }
+    });
   }
+
 
   /// 🔹 블루투스 프린터 연결 및 **Provider에 저장**
   Future<void> connectToDevice(BluetoothDevice device) async {
@@ -117,6 +127,8 @@ class BluetoothPrinterProvider with ChangeNotifier {
 
       SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString('last_printer_id', device.id.toString());
+
+      Fluttertoast.showToast(msg: "✅ 프린터에 자동 연결되었습니다");
     } catch (e) {
       print("❌ 블루투스 연결 실패: $e");
     }

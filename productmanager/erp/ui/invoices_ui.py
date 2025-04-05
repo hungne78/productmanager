@@ -8,8 +8,8 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from services.api_services import get_auth_headers
 from PyQt5.QtWidgets import QSizePolicy
+from config import BASE_URL
 
-BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 import pandas as pd
 from datetime import datetime
@@ -580,7 +580,7 @@ QHeaderView::section {
 """)
     def fetch_company_info(self):
         """ 서버에서 회사 정보를 가져와 우측 패널에 표시 """
-        url = f"http://127.0.0.1:8000/company"
+        url = f"{BASE_URL}/company"
         headers = {"Authorization": f"Bearer {global_token}"}
 
         try:
@@ -596,7 +596,7 @@ QHeaderView::section {
 
     def load_invoices(self, year, month):
         """ 거래처별 월 매출 데이터 로드 """
-        url = f"http://127.0.0.1:8000/sales/clients/{year}/{month}"
+        url = f"{BASE_URL}/sales/clients/{year}/{month}"
         headers = {"Authorization": f"Bearer {global_token}"}
 
         try:

@@ -11,10 +11,10 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from datetime import datetime
-
+from config import BASE_URL
 # 타임존 및 기본 설정
 KST = pytz.timezone("Asia/Seoul")
-BASE_URL = "http://127.0.0.1:8000"
+
 GOOGLE_MAPS_API_KEY = "AIzaSyD0d6_wU5vPID4djhY3qZKp0e0XSJITg_w"  # 유효한 API 키로 교체
 
 class EmployeeMapTab(QWidget):

@@ -16,8 +16,8 @@ from services.api_services import (
     api_fetch_monthly_sales,
     api_fetch_incentives
 )
+from config import BASE_URL
 
-BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL (사용 안 할 수도 있음)
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 ### (A) 직원 비율 로컬 파일

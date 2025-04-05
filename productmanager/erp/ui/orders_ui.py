@@ -16,8 +16,7 @@ import json
 from PyQt5.QtWidgets import QListWidget, QListWidgetItem
 import requests
 from collections import OrderedDict
-
-BASE_URL = "http://127.0.0.1:8000"  # 실제 서버 URL
+from config import BASE_URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 class OrderLeftWidget(QWidget):

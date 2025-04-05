@@ -12,7 +12,8 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QSizePolicy
 import requests
 from datetime import datetime
-BASE_URL = "http://127.0.0.1:8000"
+from config import BASE_URL
+
 global_token = get_auth_headers
 
 class LentEditorDialog(QDialog):
@@ -152,10 +153,10 @@ class LentEditorDialog(QDialog):
 
         try:
             if self.selected_lent_id:  # ✅ 수정
-                url = f"http://127.0.0.1:8000/lent/id/{self.selected_lent_id}"
+                url = f"{BASE_URL}/lent/id/{self.selected_lent_id}"
                 response = requests.put(url, headers=headers, json=data)
             else:  # ✅ 신규 등록
-                url = f"http://127.0.0.1:8000/lent/{self.client_id}"
+                url = f"{BASE_URL}/lent/{self.client_id}"
                 response = requests.post(url, headers=headers, json=data)
 
             if response.status_code in (200, 201):
@@ -783,7 +784,7 @@ class ClientRightPanel(QWidget):
         month = now.month
 
         headers = {"Authorization": f"Bearer {global_token}"}
-        base_url = "http://127.0.0.1:8000"  # 서버 주소 (환경에 맞춰 수정)
+        base_url = BASE_URL  # 서버 주소 (환경에 맞춰 수정)
 
         # 1) 해당 거래처의 월별 매출
         url_monthly = f"{base_url}/sales/monthly_sales_client/{client_id}/{year}"

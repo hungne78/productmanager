@@ -2,7 +2,8 @@ import requests
 from datetime import datetime
 import json
 from datetime import date
-BASE_URL = "http://127.0.0.1:8000"  # FastAPI 서버 주소
+from config import BASE_URL
+
 HEADERS = {"Content-Type": "application/json"}
 
 # 🔹 로그인관련 API 함수들

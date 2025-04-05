@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from services.api_services import api_fetch_purchases, api_fetch_products, api_update_product_stock, get_auth_headers
 from PyQt5.QtWidgets import QSizePolicy
 from PyQt5.QtCore import QSize, Qt
-
+from config import BASE_URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 class PurchaseLeftPanel(QWidget):
@@ -194,7 +194,7 @@ class PurchaseLeftPanel(QWidget):
 
         try:
             # 🔹 FastAPI 서버에서 창고 재고 불러오기
-            url = "http://localhost:8000/products/warehouse_stock"  # 실제 주소/포트로 교체
+            url = f"{BASE_URL}/products/warehouse_stock"  # 실제 주소/포트로 교체
             headers = {"Authorization": f"Bearer {global_token}"}  # 필요 시만
             response = requests.get(url, headers=headers)
             response.raise_for_status()
@@ -294,7 +294,7 @@ class PurchaseLeftPanel(QWidget):
         print(f"📡 매입 등록 요청 데이터: {purchase_data}")  # ✅ 디버깅 출력
 
         # ✅ FastAPI 매입 등록 API 호출
-        url = "http://127.0.0.1:8000/purchases"
+        url = f"{BASE_URL}/purchases"
         headers = {"Authorization": f"Bearer {global_token}"}
 
         try:
@@ -322,7 +322,7 @@ class PurchaseLeftPanel(QWidget):
         end_date = self.end_date.date().toString("yyyy-MM-dd")
 
         # FastAPI 서버에 날짜별 조회 요청
-        url = f"http://127.0.0.1:8000/purchases?start_date={start_date}&end_date={end_date}"
+        url = f"{BASE_URL}/purchases?start_date={start_date}&end_date={end_date}"
         headers = {"Authorization": f"Bearer {global_token}"}
 
         try:
@@ -355,7 +355,7 @@ class PurchaseLeftPanel(QWidget):
         if not ok:
             return
 
-        url = f"http://127.0.0.1:8000/purchases/{purchase_id}"
+        url = f"{BASE_URL}/purchases/{purchase_id}"
         headers = {"Authorization": f"Bearer {global_token}"}
         purchase_data = {"quantity": quantity, "unit_price": unit_price, "product_id": self.selected_product_id.text(), "purchase_date": datetime.today().strftime("%Y-%m-%d")}
 
@@ -374,7 +374,7 @@ class PurchaseLeftPanel(QWidget):
         if not ok:
             return
 
-        url = f"http://127.0.0.1:8000/purchases/{purchase_id}"
+        url = f"{BASE_URL}/purchases/{purchase_id}"
         headers = {"Authorization": f"Bearer {global_token}"}
 
         response = requests.delete(url, headers=headers)

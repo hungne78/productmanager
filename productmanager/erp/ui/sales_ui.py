@@ -8,7 +8,7 @@ import requests
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from services.api_services import  get_auth_headers
 from PyQt5.QtWidgets import QSizePolicy
-
+from config import BASE_URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
 
@@ -345,10 +345,10 @@ QHeaderView::section {
     def load_sales_data(self, start_date, end_date, compare):
         headers = {"Authorization": f"Bearer {global_token}"}
 
-        employee_sales_url = f"http://127.0.0.1:8000/sales/employees_records?start_date={start_date}&end_date={end_date}"
-        total_sales_url    = f"http://127.0.0.1:8000/sales/total_records?start_date={start_date}&end_date={end_date}"
+        employee_sales_url = f"{BASE_URL}/sales/employees_records?start_date={start_date}&end_date={end_date}"
+        total_sales_url    = f"{BASE_URL}/sales/total_records?start_date={start_date}&end_date={end_date}"
         client_sales_url = (
-    f"http://127.0.0.1:8000/sales/by_client_range"
+    f"{BASE_URL}/sales/by_client_range"
     f"?start_date={start_date}&end_date={end_date}"
 )
 
@@ -381,7 +381,7 @@ QHeaderView::section {
             if compare:
                 prev_start_date = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=365)).strftime("%Y-%m-%d")
                 prev_end_date   = (datetime.strptime(end_date, "%Y-%m-%d")   - timedelta(days=365)).strftime("%Y-%m-%d")
-                previous_url    = f"http://127.0.0.1:8000/sales/total?start_date={prev_start_date}&end_date={prev_end_date}"
+                previous_url    = f"{BASE_URL}/sales/total?start_date={prev_start_date}&end_date={prev_end_date}"
                 prev_r = requests.get(previous_url, headers=headers)
                 prev_r.raise_for_status()
                 previous_sales = prev_r.json()

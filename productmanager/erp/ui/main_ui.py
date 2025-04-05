@@ -30,11 +30,11 @@ from PyQt5.QtWidgets import QCalendarWidget, QInputDialog
 from PyQt5.QtWidgets import QGraphicsOpacityEffect
 from PyQt5.QtCore import QPropertyAnimation
 from services.api_services import get_auth_headers
-
+from config import BASE_URL
 global_token = get_auth_headers # 전역 변수로 토큰을 저장
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 현재 스크립트 파일의 절대 경로
 ICONS_DIR = os.path.join(BASE_DIR, "assets/icons")  # icons 폴더 경로 설정
-BASE_URL = "http://127.0.0.1:8000" 
+
 MEMO_FILE = "memo.json"
 
 def load_erp_style():
@@ -589,6 +589,7 @@ class CompanyInfoDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("회사 정보 등록/수정")
+
         self.company_name_edit = QLineEdit()
         self.ceo_edit = QLineEdit()
         self.business_num_edit = QLineEdit()
@@ -596,29 +597,29 @@ class CompanyInfoDialog(QDialog):
         self.phone_edit = QLineEdit()
         self.bank_edit = QLineEdit()
 
-        layout = QFormLayout()
-        layout.addRow("회사명:", self.company_name_edit)
-        layout.addRow("대표자명:", self.ceo_edit)
-        layout.addRow("사업자번호:", self.business_num_edit)
-        layout.addRow("주소:", self.address_edit)
-        layout.addRow("전화번호:", self.phone_edit)              # ✅ 추가
-        layout.addRow("입금 계좌번호:", self.bank_edit)         # ✅ 추가
+        form_layout = QFormLayout()
+        form_layout.addRow("회사명:", self.company_name_edit)
+        form_layout.addRow("대표자명:", self.ceo_edit)
+        form_layout.addRow("사업자번호:", self.business_num_edit)
+        form_layout.addRow("주소:", self.address_edit)
+        form_layout.addRow("전화번호:", self.phone_edit)
+        form_layout.addRow("입금계좌:", self.bank_edit)
 
-        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
-        layout.addWidget(btn_box)
+        form_layout.addWidget(btn_box)
 
-        self.setLayout(layout)
+        self.setLayout(form_layout)
 
-    def get_company_info(self):
+    def get_company_info_data(self):
         return {
             "company_name": self.company_name_edit.text(),
             "ceo_name": self.ceo_edit.text(),
             "business_number": self.business_num_edit.text(),
             "address": self.address_edit.text(),
-            "phone": self.phone_edit.text(),             # ✅ 포함
-            "bank_account": self.bank_edit.text(),       # ✅ 포함
+            "phone": self.phone_edit.text(),
+            "bank_account": self.bank_edit.text(),
         }
 
 class CompanyFreezerDialog(QDialog):
@@ -1008,8 +1009,11 @@ class MainApp(QMainWindow):
         self.setStyleSheet(load_modern_light_theme())
 
         # ◆ 회사 정보 JSON 로드 (기능 유지)
-        self.company_info = self.load_company_info()
-
+        try:
+            self.company_info = self.load_company_info()
+        except Exception as e:
+            print("회사 정보 로딩 오류:", e)
+            self.company_info = {}  # 또는 None 등으로 기본값 설정
         # ◆ 드래그 이동용
         self.old_pos = self.pos()
 
@@ -1200,6 +1204,29 @@ class MainApp(QMainWindow):
         clock_row.addWidget(self.calendar_toggle_btn)
         clock_row.addStretch()
 
+        #  회사정보 표시 라벨 + 회사정보 설정 버튼 추가
+        self.company_info_label = QLabel("회사 정보가 등록되지 않았습니다.")
+        self.company_info_label.setStyleSheet("""
+            color: #1E3A8A;
+            font-size: 13px;
+            font-weight: 500;
+        """)
+
+        self.company_info_button = QPushButton("회사 정보 설정")
+        self.company_info_button.setFixedSize(120, 30)
+        self.company_info_button.setStyleSheet("""
+            background-color: #FFFCEB;
+            border: 1px solid #F5DA6B;
+            border-radius: 8px;
+            font-size: 13px;
+        """)
+        self.company_info_button.clicked.connect(self.open_company_info_dialog)
+
+        clock_row.addSpacing(8)
+        clock_row.addWidget(self.company_info_label)
+        clock_row.addWidget(self.company_info_button)
+        clock_row.addSpacing(8)
+                
         # ✅ 회사 냉동고 버튼
         self.view_freezers_button = QPushButton("🏢 회사 냉동고")
         self.view_freezers_button.setFixedSize(160, 40)
@@ -1303,7 +1330,8 @@ class MainApp(QMainWindow):
         # 만약 세금계산서(invoices) 탭에서 회사 정보 필요하다면:
         if "invoices" in self.tabs:
             if hasattr(self.tabs["invoices"], "right_panel"):
-                self.tabs["invoices"].right_panel.set_company_info(self.company_info)
+                if self.company_info:
+                    self.tabs["invoices"].right_panel.set_company_info(self.company_info)
 
         # 첫 화면 employees
         self.stacked.setCurrentWidget(self.tabs["employees"])
@@ -1312,6 +1340,46 @@ class MainApp(QMainWindow):
 
 
         self.memo_dict = {}  # 날짜: 메모 저장용 딕셔너리
+
+    # -------------------------------------------------------------------
+    # 4) 회사 정보 다이얼로그를 띄우고, 서버에 저장/수정 후 라벨 반영
+    def open_company_info_dialog(self):
+        """회사정보 설정 버튼 누르면 뜨는 다이얼로그"""
+        dialog = CompanyInfoDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            info_data = dialog.get_company_info_data()  # 다이얼로그에서 입력받은 폼
+            try:
+                # 서버에 POST/PUT 전송 (실제 API 경로에 맞추세요)
+                resp = requests.post(f"{BASE_URL}/company", json=info_data)
+                if resp.status_code == 200:
+                    QMessageBox.information(self, "완료", "회사 정보가 저장되었습니다.")
+                    self.update_company_info_label(info_data)  # 라벨 즉시 갱신
+                else:
+                    QMessageBox.warning(self, "오류", f"회사 정보 저장 실패: {resp.text}")
+            except Exception as e:
+                QMessageBox.critical(self, "오류", str(e))
+
+    def update_company_info_label(self, data: dict):
+        """회사 정보 라벨 새로고침"""
+        name = data.get("company_name", "N/A")
+        ceo = data.get("ceo_name", "N/A")
+        biz_num = data.get("business_number", "N/A")
+        self.company_info_label.setText(f"[{name}] 대표: {ceo}, 사업자번호: {biz_num}")
+
+
+    # -------------------------------------------------------------------
+    # 5) 메인윈도우 뜰 때 기존 회사정보 불러와서 라벨 갱신하는 예시
+    def load_initial_company_info(self):
+        try:
+            resp = requests.get(f"{BASE_URL}/company")
+            if resp.status_code == 200:
+                data = resp.json()
+                self.update_company_info_label(data)
+            else:
+                print("회사 정보가 없거나 로드 실패:", resp.text)
+        except Exception as e:
+            print("회사 정보 로드 오류:", e)
+
 
     def show_company_freezers(self):
         dlg = CompanyFreezerDialog(self)
@@ -1348,7 +1416,7 @@ class MainApp(QMainWindow):
             start_date = f"{year}-{month:02d}-01"
             end_date = now.strftime("%Y-%m-%d")
 
-            url = f"http://localhost:8000/sales/by_client_range?start_date={start_date}&end_date={end_date}"
+            url = f"{BASE_URL}/sales/by_client_range?start_date={start_date}&end_date={end_date}"
             res = requests.get(url)
             if res.status_code == 200:
                 sales_data = res.json()  # [{"client_name": "...", "total_sales": ...}, ...]
@@ -1471,7 +1539,7 @@ class MainApp(QMainWindow):
         
         dialog = CompanyInfoDialog(self)
         if dialog.exec_() == QDialog.Accepted:
-            info = dialog.get_company_info()
+            info = dialog.get_company_info_data()
             self.company_info = info
             print("▶ 우리 회사 정보 등록 완료:", self.company_info)
             # 서버에 저장:
@@ -1483,7 +1551,7 @@ class MainApp(QMainWindow):
 
     def save_company_info_to_server(self, info: dict):
         try:
-            url = "http://localhost:8000/company"
+            url = f"{BASE_URL}/company/"
             response = requests.post(url, json=info)
             if response.status_code in [200, 201]:
                 print("✅ 서버에 회사 정보 저장 성공!")
