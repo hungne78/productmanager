@@ -749,24 +749,6 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _showPopup(String fullText) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text("상세 정보"),
-          content: Text(fullText),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("닫기"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
@@ -822,85 +804,26 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
               },
 
               child: GestureDetector(
-                onLongPress: _showClearConfirm, // 길게 누르면 초기화 팝업
+                onLongPress: _showClearConfirm,
                 child: Column(
                   children: [
-                    // 거래처 정보
-                    _buildClientInfoTable(),
+                    _buildClientInfoTable(), // 거래처 정보
+                    Expanded(child: _buildScannedItemsTable()), // 스캔된 상품 목록
+                    _buildSummaryRow(), // 합계
 
-                    // 상품 테이블 (헤더 항상 표시)
-                    Expanded(
-                      child: Container(
-                        margin: const EdgeInsets.only(top: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.95),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: Column(
-                          children: [
-                            // ── 테이블 헤더 (항상 보임)
-                            Container(
-                              color: Colors.indigo, // 헤더 배경색
-                              padding: const EdgeInsets.symmetric(vertical: 6),
-                              child: Row(
-                                children: [
-                                  // 상품명
-                                  _buildHeaderCell("상품명", flex: 3),
-                                  // 박스수
-                                  _buildHeaderCell("박스수", flex: 2),
-                                  // 박스당수량
-                                  _buildHeaderCell("갯수", flex: 2),
-                                  // 단가
-                                  _buildHeaderCell("단가", flex: 2),
-                                  // 합계
-                                  _buildHeaderCell("합계", flex: 2),
-                                ],
-                              ),
-                            ),
-
-                            // ── 실제 목록
-                            Expanded(
-                              child: _buildItemsListView(),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // 합계/반품/순매출
-                    _buildSummaryRow(),
-
-                    // 하단 버튼들
+                    // ✅ 버튼 스타일 개선
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          _buildModernButton(
-                            "판매",
-                            Icons.shopping_cart,
-                            _isReturnMode ? Colors.grey.shade300 : Colors.blue,
-                                () {
-                              setState(() => _isReturnMode = false);
-                            },
-                          ),
-                          _buildModernButton(
-                            "반품",
-                            Icons.replay,
-                            _isReturnMode ? Colors.red : Colors.grey.shade400,
-                                () {
-                              setState(() => _isReturnMode = true);
-                            },
-                          ),
-                          _buildModernButton(
-                            "스캔",
-                            Icons.camera_alt,
-                            Colors.teal,
-                            _scanBarcodeCamera,
-                          ),
+                          _buildModernButton("판매", Icons.shopping_cart, _isReturnMode ? Colors.grey.shade300 : Colors.blue, () {
+                            setState(() => _isReturnMode = false);
+                          }),
+                          _buildModernButton("반품", Icons.replay, _isReturnMode ? Colors.red : Colors.grey.shade400, () {
+                            setState(() => _isReturnMode = true);
+                          }),
+                          _buildModernButton("스캔", Icons.camera_alt, Colors.teal, _scanBarcodeCamera),
                           _buildModernButton(
                             "인쇄",
                             Icons.print,
@@ -908,11 +831,22 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
                             (_checkInProgress || !_canPrint)
                                 ? null
                                 : () {
+                              // ✅ 토스트 메시지 먼저 표시
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    "${widget.client['client_name']} 800m 내라 인쇄버튼 활성화",
+                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  duration: Duration(seconds: 2),
+                                  backgroundColor: Colors.orangeAccent,
+                                ),
+                              );
+
+                              // ✅ 기존 함수 호출
                               _showPaymentDialog(); // async이더라도 래핑되었기 때문에 OK
                             },
                           ),
-
-
                         ],
                       ),
                     ),
@@ -949,96 +883,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     }
   }
 
-  Widget _buildItemsListView() {
-    // 어떤 리스트를 그릴지
-    final items = _isReturnMode ? _returnedItems : _scannedItems;
-    if (items.isEmpty) {
-      return const Center(
-        child: Text("스캔된 상품이 없습니다.", style: TextStyle(fontSize: 14)),
-      );
-    }
 
-    return ListView.builder(
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[index];
-
-        final productName = item['name'] ?? "이름없음";
-        final boxCount = (item['box_count'] ?? 0);
-        final boxQty = (item['box_quantity'] ?? 1);
-        final clientPrice = (item['client_price'] ?? 0).toDouble();
-
-        // "판매" 모드면 boxCount * boxQty * clientPrice
-        // "반품" 모드면 boxCount * 1 * clientPrice (박스당수량 무시)
-        double totalPrice;
-        if (_isReturnMode) {
-          totalPrice = boxCount * clientPrice;
-        } else {
-          totalPrice = boxCount * boxQty * clientPrice;
-        }
-
-        return InkWell(
-          onTap: () => _selectItem(index),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: (selectedIndex == index)
-                  ? Colors.blue.withOpacity(0.2)
-                  : Colors.transparent,
-              border: Border(
-                bottom: BorderSide(color: Colors.grey.shade300),
-              ),
-            ),
-            child: Row(
-              children: [
-                // 상품명
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    productName,
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-                // 박스수
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    boxCount.toString(),
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-                // 박스당수
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    boxQty.toString(),
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-                // 단가
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    "${clientPrice.toStringAsFixed(0)}(${item['price_type'] ?? ''})",
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
-                // 합계
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    formatter.format(totalPrice),
-                    style: const TextStyle(fontSize: 12),
-                    textAlign: TextAlign.right,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   String formatRow({
     required String name,
@@ -1056,8 +901,8 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     }
 
     return
-      pad(truncate(name, 8), 10) + // 상품명: 최대 8글자 자르고 10칸 고정
-          pad(boxCount, 4) +           // 박스수: 4칸
+      pad(truncate(name, 6), 9) + // 상품명: 최대 8글자 자르고 10칸 고정
+          pad(boxCount, 3) +           // 박스수: 4칸
           pad(unitPrice, 7) +          // 단가: 7칸
           pad(total, 9);               // 합계: 9칸 (예: 15,900원)
   }
@@ -1221,37 +1066,38 @@ $line
   }
 
 
+  /// 📌 헤더 스타일 조정
   Widget _buildCustomAppBar(BuildContext context) {
     final printerProvider = context.watch<BluetoothPrinterProvider>();
     final isPrinterConnected = printerProvider.isConnected;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.indigo,
+        color: Colors.indigo, // ✅ 전체 배경색 적용
         boxShadow: [
           BoxShadow(
             color: Colors.black26,
             blurRadius: 6,
-            offset: const Offset(0, 3),
+            offset: Offset(0, 3),
           ),
         ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 홈 버튼
+          // ✅ 왼쪽: 홈 버튼 추가 (HomeScreen으로 이동)
           GestureDetector(
             onTap: () {
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => HomeScreen(token: widget.token),
+                  builder: (context) => HomeScreen(token: widget.token), // 🔹 `token` 전달 추가
                 ),
-                    (route) => false,
+                    (route) => false, // 🔹 뒤로 가기 스택 삭제 (홈 화면이 최상위 화면이 됨)
               );
             },
             child: Row(
-              children: const [
+              children: [
                 Icon(Icons.home_rounded, color: Colors.white, size: 22),
                 SizedBox(width: 6),
                 Text(
@@ -1262,7 +1108,7 @@ $line
             ),
           ),
 
-          // 중앙: "판매 화면"
+          // ✅ 중앙: "판매 화면"
           Expanded(
             child: Center(
               child: GestureDetector(
@@ -1286,26 +1132,23 @@ $line
             ),
           ),
 
-          // BLE 프린터 상태
           GestureDetector(
-            onTap: _showBluetoothPrinterDialog,
+            onTap: _showBluetoothPrinterDialog,  // 누르면 연결 팝업
             child: Row(
               children: [
                 Icon(
-                  isPrinterConnected
-                      ? Icons.bluetooth_connected
-                      : Icons.bluetooth_disabled,
-                  color: isPrinterConnected ? Colors.lightGreen : Colors.redAccent,
+                  _isPrinterConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+                  color: _isPrinterConnected ? Colors.lightGreen : Colors.redAccent,
                 ),
-                const SizedBox(width: 6),
+                SizedBox(width: 6),
                 Text(
-                  isPrinterConnected ? "프린터" : "프린터",
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                  _isPrinterConnected ? "프린터" : "프린터",
+                  style: TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ],
             ),
           ),
-
+          // ✅ 오른쪽: 연결 상태 (클릭 가능)
           // 스캐너 관련 (SPP 제거)
           // 아래는 BLE 외에 별도 스캐너 연결 상태 표시 예시
           GestureDetector(
@@ -1451,109 +1294,67 @@ $line
   }
 
   Widget _buildScannedItemsTable() {
-    final isEmpty = _scannedItems.isEmpty && _returnedItems.isEmpty;
-    if (isEmpty) {
-      return const Center(
-        child: Text("스캔된 상품이 없습니다.", style: TextStyle(fontSize: 14)),
-      );
-    }
-
-    final itemList = _isReturnMode ? _returnedItems : _scannedItems;
-
     return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.95),
+        border: Border.all(color: Colors.grey.shade400),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade300),
+        color: Colors.white,
       ),
       child: Column(
         children: [
-          // 헤더
+          // ✅ 고정된 헤더 (배경색 추가)
           Container(
-            color: Colors.indigo, // 헤더 배경 색
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Row(
-              children: [
-                _buildHeaderCell("상품명", flex: 3),
-                _buildHeaderCell("박스/수량", flex: 2),
-                _buildHeaderCell("단가", flex: 2),
-                _buildHeaderCell("합계", flex: 2),
-              ],
-            ),
+            height: 35,
+            color: Colors.black45,
+            child: _buildHeaderRow(),
           ),
-          // 리스트
+
+          // ✅ 상품 목록 (판매 + 반품)
           Expanded(
-            child: ListView.builder(
-              itemCount: itemList.length,
-              itemBuilder: (ctx, index) {
-                final item = itemList[index];
-                final boxCount = (item['box_count'] ?? 0);
-                final boxQty = (item['box_quantity'] ?? 1);
-                final clientPrice = (item['client_price'] ?? 0).toDouble();
-
-                // 합계 = (박스수 * 박스당 개수 * 단가)
-                final totalPrice = boxCount * boxQty * clientPrice;
-
-                return InkWell(
-                  onTap: () => _selectItem(index),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: (selectedIndex == index)
-                          ? Colors.blue.withOpacity(0.2)
-                          : Colors.transparent,
-                      border: Border(
-                        bottom: BorderSide(color: Colors.grey.shade300),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        // 상품명
-                        Expanded(
-                          flex: 3,
-                          child: Text(
-                            '${item['name'] ?? '이름없음'}',
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ),
-                        // 박스/수량
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            '$boxQty / $boxCount',
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ),
-                        // 단가 (고정가/일반가 구분 포함)
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            "${clientPrice.toStringAsFixed(0)}(${item['price_type'] ?? ''})",
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ),
-                        // 합계
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            formatter.format(totalPrice),
-                            style: const TextStyle(fontSize: 12),
-                            textAlign: TextAlign.right,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+            child: SingleChildScrollView(
+              scrollDirection: Axis.vertical,
+              child: Column(
+                children: [
+                  _buildDataRows(),  // ✅ 판매 상품 리스트
+                  _buildReturnRows(), // ✅ 반품 상품 리스트 (같은 구조)
+                ],
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+  Widget _buildHeaderRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _buildHeaderCell("상품명"),
+        _buildHeaderCell("개수"),
+        _buildHeaderCell("박스수"),
+        _buildHeaderCell("가격"),
+        _buildHeaderCell("단가"),
+        _buildHeaderCell("유형"),
+        _buildHeaderCell("합계"),
+      ],
+    );
+  }
+  List<DataColumn> _buildColumns() {
+    return [
+      DataColumn(label: _buildHeaderCell('상품명')),
+      DataColumn(label: _buildHeaderCell('개수')),
+      DataColumn(label: _buildHeaderCell('박스수')),
+      DataColumn(label: _buildHeaderCell('가격')),
+      DataColumn(label: _buildHeaderCell('단가')),
+      DataColumn(label: _buildHeaderCell('유형')),
+      DataColumn(
+        label: SizedBox(
+          width: 120, // ✅ 합계 열을 더 크게 설정
+          child: _buildHeaderCell('합계'),
+        ),
+      ),
+    ];
   }
   Widget _buildHeaderCell(String text, {int flex = 1}) {
     return Expanded(
@@ -1570,6 +1371,230 @@ $line
       ),
     );
   }
+
+  Widget _buildReturnRows() {
+    return Column(
+      children: List.generate(_returnedItems.length, (index) {
+        var item = _returnedItems[index];
+
+        // ✅ 반품 합계 금액 정상 계산 (4열 포함)
+        double totalPrice = (item['box_quantity'] * item['default_price'] * item['client_price'] * 0.01) * -1;
+
+
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.red.shade50, // ✅ 반품 상품 배경색 (연한 빨간색)
+            border: Border(bottom: BorderSide(color: Colors.red.shade300, width: 0.5)), // ✅ 반품 테이블 구분선
+          ),
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildDataCell(item['name'].toString(), isRed: true),
+              // 박스수량
+              _buildDataCell(item['box_quantity'].toString(), isRed: true),
+              // 개수
+              _buildDataCell(item['box_count'].toString(), isRed: true),
+              // 원래상품가격
+              _buildDataCell(formatter.format(item['default_price'].toInt()), isRed: true),
+              // 거래처 단가
+              _buildDataCell(formatter.format(item['client_price'].toInt()), isRed: true),
+              // 가격유형
+              _buildDataCell(item['price_type'], isRed: true),
+              // 합계(음수)
+              _buildDataCell(formatter.format(totalPrice.toInt()), isBold: true, isRed: true),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+
+  // 상품 목록 테이블을 렌더링
+  Widget _buildDataRows() {
+    return Column(
+      children: List.generate(_scannedItems.length, (index) {
+        var item = _scannedItems[index];
+
+        // ✅ 상품 자체의 가격 유형 확인 (is_fixed_price 사용)
+        bool isFixedPrice = item['price_type'] == "고정가";
+
+
+        // ✅ 총 가격 = (박스수량 * 개수 * 단가)
+        int totalPrice = (item['box_quantity'] * item['box_count'] * item['default_price'] * item['client_price']* 0.01).round();
+
+        return GestureDetector(
+          onTap: () {
+            _selectItem(index);
+            _showEditQuantityDialog(index);
+          },  // 클릭 시 해당 상품 선택
+          child: Container(
+            decoration: BoxDecoration(
+              color: index == selectedIndex ? Colors.blue.shade100 : (index.isEven ? Colors.grey.shade100 : Colors.white), // 선택된 행 색상 변경
+              border: Border(
+                bottom: BorderSide(color: Colors.grey.shade300, width: 0.5), // 가로줄 스타일
+              ),
+            ),
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildDataCell(item['name'].toString()), // 상품명
+                _buildDataCell(item['box_quantity'].toString()), // 박스 수량
+                _buildDataCell(item['box_count'].toString()), // 수량
+                _buildDataCell(formatter.format(item['default_price'].round())), // ✅ 상품 원래 가격
+                _buildDataCell(formatter.format(item['client_price'].toInt())), // ✅ 거래처 단가
+                _buildDataCell(isFixedPrice ? '고정가' : '일반가'), // ✅ 가격 유형
+                _buildDataCell(formatter.format(totalPrice), isBold: true), // ✅ 합계
+              ],
+            ),
+          ),
+        );
+      }),
+    );
+  }
+  DataRow _buildEmptyDataRow() {
+    return DataRow(
+      cells: List.generate(
+        7,
+            (index) => DataCell(
+          Center(
+            child: Text(
+              "-",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDataCell(String text, {bool isBold = false, bool isRed = false}) {
+    return Expanded(
+      child: Center(
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal, // ✅ 합계는 볼드 처리
+            color: isRed ? Colors.red : Colors.black87,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+
+
+  Widget _buildSummaryRow() {
+    final formatter = NumberFormat("#,###"); // ✅ 천단위 콤마 적용
+
+    // ✅ 판매 상품의 총 박스수량 계산
+    int totalBoxCount = _scannedItems.fold(0, (sum, item) {
+      int boxQty = (item['box_quantity'] ?? 0).toInt();
+      int boxCnt = (item['box_count'] ?? 0).toInt();
+      return sum + (boxQty * boxCnt);
+    });
+
+    // ✅ 반품 상품의 총 박스수량 계산 (음수로 적용)
+    int totalReturnBoxCount = _returnedItems.fold(0, (sum, item) {
+      int boxQty = (item['box_quantity'] ?? 0).toInt();
+      int boxCnt = (item['box_count'] ?? 0).toInt();
+      return sum - (boxQty);
+    });
+
+    // ✅ 판매 상품의 총 수량 계산
+    int totalItemCount = _scannedItems.fold(0, (sum, item) {
+      int boxCnt = (item['box_count'] ?? 0).toInt();
+      return sum + boxCnt;
+    });
+
+    // ✅ 반품 상품의 총 수량 계산 (음수로 적용)
+    int totalReturnItemCount = _returnedItems.fold(0, (sum, item) {
+      int boxCnt = (item['box_count'] ?? 0).toInt();
+      return sum - boxCnt;
+    });
+
+    // ✅ 판매 상품의 총 판매 금액 계산 (상품 가격 * 거래처 단가 포함)
+    int totalSalesAmount = _scannedItems.fold(0, (sum, item) {
+      int boxQuantity = (item['box_quantity'] ?? 0);
+      int boxCount = (item['box_count'] ?? 0);
+      double defaultPrice = item['default_price'] ?? 0.0;
+      double clientPrice = item['client_price'] ?? 0.0;
+
+      return sum + ((boxQuantity * boxCount * defaultPrice * clientPrice) * 0.01).round();
+    });
+
+    // ✅ 반품 상품의 총 반품 금액 계산 (상품 가격 * 거래처 단가 포함, 음수 적용)
+    int totalReturnAmount = _returnedItems.fold(0, (sum, item) {
+      int boxQuantity = (item['box_quantity'] ?? 0);
+      int boxCount = (item['box_count'] ?? 0);
+      double defaultPrice = item['default_price'] ?? 0.0;
+      double clientPrice = item['client_price'] ?? 0.0;
+
+      return sum - ((boxQuantity * defaultPrice * clientPrice) * 0.01).round();
+    });
+    totalReturnedItemsPrice = -totalReturnAmount.toDouble();
+    // ✅ 최종 총 매출 금액 계산 (판매 - 반품)
+    int finalTotal = totalSalesAmount + totalReturnAmount;
+    totalScannedItemsPrice = finalTotal.toDouble();
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+      margin: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFFEEEEEE), Color(0xFFD6D6D6)], // ✅ 세련된 연한 그라디언트 적용
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16), // ✅ 둥근 모서리
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 6,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _buildSummaryCell("📦 박스수", formatter.format(totalItemCount), textColor: Colors.blue.shade700),
+          _buildSummaryCell("🔄 반품", formatter.format(totalReturnedItemsPrice), isRed: true),
+          _buildSummaryCell("💰 총 금액", formatter.format(totalScannedItemsPrice) + " 원", isBold: true, textColor: Colors.green.shade800),
+        ],
+      ),
+    );
+  }
+  /// 📌 합계 데이터 셀 (아이콘 추가)
+  Widget _buildSummaryCell(String label, String value, {bool isBold = false, bool isRed = false, Color textColor = Colors.black}) {
+    return Expanded(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade700, // ✅ 라벨 색상 고정 (연한 회색)
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              color: isRed ? Colors.red : textColor, // ✅ 기본 색상 적용
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   void _showClearConfirm() {
     showDialog(
@@ -1670,52 +1695,6 @@ $line
     });
   }
 
-  Widget _buildSummaryRow() {
-    // 판매 합계
-    int scannedBoxes = 0;
-    double scannedSum = 0;
-    for (var item in _scannedItems) {
-      final boxCountNum = item['box_count'] ?? 0; // num 또는 dynamic
-      final int boxCount = boxCountNum.toInt();   // int로 변환
-
-      final boxQty = (item['box_quantity'] ?? 1);
-      final clientPrice = (item['client_price'] ?? 0).toDouble();
-      scannedBoxes += boxCount;
-      scannedSum += (boxCount * boxQty * clientPrice);
-    }
-
-    // 반품 합계
-    double returnedSum = 0;
-    for (var item in _returnedItems) {
-      final boxCount = (item['box_count'] ?? 0);
-      final boxQty = (item['box_quantity'] ?? 1);
-      final clientPrice = (item['client_price'] ?? 0).toDouble();
-      // 반품은 박스당수량 무시
-      returnedSum += (boxQty * clientPrice);
-    }
-
-    final netSum = scannedSum - returnedSum;
-
-    return Container(
-      color: Colors.grey.shade100,
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              "판매박스: $scannedBoxes | "
-                  " 판매: ${formatter.format(scannedSum)}원  |  반품: ${formatter.format(returnedSum)}원",
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
-          Text(
-            "순매출: ${formatter.format(netSum)} 원",
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    );
-  }
 
   Future<void> _showPaymentDialog() async {
     double outstandingAmount =
