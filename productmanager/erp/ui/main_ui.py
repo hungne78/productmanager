@@ -1009,11 +1009,7 @@ class MainApp(QMainWindow):
         self.setStyleSheet(load_modern_light_theme())
 
         # ◆ 회사 정보 JSON 로드 (기능 유지)
-        try:
-            self.company_info = self.load_company_info()
-        except Exception as e:
-            print("회사 정보 로딩 오류:", e)
-            self.company_info = {}  # 또는 None 등으로 기본값 설정
+        self.company_info = {}  # 또는 None 등으로 기본값 설정
         # ◆ 드래그 이동용
         self.old_pos = self.pos()
 
@@ -1203,14 +1199,16 @@ class MainApp(QMainWindow):
         clock_row.addSpacing(12)
         clock_row.addWidget(self.calendar_toggle_btn)
         clock_row.addStretch()
-
+          
         #  회사정보 표시 라벨 + 회사정보 설정 버튼 추가
         self.company_info_label = QLabel("회사 정보가 등록되지 않았습니다.")
         self.company_info_label.setStyleSheet("""
             color: #1E3A8A;
-            font-size: 13px;
+            font-size: 15px;
             font-weight: 500;
         """)
+        if self.company_info:
+            self.update_company_info_label(self.company_info)     
 
         self.company_info_button = QPushButton("회사 정보 설정")
         self.company_info_button.setFixedSize(120, 30)
@@ -1226,7 +1224,7 @@ class MainApp(QMainWindow):
         clock_row.addWidget(self.company_info_label)
         clock_row.addWidget(self.company_info_button)
         clock_row.addSpacing(8)
-                
+        self.load_initial_company_info()            
         # ✅ 회사 냉동고 버튼
         self.view_freezers_button = QPushButton("🏢 회사 냉동고")
         self.view_freezers_button.setFixedSize(160, 40)
@@ -1375,10 +1373,13 @@ class MainApp(QMainWindow):
             if resp.status_code == 200:
                 data = resp.json()
                 self.update_company_info_label(data)
+                return data  # ✅ 반환 추가
             else:
                 print("회사 정보가 없거나 로드 실패:", resp.text)
+                return {}
         except Exception as e:
             print("회사 정보 로드 오류:", e)
+            return {}
 
 
     def show_company_freezers(self):
@@ -1560,19 +1561,7 @@ class MainApp(QMainWindow):
         except Exception as e:
             print(f"❌ 서버 전송 오류: {e}")
 
-    def load_company_info(self, filename="company_info.json") -> dict:
-        if not os.path.exists(filename):
-            return {}
-        try:
-            with open(filename, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-                else:
-                    return {}
-        except Exception as e:
-            print(f"회사 정보 로드 실패: {e}")
-            return {}
+    
 
     # ─────────────────────────────────────────────────────────────────
     # 6) 사이드바 탭 전환 함수 (기존 기능 그대로)

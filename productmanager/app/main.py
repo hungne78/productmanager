@@ -24,6 +24,7 @@ from app.models.employees import Employee
 from app.models.employee_inventory import EmployeeInventory
 from app.models.orders_archive import OrderArchive , OrderItemArchive
 from app.routers.employee_map_routers import router as employee_map_router
+from app.routers.category_price_override import router as category_price_override_router
 from app.routers import client_visits 
 from app.routers.employee_inventory import router as employee_inventory_router  # ✅ 수정
 from app.utils.time_utils import convert_utc_to_kst  # ✅ KST 변환 함수 추가
@@ -209,6 +210,7 @@ def create_app() -> FastAPI:
     app.include_router(company_router, prefix="/company", tags=["Company"]) 
     app.include_router(franchise_order_router, prefix="/franchise_orders", tags=["FranchiseOrders"])
     app.include_router(client_auth_router, prefix="/client_auth", tags=["ClientAuth"])
+    app.include_router(category_price_override_router, prefix="/category_price_overrides", tags=["CategoryPriceOverride"])
     return app
 
 app = create_app()

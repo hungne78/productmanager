@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
-    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QDialog, QVBoxLayout, QListWidget, QGroupBox, QInputDialog
+    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QDialog, QVBoxLayout, QListWidget, QGroupBox, QInputDialog, QDateEdit, QComboBox
 import sys
 import os
 from PyQt5.QtGui import QColor
@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from services.api_services import api_fetch_clients, api_create_client, api_update_client, api_delete_client, api_fetch_client_names,\
     api_assign_employee_client, api_fetch_employee_clients_all, get_auth_headers, api_fetch_lent_freezers, api_fetch_employees, api_unassign_employee_client
 from baselefttabwidget import BaseLeftTableWidget
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtWidgets import QSizePolicy
 import requests
 from datetime import datetime
@@ -295,56 +295,116 @@ class ClientLeftPanel(BaseLeftTableWidget):
         
         super().__init__(row_count=len(labels), labels=labels, parent=parent)
         
-        # ✅ 현재 레이아웃을 가져옴 (None 방지)
+       # ✅ 현재 레이아웃 가져오기
         main_layout = self.layout()
         if main_layout is None:
             main_layout = QVBoxLayout()
             self.setLayout(main_layout)
-            
-        # ✅ 담당 직원 목록을 보여줄 테이블 추가
+
+        # ✅ 담당 직원 테이블 먼저 추가
         self.assigned_employees_table = QTableWidget()
         self.assigned_employees_table.setColumnCount(1)
         self.assigned_employees_table.setHorizontalHeaderLabels(["담당 직원"])
         self.assigned_employees_table.horizontalHeader().setStretchLastSection(True)
+        main_layout.addWidget(self.assigned_employees_table)
 
-        # ✅ "대여 냉동고" 버튼을 개별 레이아웃으로 추가
-        btn_layout_top = QHBoxLayout()
-        self.btn_lent = QPushButton("대여 냉동고")
-        btn_layout_top.addWidget(self.btn_lent)
+        # ✅ 버튼들 한 번에 정리
+        from PyQt5.QtWidgets import QGridLayout
 
-        # ✅ 기존 버튼 줄에 "삭제" 버튼 추가
-        btn_layout_bottom = QHBoxLayout()
+        # 부모 클래스의 버튼들
+        self.btn_new.setFixedHeight(32)
+        self.btn_edit.setFixedHeight(32)
+
+        # 자식 클래스 버튼들
         self.btn_delete = QPushButton("삭제")
-        self.btn_assign = QPushButton("담당 직원 배정")  # ✅ 담당 직원 배정 버튼 추가
-        btn_layout_bottom.addWidget(self.btn_delete)
-        btn_layout_bottom.addWidget(self.btn_assign)
-        
-        # ✅ 부모 클래스의 버튼 레이아웃이 있는지 확인하고 가져오기
-        if main_layout.count() > 1 and main_layout.itemAt(1) is not None:
-            btn_layout_bottom = main_layout.itemAt(1).layout()
-        else:
-            btn_layout_bottom = QHBoxLayout()
-            main_layout.addLayout(btn_layout_bottom)
-
-        # ✅ 기존 버튼 줄에 "삭제" 버튼 추가
-        self.btn_delete = QPushButton("삭제")
-         # ✅ "담당 직원 배정 해제" 버튼 추가
+        self.btn_assign = QPushButton("담당 직원 배정")
         self.btn_unassign = QPushButton("담당 직원 해제")
-        btn_layout_bottom.addWidget(self.btn_delete)
-        btn_layout_bottom.addWidget(self.btn_assign)
-        # ✅ 버튼 레이아웃에 추가
-        btn_layout_bottom.addWidget(self.btn_unassign)      
-       
-        # ✅ "대여 냉동고" 버튼을 최상단에 추가
-        main_layout.insertLayout(0, btn_layout_top)
+        self.btn_lent = QPushButton("대여 냉동고")
+
+        for btn in [self.btn_delete, self.btn_assign, self.btn_unassign, self.btn_lent]:
+            btn.setFixedHeight(32)
+            btn.setMinimumWidth(100)
+
+        # ✅ 그리드 배치: 2열 압축
+        btn_grid = QGridLayout()
+        btn_grid.setSpacing(6)
+        btn_grid.addWidget(self.btn_new,      0, 0)
+        btn_grid.addWidget(self.btn_edit,     0, 1)
+        btn_grid.addWidget(self.btn_delete,   1, 0)
+        btn_grid.addWidget(self.btn_assign,   1, 1)
+        btn_grid.addWidget(self.btn_unassign, 2, 0)
+        btn_grid.addWidget(self.btn_lent,     2, 1)
+
+        main_layout.addLayout(btn_grid)
 
         # ✅ 담당 직원 목록 추가
         main_layout.addWidget(QLabel("담당 직원 목록"))
         main_layout.addWidget(self.assigned_employees_table)
 
         # ✅ 버튼 레이아웃 추가
-        main_layout.addLayout(btn_layout_bottom)
-        
+        # main_layout.addLayout(btn_layout_bottom)
+        # ✅ 프로모션 등록 박스 추가
+        promo_box = QGroupBox("📣 행사 등록")
+        promo_layout = QVBoxLayout()
+
+        # ── 입력 영역: 날짜 선택, 카테고리 선택, 단가 입력
+        form_layout = QHBoxLayout()
+
+        # 1) 날짜 선택
+        self.promo_start = QDateEdit()
+        self.promo_start.setCalendarPopup(True)
+        self.promo_start.setDate(QDate.currentDate())
+        self.promo_end = QDateEdit()
+        self.promo_end.setCalendarPopup(True)
+        self.promo_end.setDate(QDate.currentDate().addDays(7))
+
+        # 🔹 줄1: 시작일 ~ 종료일
+        # 🔹 줄1: 시작일 ~ 종료일
+        row1 = QHBoxLayout()
+        self.promo_start = QDateEdit()
+        self.promo_start.setCalendarPopup(True)
+        self.promo_start.setDate(QDate.currentDate())
+        self.promo_end = QDateEdit()
+        self.promo_end.setCalendarPopup(True)
+        self.promo_end.setDate(QDate.currentDate().addDays(7))
+        row1.addWidget(QLabel("시작일:"))
+        row1.addWidget(self.promo_start)
+        row1.addWidget(QLabel("종료일:"))
+        row1.addWidget(self.promo_end)
+
+        # 🔹 줄2: 카테고리 ~ 단가
+        row2 = QHBoxLayout()
+        self.promo_category = QComboBox()
+        self.load_category_options()  # 여기서 404 날 수 있으니 try/except로 감싸도 됨
+        self.promo_price = QLineEdit()
+        self.promo_price.setPlaceholderText("단가 (숫자)")
+        row2.addWidget(QLabel("카:"))
+        row2.addWidget(self.promo_category)
+        row2.addWidget(QLabel("단가:"))
+        row2.addWidget(self.promo_price)
+
+        # 🔹 줄3: 적용 버튼 (먼저 선언해야 에러 안 나!)
+        row3 = QHBoxLayout()
+        apply_btn = QPushButton("적용")
+        apply_btn.clicked.connect(self.apply_promotion)
+        row3.addStretch()
+        row3.addWidget(apply_btn)
+
+        # 전체 추가
+        promo_layout.addLayout(row1)
+        promo_layout.addLayout(row2)
+        promo_layout.addLayout(row3)
+
+        # ── 행사 테이블
+        # ── 행사 테이블
+        self.promo_table = QTableWidget(0, 4)
+        self.promo_table.setHorizontalHeaderLabels(["카", "단", "시", "종"])
+        self.promo_table.horizontalHeader().setStretchLastSection(True)
+        self.promo_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        promo_layout.addWidget(self.promo_table)
+        promo_box.setLayout(promo_layout)
+        main_layout.addWidget(promo_box)
         # ✅ 버튼 이벤트 연결
         self.btn_lent.clicked.connect(self.open_lent_editor_dialog)
         self.btn_new.clicked.connect(self.create_client)
@@ -353,7 +413,70 @@ class ClientLeftPanel(BaseLeftTableWidget):
         self.btn_assign.clicked.connect(self.assign_employee)
         
         self.btn_unassign.clicked.connect(self.unassign_employee)
-        
+    
+    def apply_promotion(self):
+        client_id = self.get_value(0).strip()
+        if not client_id or not client_id.isdigit():
+            QMessageBox.warning(self, "입력 오류", "먼저 거래처를 선택하세요.")
+            return
+
+        category = self.promo_category.currentText()
+        try:
+            price = float(self.promo_price.text())
+        except:
+            QMessageBox.warning(self, "입력 오류", "올바른 숫자 단가를 입력하세요.")
+            return
+
+        # 🔍 단가 유형은 서버에서 카테고리마다 고정이므로 여기선 서버가 처리한다고 가정
+        payload = {
+            "client_id": int(client_id),
+            "category_name": category,
+            "price_type": "normal" if category == "바" else "fixed",  # 💡 규칙 기반
+            "override_price": price,
+            "start_date": self.promo_start.date().toString("yyyy-MM-dd"),
+            "end_date": self.promo_end.date().toString("yyyy-MM-dd")
+        }
+
+        try:
+            url = f"{BASE_URL}/category_price_overrides"
+            resp = requests.post(url, json=payload)
+            if resp.status_code == 200:
+                QMessageBox.information(self, "성공", "행사 단가가 등록되었습니다.")
+                self.load_promotions_for_client(client_id)
+            else:
+                QMessageBox.warning(self, "실패", f"등록 실패: {resp.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", str(e))
+
+    def load_promotions_for_client(self, client_id):
+        """ 서버에서 유효한 행사만 불러와서 테이블 표시 """
+        try:
+            today = QDate.currentDate().toString("yyyy-MM-dd")
+            url = f"{BASE_URL}/category_price_overrides"
+            resp = requests.get(url)
+            if resp.status_code != 200:
+                return
+
+            data = resp.json()
+            filtered = [
+                p for p in data
+                if str(p["client_id"]) == str(client_id)
+                and p["start_date"] <= today <= p["end_date"]
+            ]
+
+            self.promo_table.setRowCount(len(filtered))
+            for row, item in enumerate(filtered):
+                start_str = datetime.strptime(item["start_date"], "%Y-%m-%d").strftime("%m/%d")
+                end_str = datetime.strptime(item["end_date"], "%Y-%m-%d").strftime("%m/%d")
+
+                self.promo_table.setItem(row, 0, QTableWidgetItem(item["category_name"]))
+                self.promo_table.setItem(row, 1, QTableWidgetItem(str(item["override_price"])))
+                self.promo_table.setItem(row, 2, QTableWidgetItem(start_str))
+                self.promo_table.setItem(row, 3, QTableWidgetItem(end_str))
+        except Exception as e:
+            print("❌ 행사 목록 불러오기 실패:", e)
+
+
     def open_lent_editor_dialog(self):
         client_id = self.get_value(0).strip()
         if not client_id:
@@ -388,6 +511,16 @@ class ClientLeftPanel(BaseLeftTableWidget):
         else:
             error_msg = response.text if response and hasattr(response, "text") else "알 수 없는 오류 발생"
             QMessageBox.critical(self, "실패", f"담당 직원 해제 실패: {error_msg}")
+
+
+    def load_category_options(self):
+        import os, json
+
+        if os.path.exists("category_order.json"):
+            with open("category_order.json", "r", encoding="utf-8") as f:
+                order = json.load(f)
+                self.promo_category.clear()
+                self.promo_category.addItems(order)
 
 
 
@@ -517,6 +650,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
         client_id = client.get("id")
         if client_id:
             print(f"🚀 거래처 ID {client_id}의 담당 직원 목록을 불러옵니다.")
+            self.load_promotions_for_client(client_id)
             self.load_assigned_employees(client_id)
         else:
             print("⚠️ 거래처 ID가 없습니다. 담당 직원 목록을 불러오지 않습니다.")
@@ -1030,7 +1164,7 @@ QHeaderView::section {
                 self.left_panel.display_client(selected_client)  # ✅ 왼쪽 패널 업데이트
                 self.right_panel.update_data_for_client(selected_client["id"])  # ✅ 오른쪽 패널 업데이트
             else:
-                print(f"🚨 거래처 '{selected_client_name}'를 찾을 수 없음!")
+                print(f"🚨 거래처를 찾을 수 없음!")
 
 
 

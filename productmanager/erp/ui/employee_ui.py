@@ -244,7 +244,7 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(self.client_sales_table)
-        scroll_area.setFixedHeight(510)
+        scroll_area.setFixedHeight(350)
 
         # 📌 3) 합계 라벨 추가
         self.client_sales_total_label = QLabel("합계: 0 원")

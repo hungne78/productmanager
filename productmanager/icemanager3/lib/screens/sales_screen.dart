@@ -29,10 +29,11 @@ import '../bluetooth_printer_provider.dart';
 import '../services/location_service.dart'; // 새로 만든 파일 임포트
 import 'package:geolocator/geolocator.dart'; // 위치 권한 확인용
 import 'package:geocoding/geocoding.dart';   // 주소 → 좌표 변환용
-
+import '../services/sound_manager.dart';
 AndroidDeviceInfo? androidInfo;
 
 class SalesScreen extends StatefulWidget {
+
   final String token;
   final Map<String, dynamic> client; // 거래처 정보
 
@@ -44,6 +45,7 @@ class SalesScreen extends StatefulWidget {
 }
 
 class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
+  late SoundManager soundManager;
   bool _canPrint = false; // 거래처 주소 반경 800m 안인지 여부
   bool _checkInProgress = true; // 거리 확인 진행중(로딩 표시 등)
 
@@ -88,10 +90,13 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   String _printerLanguage = 'non-korean';
 
   bool _isPrinterConnected = false; // 초기값
-
+  List<Map<String, dynamic>> _categoryPromotions = [];
   @override
   void initState() {
     super.initState();
+    soundManager = SoundManager();
+    soundManager.loadSounds();
+
     _checkGpsPermissionAndDistance(); // ➊ 거리 확인 함수 호출
     context.read<BluetoothPrinterProvider>().loadLastDevice();
     // HID/기타 초기화
@@ -111,6 +116,25 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     _selectedClient = widget.client; // 거래처 정보
     final printerProvider = context.read<BluetoothPrinterProvider>();
     printerProvider.loadLastDevice(); // 자동 재연결 시도
+
+
+    Future<void> _fetchCategoryPromotions() async {
+      try {
+        final results = await ApiService.fetchCategoryOverrides(widget.token);
+        final now = DateTime.now();
+        setState(() {
+          _categoryPromotions = (results as List)
+              .cast<Map<String, dynamic>>()
+              .where((promo) =>
+          promo['client_id'] == widget.client['id'] &&
+              DateTime.parse(promo['start_date']).isBefore(now.add(Duration(days: 1))) &&
+              DateTime.parse(promo['end_date']).isAfter(now.subtract(Duration(days: 1))))
+              .toList();
+        });
+      } catch (e) {
+        print("❌ 행사 단가 불러오기 실패: $e");
+      }
+    }
 
     // 프린터 연결 상태 반영
     printerProvider.addListener(() {
@@ -565,6 +589,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
 
   Future<void> _handleBarcode(String barcode) async {
     final authProvider = context.read<AuthProvider>();
+
     barcode = preprocessBarcode(barcode);
 
     // if (barcode.isEmpty || _scannedBarcodes.contains(barcode)) {
@@ -583,6 +608,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       final productProvider = context.read<ProductProvider>();
 
       if (productProvider.products.isEmpty) {
+        soundManager.playInvalidBeep();
         Fluttertoast.showToast(msg: "상품 목록이 비어 있습니다.", gravity: ToastGravity.BOTTOM);
         return;
       }
@@ -590,12 +616,14 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       final matchedProduct = productProvider.products.firstWhere(
             (p) {
           final barcodes = p['barcodes'] as List<dynamic>? ?? [];
+          soundManager.playValidBeep();
           return barcodes.contains(barcode);
         },
         orElse: () => <String, dynamic>{}, // ✅ 고쳤습니다
       );
 
       if (matchedProduct.isEmpty) {
+        soundManager.playInvalidBeep();
         Fluttertoast.showToast(msg: "조회된 상품이 없습니다.", gravity: ToastGravity.BOTTOM);
         return;
       }
@@ -606,8 +634,22 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       final isProductFixedPrice = product['is_fixed_price'] == true;
       final clientRegularPrice = (widget.client['regular_price'] ?? 0).toDouble();
       final clientFixedPrice = (widget.client['fixed_price'] ?? 0).toDouble();
-      final appliedPrice = isProductFixedPrice ? clientFixedPrice : clientRegularPrice;
-      final priceType = isProductFixedPrice ? "고정가" : "일반가";
+      final category = product['category'];
+
+      final matchedPromo = _categoryPromotions.firstWhere(
+            (promo) =>
+        promo['category_name'] == category &&
+            promo['price_type'] == (isProductFixedPrice ? "fixed" : "normal"),
+        orElse: () => {},
+      );
+
+      final overridePrice = matchedPromo.containsKey('override_price')
+          ? matchedPromo['override_price']
+          : null;
+
+      final appliedPrice = overridePrice ?? (isProductFixedPrice ? clientFixedPrice : clientRegularPrice);
+      final priceType = overridePrice != null ? "행사" : (isProductFixedPrice ? "고정가" : "일반가");
+
 
       if (_isReturnMode) {
         final existingIndex =

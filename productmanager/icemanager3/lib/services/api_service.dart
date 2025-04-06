@@ -29,6 +29,21 @@ class ApiService {
       print("❌ FCM 토큰 등록 중 예외 발생: $e");
     }
   }
+  static Future<List<dynamic>> fetchCategoryOverrides(String token) async {
+    final response = await http.get(
+      Uri.parse('$BASE_URL/category_price_overrides'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load category price overrides');
+    }
+  }
 
   static Future<void> markOrderAsRead(int orderId) async {
     final response = await _dio.patch('/franchise_orders/$orderId/mark_read');
