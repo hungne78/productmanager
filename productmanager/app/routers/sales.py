@@ -412,13 +412,14 @@ from fastapi.exceptions import RequestValidationError
 # -----------------------------------------------------------------------------
 # 13. 판매 데이터 등록 (매출 등록 API)
 # -----------------------------------------------------------------------------
+
 @router.post("", response_model=SalesRecordOut)
 def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
     print("📡 [FastAPI] create_sale() 호출됨")  
-    print(f"📡 [FastAPI] 받은 요청 데이터: {sale_data.model_dump()}")  
+    print(f"📡 받은 요청 데이터: {sale_data.model_dump()}")  
     now = get_kst_now()
     today_kst = now.date()
-    today_date = date.today()
+    
     try:
         print(f"📡 판매 등록 요청 데이터: {sale_data.model_dump()}")
 
@@ -427,10 +428,9 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         is_subsidy = subsidy_amount > 0
 
         if is_subsidy:
-            # ✅ 지원금 처리: 제품 없이 지원금만 적용 (미수금에서 차감)
             client = db.query(Client).filter(Client.id == sale_data.client_id).first()
             if client:
-                client.outstanding_amount -= subsidy_amount  # ✅ 미수금에서 차감
+                client.outstanding_amount -= subsidy_amount
                 db.commit()
                 print(f"✅ 지원금 적용 완료: 거래처 {sale_data.client_id}, 지원금 {subsidy_amount}")
             return {"message": "지원금이 적용되었습니다."}
@@ -444,7 +444,6 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         sale_datetime_kst = sale_data.sale_datetime
 
         # ✅ 거래처 방문 기록 확인 및 업데이트
-        
         existing_visit = (
             db.query(ClientVisit)
             .filter(ClientVisit.employee_id == sale_data.employee_id)
@@ -454,14 +453,21 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         )
 
         if existing_visit:
-            time_diff = now - existing_visit.visit_datetime
+            visit_dt = existing_visit.visit_datetime
+
+            # ✅ visit_datetime이 naive일 경우 KST timezone 붙이기
+            if visit_dt.tzinfo is None:
+                visit_dt = visit_dt.replace(tzinfo=now.tzinfo)
+
+            time_diff = now - visit_dt
+
             if time_diff > timedelta(hours=2):
-                # 2시간 지난 경우 → visit_count +1
                 existing_visit.visit_count += 1
                 print(f"🔼 방문 2시간 경과 → visit_count 증가: {existing_visit.visit_count}")
             else:
                 print(f"🕒 2시간 이내 재방문 → visit_count 증가하지 않음")
-            existing_visit.visit_datetime = now  # 방문시간은 항상 업데이트
+
+            existing_visit.visit_datetime = now
             db.commit()
         else:
             # 오늘 첫 방문
@@ -475,6 +481,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
             db.add(new_visit)
             db.flush()
             print(f"✅ 새로운 방문 기록 추가")
+
         # ✅ 매출 저장
         new_sale = SalesRecord(
             employee_id=sale_data.employee_id,
@@ -483,7 +490,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
             quantity=sale_data.quantity,
             sale_datetime=sale_datetime_kst,
             return_amount=sale_data.return_amount,
-            subsidy_amount=0.0  # ✅ 일반 매출이므로 지원금 없음
+            subsidy_amount=0.0
         )
         db.add(new_sale)
         db.flush()
@@ -492,7 +499,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
 
         print(f"✅ 매출 저장 완료: ID={new_sale.id}, 총액={total_amount}")
 
-        # ✅ 판매 완료 후 차량 재고 자동 업데이트 실행
+        # ✅ 차량 재고 차감
         subtract_inventory_on_sale(
             employee_id=sale_data.employee_id,
             product_id=sale_data.product_id,
@@ -501,17 +508,12 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         )
 
         return new_sale
-    
+
     except Exception as e:
         db.rollback()
         print(f"❌ 판매 등록 실패: {e}")
         raise HTTPException(status_code=500, detail=f"판매 등록 실패: {e}")
 
-    
-    except Exception as e:
-        db.rollback()
-        print(f"❌ 판매 등록 실패: {e}")
-        raise HTTPException(status_code=500, detail=f"판매 등록 실패: {e}")
 
 def convert_sales_to_kst(sale: SalesRecord, db: Session, visit_id: int):
     """

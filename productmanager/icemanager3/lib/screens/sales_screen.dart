@@ -30,6 +30,7 @@ import '../services/location_service.dart'; // 새로 만든 파일 임포트
 import 'package:geolocator/geolocator.dart'; // 위치 권한 확인용
 import 'package:geocoding/geocoding.dart';   // 주소 → 좌표 변환용
 import '../services/sound_manager.dart';
+
 AndroidDeviceInfo? androidInfo;
 
 class SalesScreen extends StatefulWidget {
@@ -45,6 +46,9 @@ class SalesScreen extends StatefulWidget {
 }
 
 class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
+
+
+  Map<int, TextEditingController> quantityControllers = {};
   final soundManager = SoundManager();
   bool _canPrint = false; // 거래처 주소 반경 800m 안인지 여부
   bool _checkInProgress = true; // 거리 확인 진행중(로딩 표시 등)
@@ -95,7 +99,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
 
-
+    _loadSavedOrderData();
     _checkGpsPermissionAndDistance(); // ➊ 거리 확인 함수 호출
     context.read<BluetoothPrinterProvider>().loadLastDevice();
     // HID/기타 초기화
@@ -115,25 +119,9 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     _selectedClient = widget.client; // 거래처 정보
     final printerProvider = context.read<BluetoothPrinterProvider>();
     printerProvider.loadLastDevice(); // 자동 재연결 시도
+    _fetchCategoryPromotions();
 
 
-    Future<void> _fetchCategoryPromotions() async {
-      try {
-        final results = await ApiService.fetchCategoryOverrides(widget.token);
-        final now = DateTime.now();
-        setState(() {
-          _categoryPromotions = (results as List)
-              .cast<Map<String, dynamic>>()
-              .where((promo) =>
-          promo['client_id'] == widget.client['id'] &&
-              DateTime.parse(promo['start_date']).isBefore(now.add(Duration(days: 1))) &&
-              DateTime.parse(promo['end_date']).isAfter(now.subtract(Duration(days: 1))))
-              .toList();
-        });
-      } catch (e) {
-        print("❌ 행사 단가 불러오기 실패: $e");
-      }
-    }
 
     // 프린터 연결 상태 반영
     printerProvider.addListener(() {
@@ -220,6 +208,24 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       Future.delayed(const Duration(seconds: 1), () {
         _tryReconnectToLastDevice(); // 👇 아래에서 BLE용
       });
+    }
+  }
+
+  Future<void> _fetchCategoryPromotions() async {
+    try {
+      final results = await ApiService.fetchCategoryOverrides(widget.token);
+      final now = DateTime.now();
+      setState(() {
+        _categoryPromotions = (results as List)
+            .cast<Map<String, dynamic>>()
+            .where((promo) =>
+        promo['client_id'] == widget.client['id'] &&
+            DateTime.parse(promo['start_date']).isBefore(now.add(Duration(days: 1))) &&
+            DateTime.parse(promo['end_date']).isAfter(now.subtract(Duration(days: 1))))
+            .toList();
+      });
+    } catch (e) {
+      print("❌ 행사 단가 불러오기 실패: $e");
     }
   }
   /// ➊ 위치 권한 요청 → 거래처 주소 좌표화 → 거리 계산
@@ -323,6 +329,27 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     final connectedDevices = await BLE.FlutterBluePlus.connectedDevices;
     bool found = connectedDevices.any((d) => d.id.toString() == printerId);
     setState(() => _isPrinterConnected = found);
+  }
+  Future<void> _saveOrderData() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    Map<String, String> savedData = {};
+    quantityControllers.forEach((productId, controller) {
+      savedData[productId.toString()] = controller.text;
+    });
+    await prefs.setString('saved_order', jsonEncode(savedData));
+  }
+  Future<void> _loadSavedOrderData() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? savedJson = prefs.getString('saved_order');
+    if (savedJson != null) {
+      Map<String, dynamic> savedData = jsonDecode(savedJson);
+      savedData.forEach((key, value) {
+        int productId = int.parse(key);
+        quantityControllers.putIfAbsent(productId, () => TextEditingController());
+        quantityControllers[productId]!.text = value;
+      });
+      setState(() {}); // UI 반영
+    }
   }
 
   Future<void> debugPrintAllWriteCharacteristics() async {
@@ -649,6 +676,13 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       final appliedPrice = overridePrice ?? (isProductFixedPrice ? clientFixedPrice : clientRegularPrice);
       final priceType = overridePrice != null ? "행사" : (isProductFixedPrice ? "고정가" : "일반가");
 
+      print("🔍 매칭된 상품: ${product['product_name']} / 카테고리: ${product['category']}");
+      if (overridePrice != null) {
+        print("🎉 행사 적용됨 → 카테고리: $category, 행사단가: $overridePrice");
+      } else {
+        print("📦 행사 없음 → ${isProductFixedPrice ? '고정가' : '일반가'} 적용");
+      }
+      print("💰 최종 적용 단가: $appliedPrice / 유형: $priceType");
 
       if (_isReturnMode) {
         final existingIndex =
@@ -1250,7 +1284,7 @@ $line
                   groupValue: _scannerMode,
                   onChanged: (String? value) {
                     if (value == null) return; // null 체크
-
+                    _saveOrderData();
                     setState(() {
                       _scannerMode = value;
                     });
@@ -1691,53 +1725,77 @@ $line
   }
 
   void _showEditQuantityDialog(int index) {
-    final itemList = _isReturnMode ? _returnedItems : _scannedItems;
-    final item = itemList[index];
-
-    final TextEditingController boxCountController = TextEditingController(
-      text: '${item['box_count']}',
-    );
-    final TextEditingController boxQtyController = TextEditingController(
-      text: '${item['box_quantity']}',
+    TextEditingController quantityController = TextEditingController(
+      text: _scannedItems[index]['box_count'].toString(),
     );
 
     showDialog(
       context: context,
-      builder: (ctx) {
+      builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text("수량 수정"),
+          title: Text("수량 수정"),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: boxCountController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: "박스(개)"),
-              ),
-              TextField(
-                controller: boxQtyController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: "박스당 수량"),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // 수량 감소 버튼
+                  IconButton(
+                    icon: Icon(Icons.remove),
+                    onPressed: () {
+                      int currentQty = int.tryParse(quantityController.text) ?? 0;
+                      setState(() {
+                        quantityController.text = (currentQty - 1).toString(); // ✅ 음수도 허용
+                      });
+                    },
+                  ),
+                  // 수량 입력 필드 (음수 허용)
+                  Expanded(
+                    child: TextField(
+                      controller: quantityController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(labelText: "수량 입력"),
+                    ),
+                  ),
+                  // 수량 증가 버튼
+                  IconButton(
+                    icon: Icon(Icons.add),
+                    onPressed: () {
+                      int currentQty = int.tryParse(quantityController.text) ?? 0;
+                      setState(() {
+                        quantityController.text = (currentQty + 1).toString();
+                      });
+                    },
+                  ),
+                ],
               ),
             ],
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("취소"),
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text("취소"),
             ),
             ElevatedButton(
               onPressed: () {
-                Navigator.pop(ctx);
-                int newBoxCount = int.tryParse(boxCountController.text) ?? 0;
-                int newBoxQty = int.tryParse(boxQtyController.text) ?? 0;
+                int newQuantity = int.tryParse(quantityController.text) ?? 0;
 
-                setState(() {
-                  item['box_count'] = newBoxCount;
-                  item['box_quantity'] = newBoxQty;
-                });
+                if (newQuantity == 0) {
+                  // ✅ 0일 경우 삭제, 팝업이 닫힌 후 삭제 실행
+                  Navigator.of(context).pop(); // 팝업 닫기
+                  Future.delayed(Duration(milliseconds: 200), () {
+                    _deleteItem(index); // 삭제 실행
+                  });
+                } else {
+                  // ✅ 0이 아닐 경우 업데이트
+                  setState(() {
+                    _scannedItems[index]['box_count'] = newQuantity;
+                  });
+                  Navigator.of(context).pop(); // 팝업 닫기
+                }
               },
-              child: const Text("확인"),
+              child: Text("확인"),
             ),
           ],
         );
@@ -1876,11 +1934,13 @@ $line
         }
       }
 
-
+      SharedPreferences prefs = await SharedPreferences.getInstance();
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("입금이 성공적으로 처리되었습니다.")),
+
         );
+        await prefs.remove('saved_order'); // 주문 성공 후
         final companyInfo = await _fetchCompanyInfo(); // ✅ 회사 정보 가져오기
         if (companyInfo != null) {
           if (_printerLanguage == 'non-korean') {

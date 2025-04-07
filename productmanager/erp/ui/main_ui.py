@@ -1204,14 +1204,14 @@ class MainApp(QMainWindow):
         self.company_info_label = QLabel("회사 정보가 등록되지 않았습니다.")
         self.company_info_label.setStyleSheet("""
             color: #1E3A8A;
-            font-size: 15px;
+            font-size: 25px;
             font-weight: 500;
         """)
         if self.company_info:
             self.update_company_info_label(self.company_info)     
 
         self.company_info_button = QPushButton("회사 정보 설정")
-        self.company_info_button.setFixedSize(120, 30)
+        self.company_info_button.setFixedSize(150, 45)
         self.company_info_button.setStyleSheet("""
             background-color: #FFFCEB;
             border: 1px solid #F5DA6B;

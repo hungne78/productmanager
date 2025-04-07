@@ -18,7 +18,8 @@ class ClientVisit(Base):
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
 
     # ✅ KST로 저장
-    visit_datetime = Column(DateTime, nullable=False, default=get_kst_now)
+    visit_datetime = Column(DateTime(timezone=True), nullable=False, default=get_kst_now)
+
 
     visit_date = Column(Date, nullable=False, default=get_kst_now().date())  # ✅ 방문 날짜만 저장
     visit_count = Column(Integer, nullable=False, default=1)  # ✅ 방문 횟수 (초기값 1)
