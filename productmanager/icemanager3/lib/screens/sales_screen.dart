@@ -45,7 +45,7 @@ class SalesScreen extends StatefulWidget {
 }
 
 class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
-  late SoundManager soundManager;
+  final soundManager = SoundManager();
   bool _canPrint = false; // 거래처 주소 반경 800m 안인지 여부
   bool _checkInProgress = true; // 거리 확인 진행중(로딩 표시 등)
 
@@ -94,8 +94,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    soundManager = SoundManager();
-    soundManager.loadSounds();
+
 
     _checkGpsPermissionAndDistance(); // ➊ 거리 확인 함수 호출
     context.read<BluetoothPrinterProvider>().loadLastDevice();
@@ -608,7 +607,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       final productProvider = context.read<ProductProvider>();
 
       if (productProvider.products.isEmpty) {
-        soundManager.playInvalidBeep();
+        soundManager.playInvalid();
         Fluttertoast.showToast(msg: "상품 목록이 비어 있습니다.", gravity: ToastGravity.BOTTOM);
         return;
       }
@@ -616,14 +615,14 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       final matchedProduct = productProvider.products.firstWhere(
             (p) {
           final barcodes = p['barcodes'] as List<dynamic>? ?? [];
-          soundManager.playValidBeep();
+          soundManager.playValid();
           return barcodes.contains(barcode);
         },
         orElse: () => <String, dynamic>{}, // ✅ 고쳤습니다
       );
 
       if (matchedProduct.isEmpty) {
-        soundManager.playInvalidBeep();
+        soundManager.playInvalid();
         Fluttertoast.showToast(msg: "조회된 상품이 없습니다.", gravity: ToastGravity.BOTTOM);
         return;
       }
@@ -877,7 +876,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(
-                                    "${widget.client['client_name']} 800m 내라 인쇄버튼 활성화",
+                                    "${widget.client['client_name']} 800m 이내 인쇄버튼 활성화",
                                     style: TextStyle(fontWeight: FontWeight.bold),
                                   ),
                                   duration: Duration(seconds: 2),
@@ -927,26 +926,43 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
 
 
 
+  int getPrintWidth(String text) {
+    return text.runes.fold(0, (prev, rune) {
+      final c = String.fromCharCode(rune);
+      return prev + (RegExp(r'[가-힣]').hasMatch(c) ? 2 : 1);
+    });
+  }
+
+  String padToPrintWidth(String text, int targetWidth) {
+    int width = getPrintWidth(text);
+    if (width >= targetWidth) {
+      // 잘라서 맞춤
+      int current = 0;
+      final buffer = StringBuffer();
+      for (final rune in text.runes) {
+        final c = String.fromCharCode(rune);
+        final w = RegExp(r'[가-힣]').hasMatch(c) ? 2 : 1;
+        if (current + w > targetWidth) break;
+        buffer.write(c);
+        current += w;
+      }
+      return buffer.toString().padRight(targetWidth);
+    } else {
+      return text + ' ' * (targetWidth - width);
+    }
+  }
+
   String formatRow({
     required String name,
     required String boxCount,
     required String unitPrice,
     required String total,
   }) {
-    String truncate(String text, int maxLen) {
-      final runes = text.runes.toList();
-      return String.fromCharCodes(runes.take(maxLen));
-    }
-
-    String pad(String text, int width) {
-      return text.padRight(width);
-    }
-
     return
-      pad(truncate(name, 6), 9) + // 상품명: 최대 8글자 자르고 10칸 고정
-          pad(boxCount, 3) +           // 박스수: 4칸
-          pad(unitPrice, 7) +          // 단가: 7칸
-          pad(total, 9);               // 합계: 9칸 (예: 15,900원)
+      padToPrintWidth(name, 14) + // 상품명 출력 폭 기준 14칸
+          padToPrintWidth(boxCount, 4) +
+          padToPrintWidth(unitPrice, 7) +
+          padToPrintWidth(total, 9);
   }
 
   Future<void> _printReceiptImageFlexible(

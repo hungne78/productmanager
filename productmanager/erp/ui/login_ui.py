@@ -6,7 +6,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from services.api_services import api_login_employee
-from ui.main_ui import MainApp
+from main_ui import MainApp
 
 class LoginWindow(QWidget):
     """ 로그인 창 """
@@ -88,7 +88,12 @@ class LoginWindow(QWidget):
         except ValueError:
             QMessageBox.warning(self, "⚠️ 경고", "올바른 직원 ID를 입력하세요.")
             return
-
+        
+        # ✅ 직원 ID가 1번만 허용
+        if emp_id != 1:
+            QMessageBox.critical(self, "🚫 접근 거부", "이 앱은 관리자 전용입니다.")
+            return
+            
         response = api_login_employee(emp_id, password)
 
         if response and "token" in response:

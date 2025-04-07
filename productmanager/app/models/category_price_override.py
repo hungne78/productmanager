@@ -9,8 +9,8 @@ class CategoryPriceOverride(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
-    category_name = Column(String, nullable=False)
-    price_type = Column(String, nullable=False)  # "normal" 또는 "fixed"
+    category_name = Column(String(255), nullable=False)
+    price_type = Column(String(255), nullable=False)  # "normal" 또는 "fixed"
     override_price = Column(Float, nullable=False)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)

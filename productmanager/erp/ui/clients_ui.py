@@ -378,7 +378,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
         self.load_category_options()  # 여기서 404 날 수 있으니 try/except로 감싸도 됨
         self.promo_price = QLineEdit()
         self.promo_price.setPlaceholderText("단가 (숫자)")
-        row2.addWidget(QLabel("카:"))
+        row2.addWidget(QLabel("분류:"))
         row2.addWidget(self.promo_category)
         row2.addWidget(QLabel("단가:"))
         row2.addWidget(self.promo_price)
@@ -398,7 +398,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
         # ── 행사 테이블
         # ── 행사 테이블
         self.promo_table = QTableWidget(0, 4)
-        self.promo_table.setHorizontalHeaderLabels(["카", "단", "시", "종"])
+        self.promo_table.setHorizontalHeaderLabels(["분류", "단가", "시작", "종료"])
         self.promo_table.horizontalHeader().setStretchLastSection(True)
         self.promo_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
@@ -438,7 +438,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
         }
 
         try:
-            url = f"{BASE_URL}/category_price_overrides"
+            url = f"{BASE_URL}/category_price_overrides/"
             resp = requests.post(url, json=payload)
             if resp.status_code == 200:
                 QMessageBox.information(self, "성공", "행사 단가가 등록되었습니다.")
@@ -452,7 +452,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
         """ 서버에서 유효한 행사만 불러와서 테이블 표시 """
         try:
             today = QDate.currentDate().toString("yyyy-MM-dd")
-            url = f"{BASE_URL}/category_price_overrides"
+            url = f"{BASE_URL}/category_price_overrides/"
             resp = requests.get(url)
             if resp.status_code != 200:
                 return

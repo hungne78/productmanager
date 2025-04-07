@@ -1,18 +1,14 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+from app.core.config import settings
 
-DATABASE_URL = "sqlite:///./test.db"
+# ✅ MariaDB 연결 설정을 사용
+DATABASE_URL = settings.SQLALCHEMY_DATABASE_URI
 
-Base = declarative_base()
+connect_args = {}
+if "sqlite" in DATABASE_URL:
+    connect_args = {"check_same_thread": False}  # SQLite일 때만 필요
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# # ✅ 모든 모델 import 후 실행하도록 변경
-# import app.models
-
-# try:
-#     Base.metadata.create_all(bind=engine)  # ✅ 모든 모델 import 후 실행
-#     print("✅ 모든 테이블이 생성되었습니다.")
-# except Exception as e:
-#     print(f"🚨 테이블 생성 중 오류 발생: {e}")
+Base = declarative_base()

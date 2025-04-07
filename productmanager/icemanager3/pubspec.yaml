@@ -60,7 +60,7 @@ dependencies:
 #  esc_pos_bluetooth: ^0.4.1
   geolocator: ^10.1.0
   geocoding: ^2.1.0
-  soundpool: ^2.1.0
+  audioplayers: ^5.2.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -81,7 +81,7 @@ flutter:
 #    - assets/fonts/NanumGothic.ttf
     - assets/login.png  # ✅ 정확한 위치
     - assets/sounds/valid_beep.wav
-    - assets/sounds/invalid_beep.mp3
+    - assets/sounds/invalid_beep.wav
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

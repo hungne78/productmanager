@@ -1031,7 +1031,7 @@ class MainApp(QMainWindow):
         header_layout.setContentsMargins(10, 0, 10, 0)
 
         # 타이틀 라벨
-        title_label = QLabel("아이스크림 ERP ")
+        title_label = QLabel("아이스크림 ERP   Version 1.0.0")
         title_label.setObjectName("TitleLabel")  # QSS: #TitleLabel
         # 우측에 관리자 표기
         user_label = QLabel("로그인: 관리자")
@@ -1180,7 +1180,7 @@ class MainApp(QMainWindow):
 
         # 📅 달력 팝업 버튼
         self.calendar_toggle_btn = QPushButton("📅")
-        self.calendar_toggle_btn.setFixedSize(45, 45)
+        self.calendar_toggle_btn.setFixedSize(60, 60)
         self.calendar_toggle_btn.setStyleSheet("""
             font-size: 40px;
             background-color: #E2E8F0;
@@ -1262,8 +1262,15 @@ class MainApp(QMainWindow):
         
         clock_row.addWidget(self.sales_label)
         self.load_monthly_sales()
+        self.signature_label = QLabel("Programmed By Shim Hyoung Seob", self)
+        self.signature_label.setStyleSheet("color: gray; font-size: 11px;")
+        self.signature_label.adjustSize()
 
-        # # 버튼 영역
+        # 오른쪽 하단 위치 지정
+        self.signature_label.move(self.width() - self.signature_label.width() - 10,
+                                self.height() - self.signature_label.height() - 10)
+        self.signature_label.raise_()  # 맨 위로 올림
+                # # 버튼 영역
         # button_row = QHBoxLayout()
         # button_row.addStretch()
         # for label in ["저장", "조회", "삭제"]:
@@ -1339,6 +1346,14 @@ class MainApp(QMainWindow):
 
         self.memo_dict = {}  # 날짜: 메모 저장용 딕셔너리
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'signature_label'):
+            self.signature_label.move(
+                self.width() - self.signature_label.width() - 10,
+                self.height() - self.signature_label.height() - 10
+            )
+            
     # -------------------------------------------------------------------
     # 4) 회사 정보 다이얼로그를 띄우고, 서버에 저장/수정 후 라벨 반영
     def open_company_info_dialog(self):

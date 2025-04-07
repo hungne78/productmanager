@@ -16,7 +16,7 @@ class Lent(Base):
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
     brand = Column(String(255), nullable=False)  
-    size = Column(String, nullable=False)         # 단순 상표 이름
+    size = Column(String(100), nullable=False)         # 단순 상표 이름
     serial_number = Column(String(255), nullable=False)     # 시리얼 번호
     year = Column(Integer, nullable=False)                  # 년식
     

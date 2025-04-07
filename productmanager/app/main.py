@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
     #         print(f"➡️ {route.path} ({route.methods})")
     # Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-
+    print("📦 현재 연결된 DB 주소:", engine.url)
     db = SessionLocal()
     try:
         admin = db.query(Employee).filter(Employee.id == 1).first()

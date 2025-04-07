@@ -1,25 +1,13 @@
-import 'package:soundpool/soundpool.dart';
-import 'package:flutter/services.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 class SoundManager {
-  final Soundpool _soundpool = Soundpool.fromOptions();
-  int? _validBeepId;
-  int? _invalidBeepId;
+  final AudioPlayer _player = AudioPlayer();
 
-  Future<void> loadSounds() async {
-    _validBeepId = await _soundpool.load(await rootBundle.load("assets/sounds/valid_beep.wav"));
-    _invalidBeepId = await _soundpool.load(await rootBundle.load("assets/sounds/invalid_beep.wav"));
+  Future<void> playValid() async {
+    await _player.play(AssetSource('sounds/valid.wav'));
   }
 
-  void playValidBeep() {
-    if (_validBeepId != null) {
-      _soundpool.play(_validBeepId!);
-    }
-  }
-
-  void playInvalidBeep() {
-    if (_invalidBeepId != null) {
-      _soundpool.play(_invalidBeepId!);
-    }
+  Future<void> playInvalid() async {
+    await _player.play(AssetSource('sounds/invalid.wav'));
   }
 }

@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 import json
 import logging
 from decimal import Decimal  # ✅ Import Decimal
+from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -415,6 +416,8 @@ from fastapi.exceptions import RequestValidationError
 def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
     print("📡 [FastAPI] create_sale() 호출됨")  
     print(f"📡 [FastAPI] 받은 요청 데이터: {sale_data.model_dump()}")  
+    now = get_kst_now()
+    today_kst = now.date()
     today_date = date.today()
     try:
         print(f"📡 판매 등록 요청 데이터: {sale_data.model_dump()}")
@@ -441,7 +444,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         sale_datetime_kst = sale_data.sale_datetime
 
         # ✅ 거래처 방문 기록 확인 및 업데이트
-        today_kst = get_kst_now().date()
+        
         existing_visit = (
             db.query(ClientVisit)
             .filter(ClientVisit.employee_id == sale_data.employee_id)
@@ -451,21 +454,27 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         )
 
         if existing_visit:
-            existing_visit.visit_datetime = get_kst_now()
+            time_diff = now - existing_visit.visit_datetime
+            if time_diff > timedelta(hours=2):
+                # 2시간 지난 경우 → visit_count +1
+                existing_visit.visit_count += 1
+                print(f"🔼 방문 2시간 경과 → visit_count 증가: {existing_visit.visit_count}")
+            else:
+                print(f"🕒 2시간 이내 재방문 → visit_count 증가하지 않음")
+            existing_visit.visit_datetime = now  # 방문시간은 항상 업데이트
             db.commit()
-            print(f"🔄 기존 방문 기록 업데이트: 직원 {sale_data.employee_id}, 거래처 {sale_data.client_id}, 날짜 {today_kst}")
         else:
+            # 오늘 첫 방문
             new_visit = ClientVisit(
                 employee_id=sale_data.employee_id,
                 client_id=sale_data.client_id,
-                visit_datetime=get_kst_now(),
+                visit_datetime=now,
                 visit_date=today_kst,
                 visit_count=1
             )
             db.add(new_visit)
             db.flush()
-            print(f"✅ 새로운 방문 기록 추가: 직원 {sale_data.employee_id}, 거래처 {sale_data.client_id}, 날짜 {today_kst}")
-
+            print(f"✅ 새로운 방문 기록 추가")
         # ✅ 매출 저장
         new_sale = SalesRecord(
             employee_id=sale_data.employee_id,
