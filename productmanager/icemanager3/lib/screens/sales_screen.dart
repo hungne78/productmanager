@@ -642,7 +642,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       final matchedProduct = productProvider.products.firstWhere(
             (p) {
           final barcodes = p['barcodes'] as List<dynamic>? ?? [];
-          soundManager.playValid();
+
           return barcodes.contains(barcode);
         },
         orElse: () => <String, dynamic>{}, // ✅ 고쳤습니다
@@ -653,7 +653,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
         Fluttertoast.showToast(msg: "조회된 상품이 없습니다.", gravity: ToastGravity.BOTTOM);
         return;
       }
-
+      soundManager.playValid();
       final product = matchedProduct;
       final productName = product['product_name'] ?? "상품명 없음";
       final defaultPrice = (product['default_price'] ?? 0).toDouble();
@@ -1398,7 +1398,7 @@ $line
           // ✅ 고정된 헤더 (배경색 추가)
           Container(
             height: 35,
-            color: Colors.black45,
+            color: Colors.indigo,
             child: _buildHeaderRow(),
           ),
 
