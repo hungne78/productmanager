@@ -30,7 +30,7 @@ import '../services/location_service.dart'; // 새로 만든 파일 임포트
 import 'package:geolocator/geolocator.dart'; // 위치 권한 확인용
 import 'package:geocoding/geocoding.dart';   // 주소 → 좌표 변환용
 import '../services/sound_manager.dart';
-
+const knownPrinterAddress = "74:F0:7D:E5:2F:A1";
 AndroidDeviceInfo? androidInfo;
 
 class SalesScreen extends StatefulWidget {
@@ -46,8 +46,9 @@ class SalesScreen extends StatefulWidget {
 }
 
 class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
-
-
+  bool _connectionListenerAttached = false;
+  StreamSubscription<List<int>>? _scannerSubscription;
+  bool _isScannerConnected = false; // BLE 스캐너 연결 상태
   Map<int, TextEditingController> quantityControllers = {};
   final soundManager = SoundManager();
   bool _canPrint = false; // 거래처 주소 반경 800m 안인지 여부
@@ -98,7 +99,8 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-
+    _startAutoReconnectScanner();
+    _tryReconnectToLastScanner(); // ✅ 최초 실행 시 자동 재연결
     _loadSavedOrderData();
     _checkGpsPermissionAndDistance(); // ➊ 거리 확인 함수 호출
     context.read<BluetoothPrinterProvider>().loadLastDevice();
@@ -380,62 +382,171 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     print("🔚 탐색 완료");
   }
 
-  // BLE 스캐너 자동 탐색 (UUID 자동)
   Future<void> autoDetectScanner(BLE.BluetoothDevice device) async {
-    print("🔍 [autoDetectScanner] BLE 스캐너 자동 탐색 시작: ${device.name}");
-    // 이미 연결되었다면 중복 connect 에러가 안 나도록 예외처리
+    print("🔍 [Kerykei1] 하드코딩 스캐너 탐색 시작");
+
+    if (device.state != BLE.BluetoothDeviceState.connected) {
+      await device.connect(autoConnect: false);
+      print("🔗 연결 완료");
+    }
+
+    // 스캐너 내부가 깨어날 시간 확보
+    await Future.delayed(Duration(seconds: 1));
+
+    final services = await device.discoverServices();
+    BLE.BluetoothCharacteristic? writeChar;
+    BLE.BluetoothCharacteristic? notifyChar;
+
+    for (var service in services) {
+      for (var c in service.characteristics) {
+        if (c.uuid.toString().toLowerCase() == "2aa2") {
+          writeChar = c;
+        }
+        if (c.uuid.toString().toLowerCase() == "2aa1" && c.properties.notify) {
+          notifyChar = c;
+        }
+      }
+    }
+
+    if (writeChar == null || notifyChar == null) {
+      print("❌ 2aa1 또는 2aa2 characteristic을 찾을 수 없음");
+      return;
+    }
+
+    await notifyChar.setNotifyValue(true);
+    print("🔔 notify set 완료");
+
+    // ✅ stream 중복 방지를 위해 subscription 저장 & 재등록 전 cancel 추천
+    await _scannerSubscription?.cancel();
+    _scannerSubscription = notifyChar.value.listen((value) {
+      print("📥 notify 도착!");
+      print("📦 Raw Bytes: ${value.map((b) => b.toRadixString(16)).join(' ')}");
+      try {
+        final data = utf8.decode(value).trim();
+        print("📦 바코드(UTF-8): $data");
+        if (data.isNotEmpty) _handleBarcode(data);
+      } catch (e) {
+        final asciiData = value.map((b) => String.fromCharCode(b)).join().trim();
+        print("📦 바코드(ASCII): $asciiData");
+        if (asciiData.isNotEmpty) _handleBarcode(asciiData);
+      }
+    });
+
+    try {
+      print("✍️ 2aa2에 [SCAN] write 시도");
+      await writeChar.write(utf8.encode("SCAN"), withoutResponse: true);
+      await Future.delayed(Duration(milliseconds: 300));
+      await writeChar.write([0x01], withoutResponse: true);
+      await Future.delayed(Duration(milliseconds: 300));
+      await writeChar.write([0x0D], withoutResponse: true);
+      print("✅ 명령 전송 완료");
+    } catch (e) {
+      print("❌ write 에러: $e");
+    }
+
+    if (!_connectionListenerAttached) {
+      _connectionListenerAttached = true;
+
+      device.connectionState.listen((state) {
+        print("🔄 BLE 연결 상태 변화: $state");
+
+        if (state == BLE.BluetoothConnectionState.disconnected) {
+          print("⚠️ BLE 연결 끊김 감지 → 재연결 시도 예약");
+
+          Future.delayed(Duration(seconds: 1), () async {
+            try {
+              print("🔁 BLE 스캐너 재연결 시도");
+              await autoDetectScanner(device); // ✅ 여기서만 재설정 허용
+            } catch (e) {
+              print("❌ 재연결 실패: $e");
+            }
+          });
+        }
+      });
+    }
+
+
+    setState(() {
+      _isScannerConnected = true;
+    });
+  }
+
+  void _startAutoReconnectScanner() {
+    BLE.FlutterBluePlus.startScan(timeout: Duration(seconds: 10));
+
+    BLE.FlutterBluePlus.scanResults.listen((results) async {
+      final prefs = await SharedPreferences.getInstance();
+      final lastScannerId = prefs.getString('last_scanner_id');
+
+      if (lastScannerId == null) return;
+
+      for (var r in results) {
+        final device = r.device;
+        if (device.id.toString() == lastScannerId) {
+          print("🔁 스캐너 자동 탐지됨: ${device.name} (${device.id})");
+
+          BLE.FlutterBluePlus.stopScan();
+
+          // ✅ 한방에 연결 + notify 등록 + listen + write 까지!
+          await autoDetectScanner(device);
+          break;
+        }
+      }
+    });
+  }
+
+  Future<void> _connectToScannerUsing2aa2(BLE.BluetoothDevice device) async {
+    final services = await device.discoverServices();
+    final writeChar = services
+        .expand((s) => s.characteristics)
+        .firstWhere((c) => c.uuid.toString().toLowerCase() == "2aa2");
+
+    await writeChar.setNotifyValue(true);
+
+    writeChar.value.listen((value) {
+      final raw = value.map((b) => b.toRadixString(16)).join(" ");
+      print("📥 notify: $raw");
+
+      try {
+        final decoded = utf8.decode(value).trim();
+        if (decoded.isNotEmpty && decoded != "SCAN") {
+          _handleBarcode(decoded);
+        }
+      } catch (e) {
+        final ascii = value.map((b) => String.fromCharCode(b)).join().trim();
+        if (ascii.isNotEmpty && ascii != "SCAN") {
+          _handleBarcode(ascii);
+        }
+      }
+    });
+
+    await Future.delayed(Duration(milliseconds: 300));
+    await writeChar.write(utf8.encode("SCAN"), withoutResponse: true);
+
+    setState(() => _isScannerConnected = true);
+  }
+
+  Future<void> debugListAllUUIDs(BLE.BluetoothDevice device) async {
+    print("🧪 UUID 디버깅 시작: ${device.name}");
+
     if (device.state != BLE.BluetoothDeviceState.connected) {
       await device.connect(autoConnect: false);
     }
 
     final services = await device.discoverServices();
 
-    bool foundScanner = false;
-
-    // notify Characteristic 찾아 시도
     for (var service in services) {
-      for (var characteristic in service.characteristics) {
-        if (characteristic.properties.notify) {
-          print("✅ 후보 Notify Characteristic: ${characteristic.uuid}");
-
-          // notify 활성화
-          await characteristic.setNotifyValue(true);
-
-          bool gotBarcode = false;
-          StreamSubscription? subscription;
-
-          subscription = characteristic.value.listen((value) {
-            try {
-              final data = utf8.decode(value);
-              print("📦 스캐너 UTF-8 데이터: $data");
-            } catch (e) {
-              final asciiData =
-              value.map((b) => String.fromCharCode(b)).join();
-              print("⚠️ UTF-8 실패, ASCII로 해석: $asciiData");
-            }
-          });
-          // 3초 대기 -> 바코드 들어오면 성공 처리
-          await Future.delayed(const Duration(seconds: 3));
-
-          // Notify 해제
-          await characteristic.setNotifyValue(false);
-          await subscription?.cancel();
-
-          if (gotBarcode) {
-            print("🎉 유효 스캐너 UUID 감지: ${characteristic.uuid}");
-            // 필요 시 SharedPreferences 등에 저장 가능
-            break;
-          }
-        }
-
-        if (foundScanner) break; // 스캐너 찾으면 반복 중단
+      print("📡 [Service] UUID: ${service.uuid}");
+      for (var c in service.characteristics) {
+        print(" ├─ Characteristic: ${c.uuid}");
+        print(" │   - Notify: ${c.properties.notify}");
+        print(" │   - Indicate: ${c.properties.indicate}");
+        print(" │   - Read: ${c.properties.read}");
+        print(" │   - Write: ${c.properties.write}");
       }
-      if (foundScanner) break;
     }
 
-    if (!foundScanner) {
-      print("❌ 스캐너로 쓸 만한 Notify Characteristic을 찾지 못했습니다.");
-    }
+    print("✅ UUID 디버깅 완료");
   }
 
   Future<BLE.BluetoothCharacteristic?>
@@ -455,6 +566,37 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     final writeChar = await autoDetectPrinter(device);
     return writeChar; // 못 찾으면 null
   }
+  Future<void> _tryReconnectToLastScanner() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastScannerId = prefs.getString('last_scanner_id');
+    if (lastScannerId == null) return;
+
+    try {
+      final devices = await BLE.FlutterBluePlus.connectedDevices;
+
+      // 이미 연결된 장치 중에서 이전 스캐너 ID 찾기
+      final target = devices.firstWhere(
+            (d) => d.id.toString() == lastScannerId,
+        orElse: () => throw Exception("최근 스캐너를 찾을 수 없습니다."),
+      );
+
+      await target.connect(); // 연결 시도 (이미 연결돼 있어도 예외 없음)
+
+      // notify characteristic 자동 탐색
+      await autoDetectScanner(target);
+
+      setState(() {
+        _isScannerConnected = true;
+      });
+
+      print("✅ BLE 스캐너 자동 재연결 완료");
+    } catch (e) {
+      print("❌ BLE 스캐너 자동 재연결 실패: $e");
+      setState(() {
+        _isScannerConnected = false;
+      });
+    }
+  }
 
   // BLE 프린터 자동 탐색 예시
   // 수정된(또는 새로 추가된) 부분
@@ -463,7 +605,27 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     if (device.state != BLE.BluetoothDeviceState.connected) {
       await device.connect();
     }
+    BLE.FlutterBluePlus.scanResults.listen((results) async {
+      for (var r in results) {
+        final device = r.device;
 
+        // ✅ 주소로 정확히 비교 (대소문자 구분 없이)
+        if (device.id.toString().toUpperCase() == knownPrinterAddress) {
+          print("🎯 R210 프린터 탐지됨: ${device.name} (${device.id})");
+
+          await BLE.FlutterBluePlus.stopScan();
+
+          // ✅ 여기서 바로 연결 시도
+          await autoDetectPrinter(device); // ← 너가 만든 프린터 연결 함수로!
+          break;
+        }
+      }
+    });
+    BLE.FlutterBluePlus.scanResults.listen((results) {
+      for (var r in results) {
+        print("🔎 발견된 BLE 기기: ${r.device.name} / ${r.device.id}");
+      }
+    });
     final services = await device.discoverServices();
     BLE.BluetoothCharacteristic? foundWriteChar;
 
@@ -594,21 +756,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     // 현재 스캐너 모드
     print("🔧 현재 스캐너 모드: $_scannerMode");
 
-    // 갤럭시 폴드 보정
-    if (_scannerMode == "HID" && isGalaxyFold()) {
-      if (cleaned == "8") return "88";
-      if (cleaned == "7") return "77";
 
-      if (cleaned.startsWith("8") && !cleaned.startsWith("88")) {
-        print("🔴 [보정 전] 바코드: $cleaned");
-        cleaned = "88" + cleaned.substring(1);
-        print("🟢 [보정 후] 바코드: $cleaned");
-      } else if (cleaned.startsWith("7") && !cleaned.startsWith("77")) {
-        print("🔴 [보정 전] 바코드: $cleaned");
-        cleaned = "77" + cleaned.substring(1);
-        print("🟢 [보정 후] 바코드: $cleaned");
-      }
-    }
 
     return cleaned;
   }
@@ -1244,23 +1392,22 @@ $line
           // 스캐너 관련 (SPP 제거)
           // 아래는 BLE 외에 별도 스캐너 연결 상태 표시 예시
           GestureDetector(
-            onTap: _showBluetoothDialog, // ※ 필요 시 수정
+            onTap: _showBleScannerDialog, // 👉 BLE 스캐너 다이얼로그 열기
             child: Row(
               children: [
-                // _isBluetoothConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled
-                const Icon(Icons.qr_code_scanner, color: Colors.white, size: 20),
-                const SizedBox(width: 4),
-                const Text(
+                Icon(
+                  _isScannerConnected ? Icons.qr_code_2 : Icons.qr_code, // 연결 여부 따라 아이콘 변경
+                  color: _isScannerConnected ? Colors.lightGreen : Colors.redAccent,
+                ),
+                SizedBox(width: 6),
+                Text(
                   "스캐너",
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.white,
-                    decoration: TextDecoration.underline,
-                  ),
+                  style: TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ],
             ),
           ),
+
         ],
       ),
     );
@@ -1336,18 +1483,7 @@ $line
     print("📱 기기 모델: ${androidInfo?.model}");
   }
 
-  bool isGalaxyFold() {
-    const foldModels = [
-      "SM-F900",
-      "SM-F916",
-      "SM-F926",
-      "SM-F936",
-      "SM-F946",
-    ];
 
-    final model = androidInfo?.model ?? '';
-    return foldModels.any((m) => model.contains(m));
-  }
 
   Future<void> _checkBluetoothPermissions() async {
     if (await Permission.bluetoothScan.request().isGranted &&
@@ -1501,6 +1637,69 @@ $line
       }),
     );
   }
+  void _showBleScannerDialog() {
+    // 스캔 시작
+    BLE.FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text("BLE 스캐너 선택"),
+          content: Container(
+            width: double.maxFinite,
+            height: 300,
+            child: StreamBuilder<List<BLE.ScanResult>>(
+              stream: BLE.FlutterBluePlus.scanResults,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return Center(child: CircularProgressIndicator());
+                }
+
+                final results = snapshot.data!;
+                final scannerCandidates = results
+                    .where((r) =>
+                r.device.name.isNotEmpty &&
+                    (r.device.name.toLowerCase().contains("scanner") ||
+                        r.device.name.toLowerCase().contains("ble")))
+                    .toList();
+
+                if (scannerCandidates.isEmpty) {
+                  return Center(child: Text("스캐너로 보이는 BLE 기기가 없습니다."));
+                }
+
+                return ListView.builder(
+                  itemCount: scannerCandidates.length,
+                  itemBuilder: (context, index) {
+                    final device = scannerCandidates[index].device;
+                    return ListTile(
+                      leading: Icon(Icons.qr_code),
+                      title: Text(device.name),
+                      subtitle: Text(device.id.toString()),
+                      onTap: () async {
+                        Navigator.pop(context); // 다이얼로그 닫기
+                        await autoDetectScanner(device); // 연결 시도
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                BLE.FlutterBluePlus.stopScan();
+                Navigator.pop(context);
+              },
+              child: Text("닫기"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
   // 상품 목록 테이블을 렌더링
   Widget _buildDataRows() {
