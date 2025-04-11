@@ -90,7 +90,7 @@ class EmployeeMapTab(QWidget):
             return
 
         try:
-            url = f"{self.base_url}/employee_map/all_visits"
+            url = f"{self.base_url}/employee_map/daily_visits"
             params = {"employee_name": name}
             resp = requests.get(url, params=params, timeout=5)
             if resp.status_code == 404:
