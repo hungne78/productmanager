@@ -40,7 +40,30 @@ from app.models.products import Product
 from app.models.sales_records import SalesRecord
 from app.utils.time_utils import get_kst_now
 from dateutil.relativedelta import relativedelta
+from app.utils.monthly_aggregation import aggregate_sales_to_monthly
+from app.routers.monthly_sales import router as monthly_sales_router
+# 기존 scheduler 초기화 이후에 추가
+def run_monthly_aggregation():
+    from app.db.database import SessionLocal
+    from datetime import datetime
+    from dateutil.relativedelta import relativedelta
 
+    today = datetime.now()
+    # 집계 대상: 전달 기준 (ex. 2025-04-01 → 2025-03)
+    year = today.year
+    month = today.month - 1
+    if month == 0:
+        year -= 1
+        month = 12
+
+    db = SessionLocal()
+    try:
+        aggregate_sales_to_monthly(db, year, month)
+    except Exception as e:
+        print(f"❌ [월간 집계 오류] {e}")
+    finally:
+        db.close()
+        
 def cleanup_unused_products_task():
     db = SessionLocal()  # 직접 세션 획득
     try:
@@ -68,7 +91,7 @@ def cleanup_unused_products_task():
         db.close()
 
 scheduler = BackgroundScheduler()
-
+scheduler.add_job(run_monthly_aggregation, "cron", day=1, hour=3, minute=10)  # 매월 1일 03:10
 
 logging.basicConfig(level=logging.DEBUG)  # DEBUG 레벨로 설정하여 모든 로그 출력
 logger = logging.getLogger(__name__)
@@ -211,6 +234,8 @@ def create_app() -> FastAPI:
     app.include_router(franchise_order_router, prefix="/franchise_orders", tags=["FranchiseOrders"])
     app.include_router(client_auth_router, prefix="/client_auth", tags=["ClientAuth"])
     app.include_router(category_price_override_router, prefix="/category_price_overrides", tags=["CategoryPriceOverride"])
+    app.include_router(monthly_sales_router, prefix="/monthly_sales", tags=["MonthlySales"])
+
     return app
 
 app = create_app()

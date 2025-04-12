@@ -29,7 +29,7 @@ def create_client_visit(payload: ClientVisitCreate, db: Session = Depends(get_db
     db.refresh(new_visit)
     return new_visit  # ✅ 변환 없이 KST 그대로 반환
 
-@router.get("/", response_model=list[ClientVisitOut])
+@router.get("/", response_model=List[ClientVisitOut])
 def list_client_visits(db: Session = Depends(get_db)):
     """ 모든 방문 기록 조회 (KST 그대로 반환) """
     visits = db.query(ClientVisit).all()

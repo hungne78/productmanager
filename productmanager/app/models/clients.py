@@ -27,6 +27,7 @@ class Client(Base):
     
     business_number = Column(String(50), nullable=True)
     email = Column(String(100), nullable=True)
+    virtual_account = Column(String(100), nullable=True)  # ✅ 가상계좌번호
 
     # ✅ KST 기준으로 생성/수정 시간 저장
     created_at = Column(DateTime, default=get_kst_now)

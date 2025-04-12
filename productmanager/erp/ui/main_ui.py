@@ -999,7 +999,7 @@ class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.memo_dict = {}
-        
+        self.setWindowTitle("성심유통 관리 시스템")
         self.load_memos_from_file()
         # ◆ 프레임 없애서 커스텀 타이틀바 사용
         # self.setWindowFlags(Qt.FramelessWindowHint)  

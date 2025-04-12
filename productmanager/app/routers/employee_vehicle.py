@@ -4,7 +4,7 @@ from app.db.database import get_db
 from app.models.employee_vehicle import EmployeeVehicle
 from app.schemas.employee_vehicle import EmployeeVehicleCreate, EmployeeVehicleOut, EmployeeVehicleUpdate
 from app.utils.time_utils import convert_utc_to_kst  # ✅ UTC → KST 변환 함수 추가
-
+from typing import List
 router = APIRouter()
 
 @router.post("/", response_model=EmployeeVehicleOut)
@@ -23,7 +23,7 @@ def create_employee_vehicle(vehicle_data: EmployeeVehicleCreate, db: Session = D
         db.rollback()
         raise HTTPException(status_code=500, detail=f"차량 등록 오류: {str(e)}")
 
-@router.get("/", response_model=list[EmployeeVehicleOut])
+@router.get("/", response_model=List[EmployeeVehicleOut])
 def list_employee_vehicles(db: Session = Depends(get_db)):
     """
     모든 직원 차량 정보 조회 (KST 변환 적용)
