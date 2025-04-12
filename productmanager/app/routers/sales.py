@@ -1018,15 +1018,14 @@ def get_client_sales(
     db: Session = Depends(get_db)
 ):
     """
-    직원(employee_id)이 담당하는 거래처들의 월별 매출과 이름 포함한 결과 반환
-
+    직원(employee_id)이 담당하는 거래처들의 월별 매출과 이름, 미수금(outstanding_amount)까지 포함
     """
     from app.models.clients import Client
     from sqlalchemy import extract, func
 
-    # 🔹 1) 직원 담당 거래처 목록 (client_id + 이름)
+    # 1) 직원 담당 거래처 목록
     employee_client_rows = (
-        db.query(EmployeeClient.client_id, Client.client_name)
+        db.query(EmployeeClient.client_id, Client.client_name, Client.outstanding_amount)
         .join(Client, EmployeeClient.client_id == Client.id)
         .filter(EmployeeClient.employee_id == employee_id)
         .all()
@@ -1037,16 +1036,20 @@ def get_client_sales(
             "year": year,
             "per_client": {},
             "total_monthly": [0]*12,
-            "client_names": {}
+            "client_names": {},
+            "outstanding_map": {}
         }
 
     client_ids = []
     client_names = {}
+    outstanding_map = {}
     for row in employee_client_rows:
-        client_ids.append(row.client_id)
-        client_names[row.client_id] = row.client_name
+        cid = row.client_id
+        client_ids.append(cid)
+        client_names[cid] = row.client_name
+        outstanding_map[cid] = float(row.outstanding_amount or 0.0)  # 미수금
 
-    # 🔹 2) 각 거래처 월별 매출 조회
+    # 2) 각 거래처 월별 매출 조회
     results = (
         db.query(
             SalesRecord.client_id.label("cid"),
@@ -1057,16 +1060,17 @@ def get_client_sales(
         .filter(SalesRecord.client_id.in_(client_ids))
         .filter(SalesRecord.employee_id == employee_id)
         .filter(extract('year', SalesRecord.sale_datetime) == year)
-        
         .group_by(SalesRecord.client_id, extract('month', SalesRecord.sale_datetime))
         .all()
     )
 
+    # 거래처별 매출 저장
     per_client = {cid: [0]*12 for cid in client_ids}
     for row in results:
         m = int(row.sale_month)
         per_client[int(row.cid)][m - 1] = float(row.sum_sales or 0)
 
+    # 월별 합계
     total_monthly = [0]*12
     for values in per_client.values():
         for i in range(12):
@@ -1074,9 +1078,10 @@ def get_client_sales(
 
     return {
         "year": year,
-        "per_client": per_client,
+        "per_client": per_client,    # { client_id: [월별 매출...], ...}
         "total_monthly": total_monthly,
-        "client_names": client_names
+        "client_names": client_names,
+        "outstanding_map": outstanding_map  # { client_id: 미수금, ...}
     }
 
 

@@ -192,27 +192,7 @@ class ProductSelectionDialog(QDialog):
         else:
             QMessageBox.warning(self, "선택", "상품을 선택해주세요.")
 
-class ProductRightPanel(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        layout = QVBoxLayout()
 
-        # 향후 상품 관련 데이터 및 통계를 표시할 공간
-        self.box1 = QGroupBox("상품 매출 통계")
-        self.label1 = QLabel("여기에 상품별 매출 분석을 표시할 예정")
-        layout.addWidget(self.box1)
-        self.box1_layout = QVBoxLayout()
-        self.box1_layout.addWidget(self.label1)
-        self.box1.setLayout(self.box1_layout)
-
-        self.box2 = QGroupBox("상품 재고 현황")
-        self.label2 = QLabel("여기에 상품 재고 데이터를 표시할 예정")
-        layout.addWidget(self.box2)
-        self.box2_layout = QVBoxLayout()
-        self.box2_layout.addWidget(self.label2)
-        self.box2.setLayout(self.box2_layout)
-
-        self.setLayout(layout)            
 
 class BrandManagerDialog(QDialog):
     def __init__(self, parent=None):
@@ -699,9 +679,9 @@ class ProductRightPanel(QWidget):
         # (B) 월별 판매량 테이블 (주문 기능이 없으면 일단 빈 상태)
         self.sales_table = QTableWidget()
         self.sales_table.setColumnCount(2)
-        self.sales_table.setHorizontalHeaderLabels(["월", "판매량(가정)"])
+        self.sales_table.setHorizontalHeaderLabels(["월", "판매량"])
         self.sales_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.left_section.addWidget(QLabel("📊 월별 판매량 (미구현)"))
+        self.left_section.addWidget(QLabel("📊 월별 판매량"))
         self.left_section.addWidget(self.sales_table)
 
         main_layout.addLayout(self.left_section, 1)  # 왼쪽은 비율 1
@@ -716,12 +696,12 @@ class ProductRightPanel(QWidget):
 
         # (B) 판매량 그래프
         self.sales_chart = QChartView()
-        self.right_section.addWidget(QLabel("📊 월별 판매량 그래프 (미구현)"))
+        self.right_section.addWidget(QLabel("📊 월별 판매량 그래프"))
         self.right_section.addWidget(self.sales_chart)
 
         # (C) 비교 그래프
         self.comparison_chart = QChartView()
-        self.right_section.addWidget(QLabel("📊 재고 vs 판매량 비교 그래프 (미구현)"))
+        self.right_section.addWidget(QLabel("📊 재고 vs 판매량 비교 그래프"))
         self.right_section.addWidget(self.comparison_chart)
 
         main_layout.addLayout(self.right_section, 3)  # 오른쪽은 비율 3
@@ -758,19 +738,39 @@ class ProductRightPanel(QWidget):
         chart.setAxisX(axis_x, series)
         self.stock_chart.setChart(chart)
 
-    def update_sales_data(self, sales_data):
+    def update_sales_data(self, sales_data: dict):
         """
-        상품별 월별 판매량 표시 & 그래프 업데이트
+        sales_data: 예) {'1월': 10, '2월': 12, '3월': 5, ...}
+        1) sales_table 채우기
+        2) sales_chart (QChart) 갱신
         """
+        # 1) 테이블 채우기
         self.sales_table.setRowCount(0)
-        for month, sales in sales_data.items():
+        for month, qty in sales_data.items():
             row = self.sales_table.rowCount()
             self.sales_table.insertRow(row)
             self.sales_table.setItem(row, 0, QTableWidgetItem(month))
-            self.sales_table.setItem(row, 1, QTableWidgetItem(str(sales)))
+            self.sales_table.setItem(row, 1, QTableWidgetItem(str(qty)))
 
-        # ✅ 그래프 업데이트
-        self.update_sales_chart(sales_data)
+        # 2) 그래프 갱신
+        chart = QChart()
+        series = QBarSeries()
+        categories = []
+
+        # month: ex) "1월", "2월", ...
+        for month, qty in sales_data.items():
+            bar_set = QBarSet(month)
+            bar_set.append(qty)
+            series.append(bar_set)
+            categories.append(month)
+
+        chart.addSeries(series)
+        axis_x = QBarCategoryAxis()
+        axis_x.append(categories)
+        chart.setAxisX(axis_x, series)
+        chart.setTitle("월별 판매량")
+
+        self.sales_chart.setChart(chart)
 
     def update_stock_chart(self, data):
         """
@@ -814,29 +814,37 @@ class ProductRightPanel(QWidget):
 
         self.sales_chart.setChart(chart)
 
-    def update_comparison_chart(self, stock_data, sales_data):
+    def update_comparison_chart(self, stock_data: dict, sales_data: dict):
         """
-        재고 변화 vs 판매량 비교 그래프 (선 그래프)
+        stock_data와 sales_data를 서로 비교하는 그래프 (원하는 형태대로 구성)
+        예: 두 개의 QLineSeries를 그려서 한 차트에 함께 표시
         """
         chart = QChart()
+        chart.setTitle("재고 vs 판매량 (월별)")
+
         series_stock = QLineSeries()
+        series_stock.setName("매입량")
         series_sales = QLineSeries()
+        series_sales.setName("판매량")
+
         axis_x = QBarCategoryAxis()
         categories = []
 
-        for month in stock_data.keys():
-            stock_amount = stock_data.get(month, 0)
-            sales_amount = sales_data.get(month, 0)
-
+        # 월 순서대로 1월~12월
+        for month in ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"]:
+            stk = stock_data.get(month, 0)
+            sal = sales_data.get(month, 0)
+            # x축 인덱스 = len(categories) + 1
+            idx = len(categories) + 1
+            series_stock.append(idx, stk)
+            series_sales.append(idx, sal)
             categories.append(month)
-            series_stock.append(len(categories), stock_amount)
-            series_sales.append(len(categories), sales_amount)
 
         chart.addSeries(series_stock)
         chart.addSeries(series_sales)
 
-        axis_x.append(categories)
         chart.createDefaultAxes()
+        axis_x.append(categories)
         chart.setAxisX(axis_x, series_stock)
         chart.setAxisX(axis_x, series_sales)
 
@@ -999,27 +1007,36 @@ QHeaderView::section {
     # ========== (5.1) “상품 선택 시” → fetch_and_update_stock_data ==========
     def product_selected(self, product: dict):
         """
-        왼쪽 패널에서 display_product 후에 호출됨.
+        (기존) 왼쪽 패널에서 display_product 후 호출됨.
         여기서 오른쪽 패널의 stock(=매입) 그래프를 업데이트.
+        + 추가로 판매량 그래프도 업데이트
         """
         product_id = product.get("id", None)
         if not product_id:
             return
 
-        # 예시: 올해 기준
         year = datetime.now().year
 
-        # 1) 서버에서 월별 매입량 가져오기
+        # 1) 월별 매입(재고) 정보
         monthly_purchases = self.fetch_monthly_purchases(product_id, year)
-
-        # 2) “1월..12월” label + 수량으로 dict 변환
-        month_labels = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"]
+        month_labels = ["1월","2월","3월","4월","5월","6월",
+                        "7월","8월","9월","10월","11월","12월"]
         purchase_dict = {}
         for i, qty in enumerate(monthly_purchases):
             purchase_dict[month_labels[i]] = qty
-
-        # 3) 오른쪽 패널에 전달
         self.right_panel.update_stock_data(purchase_dict)
+
+        # 2) **월별 판매량** (새로 추가)
+        monthly_sales = self.fetch_monthly_sales(product_id, year)
+        sales_dict = {}
+        for i, qty in enumerate(monthly_sales):
+            sales_dict[month_labels[i]] = qty
+        # → 오른쪽 패널에 전달
+        self.right_panel.update_sales_data(sales_dict)
+
+        # 3) 비교 차트 (재고 vs 판매)도 필요하다면:
+        self.right_panel.update_comparison_chart(purchase_dict, sales_dict)
+
 
     # ========== (5.2) “fetch_monthly_purchases” 함수 ==========
     def fetch_monthly_purchases(self, product_id: int, year: int):
@@ -1041,4 +1058,24 @@ QHeaderView::section {
         except Exception as e:
             print("❌ 월별 매입 데이터 조회 실패:", e)
             return [0]*12
+        
+    def fetch_monthly_sales(self, product_id: int, year: int):
+        """
+        서버로부터 /orders/monthly_sales_product/{product_id}/{year} 호출해
+        1~12월 판매량 배열(길이 12)을 반환받음.
+        """
+        url = f"{BASE_URL}/orders/monthly_sales_product/{product_id}/{year}"
+        headers = {"Authorization": f"Bearer {global_token}"}
+        try:
+            resp = requests.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()  # 예: [10, 5, 0, 12, ...] 길이 12
+            if not isinstance(data, list) or len(data) != 12:
+                print("❌ 서버 응답이 12개짜리 리스트가 아님:", data)
+                return [0]*12
+            return data
+        except Exception as e:
+            print("❌ 월별 판매량 조회 실패:", e)
+            return [0]*12
+
 

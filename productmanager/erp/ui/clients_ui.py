@@ -14,7 +14,9 @@ import requests
 from PyQt5.QtGui import QFont
 from datetime import datetime
 from config import BASE_URL
-
+from PyQt5.QtWidgets import QFileDialog
+import pandas as pd
+import traceback
 global_token = get_auth_headers
 
 class CustomCalendarCell(QFrame):
@@ -444,57 +446,67 @@ class ClientLeftPanel(BaseLeftTableWidget):
             main_layout = QVBoxLayout()
             self.setLayout(main_layout)
 
-        # ✅ 담당 직원 테이블 먼저 추가
+        # 🔹 버튼을 그리드로 깔끔하게 정리
+        btn_grid = QGridLayout()
+        btn_grid.setSpacing(6)
+
+        # 1) 기존 부모 클래스의 버튼들
+        self.btn_new.setFixedHeight(32)
+        self.btn_edit.setFixedHeight(32)
+        btn_grid.addWidget(self.btn_new, 0, 0)
+        btn_grid.addWidget(self.btn_edit, 0, 1)
+
+        # 2) 자식 클래스에서 추가한 버튼들
+        self.btn_delete = QPushButton("삭제")
+        self.btn_assign = QPushButton("담당 직원 배정")
+        self.btn_unassign = QPushButton("담당 직원 해제")
+        self.btn_lent = QPushButton("대여 냉동고")
+        for btn in [self.btn_delete, self.btn_assign, self.btn_unassign, self.btn_lent]:
+            btn.setFixedHeight(32)
+            btn.setMinimumWidth(100)
+        btn_grid.addWidget(self.btn_delete,   1, 0)
+        btn_grid.addWidget(self.btn_assign,   1, 1)
+        btn_grid.addWidget(self.btn_unassign, 2, 0)
+        btn_grid.addWidget(self.btn_lent,     2, 1)
+
+        # 3) 🔽 "서버 → 엑셀 내보내기" + "엑셀 → 서버 등록" 버튼도 같은 그리드에 추가
+        self.btn_export_excel = QPushButton("서버 거래처 → 엑셀")
+        self.btn_export_excel.clicked.connect(self.export_excel_clients)
+        self.btn_import_excel = QPushButton("엑셀 → 서버 등록")
+        self.btn_import_excel.clicked.connect(self.import_excel_clients)
+
+        # 버튼 크기 통일
+        for btn in [self.btn_export_excel, self.btn_import_excel]:
+            btn.setFixedHeight(32)
+            btn.setMinimumWidth(160)
+
+        btn_grid.addWidget(self.btn_export_excel, 3, 0)
+        btn_grid.addWidget(self.btn_import_excel, 3, 1)
+        font = QFont("맑은 고딕", 7)  # 폰트 이름 + 크기
+
+        for btn in [self.btn_export_excel, self.btn_import_excel, self.btn_new, self.btn_edit,
+                    self.btn_delete, self.btn_assign, self.btn_unassign, self.btn_lent]:
+            btn.setFont(font)
+        # 🔹 구성된 그리드 레이아웃을 메인 레이아웃에 추가
+        main_layout.addLayout(btn_grid)
+
+        # 🔹 담당 직원 목록 라벨 및 테이블
+        main_layout.addWidget(QLabel("담당 직원 목록"))
         self.assigned_employees_table = QTableWidget()
         self.assigned_employees_table.setColumnCount(1)
         self.assigned_employees_table.setHorizontalHeaderLabels(["담당 직원"])
         self.assigned_employees_table.horizontalHeader().setStretchLastSection(True)
         main_layout.addWidget(self.assigned_employees_table)
 
-        # ✅ 버튼들 한 번에 정리
-        from PyQt5.QtWidgets import QGridLayout
-
-        # 부모 클래스의 버튼들
-        self.btn_new.setFixedHeight(32)
-        self.btn_edit.setFixedHeight(32)
-
-        # 자식 클래스 버튼들
-        self.btn_delete = QPushButton("삭제")
-        self.btn_assign = QPushButton("담당 직원 배정")
-        self.btn_unassign = QPushButton("담당 직원 해제")
-        self.btn_lent = QPushButton("대여 냉동고")
-
-        for btn in [self.btn_delete, self.btn_assign, self.btn_unassign, self.btn_lent]:
-            btn.setFixedHeight(32)
-            btn.setMinimumWidth(100)
-
-        # ✅ 그리드 배치: 2열 압축
-        btn_grid = QGridLayout()
-        btn_grid.setSpacing(6)
-        btn_grid.addWidget(self.btn_new,      0, 0)
-        btn_grid.addWidget(self.btn_edit,     0, 1)
-        btn_grid.addWidget(self.btn_delete,   1, 0)
-        btn_grid.addWidget(self.btn_assign,   1, 1)
-        btn_grid.addWidget(self.btn_unassign, 2, 0)
-        btn_grid.addWidget(self.btn_lent,     2, 1)
-
-        main_layout.addLayout(btn_grid)
-
-        # ✅ 담당 직원 목록 추가
-        main_layout.addWidget(QLabel("담당 직원 목록"))
-        main_layout.addWidget(self.assigned_employees_table)
+        # 예시: 테이블에서 직원 더블클릭 시 어떤 동작
         self.assigned_employees_table.itemDoubleClicked.connect(self.on_employee_double_clicked)
 
-        # ✅ 버튼 레이아웃 추가
-        # main_layout.addLayout(btn_layout_bottom)
-        # ✅ 프로모션 등록 박스 추가
+        # 🔹 행사 등록 박스 (예시)
         promo_box = QGroupBox("📣 행사 등록")
         promo_layout = QVBoxLayout()
 
-        # ── 입력 영역: 날짜 선택, 카테고리 선택, 단가 입력
-        form_layout = QHBoxLayout()
-
-        # 1) 날짜 선택
+        # 행사 시작/종료일
+        row1 = QHBoxLayout()
         self.promo_start = QDateEdit()
         self.promo_start.setCalendarPopup(True)
         self.promo_start.setDate(QDate.currentDate())
@@ -558,6 +570,113 @@ class ClientLeftPanel(BaseLeftTableWidget):
         
         self.btn_unassign.clicked.connect(self.unassign_employee)
     
+    def export_excel_clients(self):
+        """
+        서버에 저장된 거래처들을 조회해 엑셀로 저장
+        """
+        try:
+            # 1. 서버로부터 거래처 목록 가져오기
+            clients = api_fetch_clients(get_auth_headers)  # 실제로는 페이지네이션 등 처리 가능
+            if not clients:
+                QMessageBox.information(self, "알림", "서버에 거래처가 없습니다.")
+                return
+
+            # 2. pandas DataFrame으로 변환
+            df = pd.DataFrame(clients)
+            if df.empty:
+                QMessageBox.information(self, "알림", "서버에 거래처가 없습니다.")
+                return
+
+            # 3. 사용자에게 저장 경로를 물어봄
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "엑셀로 저장",
+                "",
+                "Excel Files (*.xlsx *.xls)"
+            )
+            if not file_path:
+                return  # 취소 시
+
+            # 4. DataFrame을 엑셀로 저장
+            df.to_excel(file_path, index=False, sheet_name="Clients")
+            QMessageBox.information(self, "완료", f"거래처 목록을 엑셀로 저장했습니다:\n{file_path}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"엑셀 내보내기 실패: {e}")
+            
+    def import_excel_clients(self):
+        """
+        엑셀 파일에서 거래처 데이터를 읽어 한 번에 등록하는 로직
+        """
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "엑셀 파일 불러오기", 
+            "", 
+            "Excel Files (*.xls *.xlsx)"
+        )
+        if not file_path:
+            return  # 파일 선택이 취소된 경우
+
+        try:
+            df = pd.read_excel(file_path)
+            # df.columns → 예: ['거래처명','대표자명','주소','전화번호','미수금','일반가','고정가','사업자번호','이메일','비밀번호']
+
+            total_count = 0
+            success_count = 0
+
+            for idx, row in df.iterrows():
+                # 필요한 컬럼만 추출, NaN 방어코드
+                client_name = str(row.get('거래처명','')).strip()
+                rep_name    = str(row.get('대표자명','')).strip()
+                address     = str(row.get('주소','')).strip()
+                phone       = str(row.get('전화번호','')).strip()
+                outstanding = float(row.get('미수금', 0) or 0)
+                regular_p   = float(row.get('일반가', 35) or 35)
+                fixed_p     = float(row.get('고정가', 70) or 70)
+                business    = str(row.get('사업자번호','')).strip()
+                email       = str(row.get('이메일','')).strip()
+                password    = str(row.get('비밀번호','')).strip()  # 비밀번호가 꼭 필요한 경우
+
+                # 필수 값이 부족하면 건너뛰기
+                if not client_name:
+                    print(f"[{idx}행] 거래처명 없음 → 스킵")
+                    continue
+
+                # API에 보낼 payload 구성
+                payload = {
+                    "client_name": client_name,
+                    "representative_name": rep_name,
+                    "address": address,
+                    "phone": phone,
+                    "outstanding_amount": outstanding,
+                    "regular_price": regular_p,
+                    "fixed_price": fixed_p,
+                    "business_number": business,
+                    "email": email
+                }
+                # 비밀번호 입력이 있다면 서버 쪽에 맞춰 전달
+                if password:
+                    payload["password"] = password
+
+                # 요청 전송
+                resp = api_create_client(get_auth_headers, payload)
+                total_count += 1
+                if resp and hasattr(resp, "status_code") and resp.status_code in (200,201):
+                    success_count += 1
+                else:
+                    print(f"[{idx}행] 등록 실패: {resp.text if resp else 'No response'}")
+
+            QMessageBox.information(
+                self,
+                "엑셀 등록 완료",
+                f"총 {total_count}건 중 {success_count}건 등록 성공!"
+            )
+            # 등록 후 테이블 새로고침
+            self.load_data_from_server()  # 예: self.parentWidget().reload_clients() 식으로 갱신
+
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"엑셀 불러오기 실패: {e}\n{traceback.format_exc()}")
+
     def on_employee_double_clicked(self, item):
         """
         담당 직원 테이블에서 직원 이름 또는 ID 더블클릭 시 → 직원 탭 전환 요청

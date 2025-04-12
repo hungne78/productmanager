@@ -344,7 +344,7 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         # 📌 1) 테이블 설정
         self.client_sales_table = QTableWidget()
         self.client_sales_table.setColumnCount(3)
-        self.client_sales_table.setHorizontalHeaderLabels(["순번", "거래처명", "이번달 매출"])
+        self.client_sales_table.setHorizontalHeaderLabels(["거래처명", "이번달 매출", "미수금"])
         self.client_sales_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.client_sales_table.verticalHeader().setVisible(False)
 
@@ -546,10 +546,6 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         self.update_client_sales(emp_id)
 
     def update_client_sales(self, emp_id):
-        """
-        1) 서버에서 직원 담당 거래처들의 월별 매출 + 이름을 받아옴
-        2) 이번달 매출만 추출하여 테이블에 표시 + 합계는 별도 라벨에 표시
-        """
         from datetime import datetime
         now = datetime.now()
         year = now.year
@@ -569,11 +565,18 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
 
         per_client = data.get("per_client", {})
         client_names = data.get("client_names", {})
+        outstanding_map = data.get("outstanding_map", {})  # 추가된 미수금 map
 
         self.client_sales_table.clearContents()
+        
+        # 열 수: 순번 / 거래처명 / 이번달 매출 / 미수금 → 4열로 변경
+        # '순번'은 없앨 예정이면, 그 자리를 그냥 비우거나 안 쓴다.
+        self.client_sales_table.setColumnCount(3)  
+        self.client_sales_table.setHorizontalHeaderLabels(["거래처명", "이번달 매출", "미수금"])
+
         self.client_sales_table.setRowCount(len(per_client))
 
-        # 👉 열 크기 조절
+        # 열 크기 조절
         header = self.client_sales_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
@@ -582,32 +585,32 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         total_sum = 0
         for row_idx, (client_id, monthly_sales) in enumerate(per_client.items()):
             name = client_names.get(str(client_id), f"거래처 {client_id}")
-            this_month_sales = monthly_sales[month - 1]
+            this_month_sales = monthly_sales[month - 1]  # 이번 달 매출
+            # 미수금
+            outstanding_val = outstanding_map.get(str(client_id), 0.0)
 
-            # 👉 순번
-            item_index = QTableWidgetItem(str(row_idx + 1))
-            item_index.setTextAlignment(Qt.AlignCenter)
-            self.client_sales_table.setItem(row_idx, 0, item_index)
-
-            # 👉 거래처명
+            # 거래처명
             item_name = QTableWidgetItem(name)
             item_name.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            self.client_sales_table.setItem(row_idx, 1, item_name)
+            self.client_sales_table.setItem(row_idx, 0, item_name)
 
-            # 👉 매출
+            # 이번달 매출
             item_sales = QTableWidgetItem(f"{this_month_sales:,.0f} 원")
             item_sales.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.client_sales_table.setItem(row_idx, 2, item_sales)
+            self.client_sales_table.setItem(row_idx, 1, item_sales)
+
+            # 미수금
+            item_outs = QTableWidgetItem(f"{outstanding_val:,.0f} 원")
+            item_outs.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.client_sales_table.setItem(row_idx, 2, item_outs)
 
             total_sum += this_month_sales
 
-        # 👉 합계 라벨에 표시 (별도)
+        # 합계 라벨 표시 (필요하면 유지)
         self.client_sales_total_label.setText(f"합계: {total_sum:,.0f} 원")
         self.client_sales_total_label.setAlignment(Qt.AlignRight)
-        self.client_sales_total_label.setFont(QFont("Arial", 10, QFont.Bold))
+        # 폰트 설정 등…
 
-        # 마지막 줄로 스크롤
-        self.client_sales_table.scrollToBottom()
 
 
 

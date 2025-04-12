@@ -6,8 +6,10 @@ from datetime import datetime
 import requests
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from services.api_services import api_fetch_purchases, api_fetch_products, api_update_product_stock, get_auth_headers
-from PyQt5.QtWidgets import QSizePolicy
+from PyQt5.QtWidgets import QSizePolicy, QLineEdit
 from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtGui import QIntValidator
+
 from config import BASE_URL
 global_token = get_auth_headers  # 로그인 토큰 (Bearer 인증)
 
@@ -63,9 +65,16 @@ class PurchaseLeftPanel(QWidget):
         self.selected_product_id = QLineEdit()
         self.selected_product_id.setPlaceholderText("선택된 상품 ID")
         self.selected_product_id.setReadOnly(True)
-        self.purchase_quantity = QSpinBox()
-        
-        self.purchase_price = QSpinBox()
+        self.purchase_quantity = QLineEdit()
+        self.purchase_quantity.setPlaceholderText("예: 1000")
+        self.purchase_quantity.setValidator(QIntValidator(0, 1000000))  # 원하는 최대값 설정
+        self.purchase_quantity.setStyleSheet("QLineEdit { padding: 6px; font-size: 13px; }")
+
+        # 매입 단가
+        self.purchase_price = QLineEdit()
+        self.purchase_price.setPlaceholderText("예: 3200")
+        self.purchase_price.setValidator(QIntValidator(0, 10000000))  # 단가도 유사하게 처리
+        self.purchase_price.setStyleSheet("QLineEdit { padding: 6px; font-size: 13px; }")
         
         
 
@@ -271,8 +280,8 @@ class PurchaseLeftPanel(QWidget):
         상품 매입 등록 (재고 업데이트 포함)
         """
         product_id = self.selected_product_id.text().strip()
-        quantity = self.purchase_quantity.value()
-        unit_price = self.purchase_price.value()  # ✅ 사용자가 입력한 단가 포함
+        quantity = int(self.purchase_quantity.text())
+        unit_price = int(self.purchase_price.text())  # ✅ 사용자가 입력한 단가 포함
 
         if not product_id:
             QMessageBox.warning(self, "경고", "상품을 선택하세요.")
