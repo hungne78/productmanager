@@ -1115,3 +1115,20 @@ def get_client_monthly_sales(
     total_sales = float(sum_val or 0.0)
     return { "total_sales": total_sales }
 
+@router.get("/monthly_box_count_client/{client_id}/{year}")
+def get_monthly_box_count(client_id: int, year: int, db: Session = Depends(get_db)):
+    results = (
+        db.query(
+            extract('month', SalesRecord.sale_datetime).label('sale_month'),
+            func.sum(SalesRecord.quantity).label('total_boxes')
+        )
+        .filter(SalesRecord.client_id == client_id)
+        .filter(extract('year', SalesRecord.sale_datetime) == year)
+        .group_by(extract('month', SalesRecord.sale_datetime))
+        .all()
+    )
+    monthly_boxes = [0] * 12
+    for row in results:
+        m = int(row.sale_month) - 1
+        monthly_boxes[m] = int(row.total_boxes or 0)
+    return monthly_boxes
