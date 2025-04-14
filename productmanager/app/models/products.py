@@ -12,7 +12,7 @@ def get_kst_now():
 
 class Product(Base):
     __tablename__ = "products"
-
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=False)
     product_name = Column(String(100), nullable=False)

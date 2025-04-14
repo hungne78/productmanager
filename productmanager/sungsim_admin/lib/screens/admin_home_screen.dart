@@ -7,6 +7,11 @@ import '../services/admin_api_service.dart'; // 예시
 import 'login_screen.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../screens/sales_detail_screen.dart';
+import '../screens/employess/employee_list_screen.dart';
+import '../screens/sales/sales_main_screen.dart';
+
+import '../screens/clients/client_list_screen.dart';
+
 
 
 class AdminHomeScreen extends StatefulWidget {
@@ -213,27 +218,70 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       mainAxisSpacing: 16,
       crossAxisSpacing: 16,
       children: [
-        _buildMenuButton(icon: Icons.people, label: "직원 관리", onTap: () {
-          // TODO: 직원관리 화면으로 이동
-        }),
-        _buildMenuButton(icon: Icons.shopping_cart, label: "판매 정보", onTap: () {
-          // TODO: 판매정보 화면으로 이동
-        }),
-        _buildMenuButton(icon: Icons.list_alt, label: "주문 관리", onTap: () {
-          // TODO: 주문관리 화면으로 이동
-        }),
-        _buildMenuButton(icon: Icons.store, label: "거래처 정보", onTap: () {
-          // TODO: 거래처 화면으로 이동
-        }),
-        _buildMenuButton(icon: Icons.settings, label: "설정", onTap: () {
-          // TODO: 설정 화면 이동
-        }),
-        _buildMenuButton(icon: Icons.analytics, label: "통계 대시보드", onTap: () {
-          // TODO: 통계 / 차트 등
-        }),
+        _buildMenuButton(
+          icon: Icons.people,
+          label: "직원 관리",
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const EmployeeListScreen()),
+            );
+          },
+        ),
+        _buildMenuButton(
+          icon: Icons.shopping_cart,
+          label: "판매 정보",
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SalesMainScreen()),
+            );
+          },
+        ),
+        _buildMenuButton(
+          icon: Icons.list_alt,
+          label: "주문 관리",
+          onTap: () {
+            // Navigator.push(
+            //   context,
+            //   MaterialPageRoute(builder: (_) => const OrderListScreen()),
+            // );
+          },
+        ),
+        _buildMenuButton(
+          icon: Icons.store,
+          label: "거래처 정보",
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ClientListScreen()),
+            );
+          },
+        ),
+        _buildMenuButton(
+          icon: Icons.settings,
+          label: "설정",
+          onTap: () {
+            // Navigator.push(
+            //   context,
+            //   MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            // );
+          },
+        ),
+        _buildMenuButton(
+          icon: Icons.analytics,
+          label: "통계 대시보드",
+          onTap: () {
+            // Navigator.push(
+            //   context,
+            //   MaterialPageRoute(builder: (_) => const AnalyticsDashboardScreen()),
+            // );
+          },
+        ),
       ],
     );
   }
+
 
   Widget _buildMenuButton({
     required IconData icon,

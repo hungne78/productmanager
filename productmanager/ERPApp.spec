@@ -1,15 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_all
 
-hiddenimports = ['requests', 'pandas', 'PyQt5.QtChart', 'PyQt5.QtPrintSupport', 'folium', 'PyQt5.QtWebEngineWidgets']
+datas = [('erp/assets', 'assets'), ('erp/icons', 'icons'), ('erp/ui', 'ui'), ('erp/services', 'services'), ('erp/config.py', '.')]
+binaries = []
+hiddenimports = ['requests', 'pandas', 'folium', 'PyQt5.QtChart', 'PyQt5.QtPrintSupport', 'PyQt5.QtWebEngineWidgets', 'sip', '_cffi_backend', 'sklearn.utils._heap', 'sklearn.utils._sorting', 'sklearn.utils._typedefs', 'sklearn.utils._cython_blas', 'scipy._lib._fpumode']
 hiddenimports += collect_submodules('PyQt5.QtChart')
+hiddenimports += collect_submodules('sklearn')
+hiddenimports += collect_submodules('scipy')
+hiddenimports += collect_submodules('charset_normalizer')
+tmp_ret = collect_all('torch')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
     ['erp\\main.py'],
     pathex=[],
-    binaries=[],
-    datas=[('erp/assets', 'assets'), ('erp/icons', 'icons'), ('erp/ui', 'ui'), ('erp/services', 'services'), ('erp/config.py', '.')],
+    binaries=binaries,
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ClientApiService {
-  static const String baseUrl = "http://서버주소";
+  static const String baseUrl = "http://hungne78.synology.me:8000";
 
   /// 직원별 거래처 목록 조회
   /// 응답 예:

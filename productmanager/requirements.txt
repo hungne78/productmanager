@@ -13,3 +13,5 @@ redis
 firebase-admin
 apscheduler
 pymysql
+email-validator
+bcrypt==3.2.2  # ✅ bcrypt 버전 명시 (passlib 호환용)

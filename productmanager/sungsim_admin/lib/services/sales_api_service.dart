@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class SalesApiService {
-  static const String baseUrl = "http://서버주소"; // 서버 주소
+  static const String baseUrl = "http://hungne78.synology.me:8000"; // 서버 주소
 
   /// 🔹 통합 검색 API: 날짜범위 + 직원 + 거래처 → { "by_date": [...], "by_employee": [...], "by_client": [...] }
   static Future<Map<String, dynamic>> fetchSalesAggregates(

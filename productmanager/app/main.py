@@ -42,7 +42,32 @@ from app.utils.time_utils import get_kst_now
 from dateutil.relativedelta import relativedelta
 from app.utils.monthly_aggregation import aggregate_sales_to_monthly
 from app.routers.monthly_sales import router as monthly_sales_router
+from app.models.admin_users import AdminUser  # ✅ 이 줄이 꼭 필요함
+from app.models.brands import Brand
+from app.models.category_price_override import CategoryPriceOverride
+from app.models.client_prices import ClientProductPrice
+from app.models.client_visit_archive import ClientVisitArchive
+from app.models.clients import Client
+from app.models.company import CompanyInfo
+from app.models.employee_clients import EmployeeClient
+from app.models.employee_vehicle import EmployeeVehicle
+from app.models.franchise_order_archive import FranchiseOrderArchive
+from app.models.franchise_order import FranchiseOrder
+from app.models.lent import Lent
+from app.models.monthly_sales import MonthlySales
+
+from app.models.orders import Order, OrderItem
+from app.models.payments import Payment
+from app.models.product_barcodes import ProductBarcode
+from app.models.product_purchase_prices import ProductPurchasePrice
+from app.models.purchases import Purchase
+from app.models.purchase_archive import PurchaseArchive
+from app.models.sales_record_archive import SalesRecordArchive
+from app.models.sales import Sales
+from app.routers.admin_auth  import router as admin_auth_router 
 # 기존 scheduler 초기화 이후에 추가
+
+
 def run_monthly_aggregation():
     from app.db.database import SessionLocal
     from datetime import datetime
@@ -123,9 +148,34 @@ async def lifespan(app: FastAPI):
             db.commit()
             db.refresh(admin)
             print("Default admin created")
+        default_admins = [
+            {
+                "email": "hcjang0528@naver.com",
+                "name": "장현철",
+                "password": "admin123"
+            },
+            {
+                "email": "kimdoohan@naver.com",
+                "name": "김두한",
+                "password": "admin123"
+            }
+        ]
+
+        for admin_data in default_admins:
+            existing_admin = db.query(AdminUser).filter(AdminUser.email == admin_data["email"]).first()
+            if not existing_admin:
+                new_admin = AdminUser(
+                    email=admin_data["email"],
+                    name=admin_data["name"],
+                    role="admin",
+                    password_hash=get_password_hash(admin_data["password"])
+                )
+                db.add(new_admin)
+                print(f"✅ 기본 관리자 계정 생성됨: {admin_data['email']}")
+        db.commit()        
     finally:
         db.close()
-
+    
     scheduler.add_job(cleanup_unused_products_task, "cron", hour=3, minute=0)
     scheduler.start()
     print("✅ 스케줄러 시작됨 (매일 03:00 자동 삭제)")
@@ -235,7 +285,7 @@ def create_app() -> FastAPI:
     app.include_router(client_auth_router, prefix="/client_auth", tags=["ClientAuth"])
     app.include_router(category_price_override_router, prefix="/category_price_overrides", tags=["CategoryPriceOverride"])
     app.include_router(monthly_sales_router, prefix="/monthly_sales", tags=["MonthlySales"])
-
+    app.include_router(admin_auth_router, prefix="/admin_auth", tags=["AdminUser"])
     return app
 
 app = create_app()

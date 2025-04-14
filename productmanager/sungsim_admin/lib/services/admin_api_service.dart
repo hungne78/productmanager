@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class AdminApiService {
-  static const String baseUrl = "http://서버주소"; // 👉 여기에 서버 주소 넣으세요
+  static const String baseUrl = "http://hungne78.synology.me:8000"; // 👉 여기에 서버 주소 넣으세요
 
   /// 🔹 이번 달 직원별 매출 조회 (GET /admin/sales/monthly)
   static Future<List<Map<String, dynamic>>> fetchMonthlyEmployeeSales(String token) async {

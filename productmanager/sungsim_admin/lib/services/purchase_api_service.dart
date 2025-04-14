@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class PurchaseApiService {
-  static const String baseUrl = "http://서버주소";
+  static const String baseUrl = "http://hungne78.synology.me:8000";
 
   /// 구매(입고) 목록 검색
   static Future<List<Map<String, dynamic>>> fetchPurchaseList(
