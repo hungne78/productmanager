@@ -8,7 +8,7 @@ __pycache__/
 .env
 *.sqlite3
 *.db
-
+*.tar
 # --- FastAPI / PyQt 관련 ---
 *.log
 *.bak
