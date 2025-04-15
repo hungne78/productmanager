@@ -82,6 +82,17 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // ✅ 브랜드 타이틀
+                const Text(
+                  "성심유통 관리자",
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.indigo,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 const Icon(Icons.lock_outline, size: 48, color: Colors.indigo),
                 const SizedBox(height: 16),
                 TextField(
