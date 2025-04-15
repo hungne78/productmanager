@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy.orm import relationship, declared_attr
 from app.db.base import Base
 from pytz import timezone
-
+from app.models.product_purchase_prices import ProductPurchasePrice
 def get_kst_now():
     """ 현재 시간을 한국 시간(KST)으로 변환 """
     kst = timezone("Asia/Seoul")
@@ -12,7 +12,7 @@ def get_kst_now():
 
 class Product(Base):
     __tablename__ = "products"
-
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=False)
     product_name = Column(String(100), nullable=False)
@@ -44,3 +44,4 @@ class Product(Base):
     order_items_archive = relationship("OrderItemArchive", back_populates="product")
     inventory = relationship("EmployeeInventory", back_populates="product")
     barcodes = relationship("ProductBarcode", back_populates="product", cascade="all, delete-orphan")
+    purchase_prices = relationship("ProductPurchasePrice", back_populates="product", cascade="all, delete-orphan")

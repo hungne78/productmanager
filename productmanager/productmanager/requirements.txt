@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
+requests
+python-dateutil
+pytz
+redis
+firebase-admin
+apscheduler
+pymysql
+email-validator
+bcrypt==3.2.2  # ✅ bcrypt 버전 명시 (passlib 호환용)

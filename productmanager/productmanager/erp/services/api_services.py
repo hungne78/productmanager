@@ -2,9 +2,16 @@ import requests
 from datetime import datetime
 import json
 from datetime import date
+import sys
+import os
+
+# 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from config import BASE_URL
 
 HEADERS = {"Content-Type": "application/json"}
+
+
 
 # 🔹 로그인관련 API 함수들
 # 🔹 직원 로그인 (JWT 토큰 반환)
@@ -30,6 +37,27 @@ def get_auth_headers():
 
 # 🔹 직원 관련 API 함수들
 
+def api_fetch_client_by_id(token, client_id):
+    """
+    특정 거래처 ID로 거래처 상세정보 조회
+    예: GET /clients/{client_id}
+    """
+    url = f"{BASE_URL}/clients/{client_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        response = requests.get(url, headers=headers)
+        print(f"📡 GET {url}, status={response.status_code}")
+
+        if response.status_code == 200:
+            return response.json()  # dict 형태로 반환
+        else:
+            print(f"🚨 거래처 {client_id} 조회 실패: {response.status_code}, {response.text}")
+            return {}
+    except Exception as e:
+        print(f"❌ 예외 발생: {e}")
+        return {}
+    
 def api_unassign_employee_client(token, client_id, emp_id):
     """ 특정 직원과 거래처의 연결을 해제하는 API 요청 (POST 사용) """
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}

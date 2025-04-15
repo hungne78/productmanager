@@ -7,7 +7,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SECRET_KEY = "YOUR_SECRET_KEY"  # 실제 운영환경에서는 외부 .env로 분리
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 토큰 유효기간(예: 60분)
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30 # 토큰 유효기간(예: 60분)
 
 def get_password_hash(plain_password: str) -> str:
     return pwd_context.hash(plain_password)

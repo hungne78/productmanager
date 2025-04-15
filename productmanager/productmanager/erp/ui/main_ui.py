@@ -999,21 +999,17 @@ class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.memo_dict = {}
-        
+        self.setWindowTitle("성심유통 관리 시스템")
         self.load_memos_from_file()
         # ◆ 프레임 없애서 커스텀 타이틀바 사용
-        self.setWindowFlags(Qt.FramelessWindowHint)  
-        self.setGeometry(0, 0, 1900, 1200)
+        # self.setWindowFlags(Qt.FramelessWindowHint)  
+        self.setGeometry(0, 0, 1600, 1000)
 
         # ◆ 새로운 모던 라이트 테마(QSS) 적용
         self.setStyleSheet(load_modern_light_theme())
 
         # ◆ 회사 정보 JSON 로드 (기능 유지)
-        try:
-            self.company_info = self.load_company_info()
-        except Exception as e:
-            print("회사 정보 로딩 오류:", e)
-            self.company_info = {}  # 또는 None 등으로 기본값 설정
+        self.company_info = {}  # 또는 None 등으로 기본값 설정
         # ◆ 드래그 이동용
         self.old_pos = self.pos()
 
@@ -1035,7 +1031,7 @@ class MainApp(QMainWindow):
         header_layout.setContentsMargins(10, 0, 10, 0)
 
         # 타이틀 라벨
-        title_label = QLabel("아이스크림 ERP ")
+        title_label = QLabel("아이스크림 ERP   Version 1.0.0")
         title_label.setObjectName("TitleLabel")  # QSS: #TitleLabel
         # 우측에 관리자 표기
         user_label = QLabel("로그인: 관리자")
@@ -1184,7 +1180,7 @@ class MainApp(QMainWindow):
 
         # 📅 달력 팝업 버튼
         self.calendar_toggle_btn = QPushButton("📅")
-        self.calendar_toggle_btn.setFixedSize(45, 45)
+        self.calendar_toggle_btn.setFixedSize(60, 60)
         self.calendar_toggle_btn.setStyleSheet("""
             font-size: 40px;
             background-color: #E2E8F0;
@@ -1203,17 +1199,19 @@ class MainApp(QMainWindow):
         clock_row.addSpacing(12)
         clock_row.addWidget(self.calendar_toggle_btn)
         clock_row.addStretch()
-
+          
         #  회사정보 표시 라벨 + 회사정보 설정 버튼 추가
         self.company_info_label = QLabel("회사 정보가 등록되지 않았습니다.")
         self.company_info_label.setStyleSheet("""
             color: #1E3A8A;
-            font-size: 13px;
+            font-size: 25px;
             font-weight: 500;
         """)
+        if self.company_info:
+            self.update_company_info_label(self.company_info)     
 
         self.company_info_button = QPushButton("회사 정보 설정")
-        self.company_info_button.setFixedSize(120, 30)
+        self.company_info_button.setFixedSize(150, 45)
         self.company_info_button.setStyleSheet("""
             background-color: #FFFCEB;
             border: 1px solid #F5DA6B;
@@ -1226,7 +1224,7 @@ class MainApp(QMainWindow):
         clock_row.addWidget(self.company_info_label)
         clock_row.addWidget(self.company_info_button)
         clock_row.addSpacing(8)
-                
+        self.load_initial_company_info()            
         # ✅ 회사 냉동고 버튼
         self.view_freezers_button = QPushButton("🏢 회사 냉동고")
         self.view_freezers_button.setFixedSize(160, 40)
@@ -1264,8 +1262,15 @@ class MainApp(QMainWindow):
         
         clock_row.addWidget(self.sales_label)
         self.load_monthly_sales()
+        self.signature_label = QLabel("Programmed By Shim Hyoung Seob", self)
+        self.signature_label.setStyleSheet("color: gray; font-size: 11px;")
+        self.signature_label.adjustSize()
 
-        # # 버튼 영역
+        # 오른쪽 하단 위치 지정
+        self.signature_label.move(self.width() - self.signature_label.width() - 10,
+                                self.height() - self.signature_label.height() - 10)
+        self.signature_label.raise_()  # 맨 위로 올림
+                # # 버튼 영역
         # button_row = QHBoxLayout()
         # button_row.addStretch()
         # for label in ["저장", "조회", "삭제"]:
@@ -1340,7 +1345,48 @@ class MainApp(QMainWindow):
 
 
         self.memo_dict = {}  # 날짜: 메모 저장용 딕셔너리
+    def show_employee_tab(self, employee_name=None):
+        """
+        직원탭으로 이동하고, 특정 직원 이름이 주어졌다면 해당 직원 정보를 표시한다.
+        """
+        self.stacked.setCurrentWidget(self.tabs["employees"])  # 직원탭 전환
+        self.update_search_placeholder("employees")
+        self.update_custom_button("employees")
 
+        if employee_name:
+            employees_tab = self.tabs["employees"]
+            if hasattr(employees_tab, "display_employee_by_name"):
+                employees_tab.display_employee_by_name(employee_name)
+            else:
+                print("⚠️ EmployeesTab에 display_employee_by_name 함수가 없습니다.")
+
+    def show_client_tab(self, client_id=None):
+        """
+        왼쪽 사이드바 '거래처관리' 버튼 클릭 시 or 직원창에서 client_id를 전달받았을 때 호출.
+        
+        1) 우선 ClientsTab 탭으로 전환
+        2) client_id가 있으면 해당 거래처 표시
+        """
+        self.stacked.setCurrentWidget(self.tabs["clients"])
+        self.update_search_placeholder("clients")
+        self.update_custom_button("clients")
+
+        if client_id is not None:
+            # 탭 위젯(ClientsTab)을 얻어와서 특정 거래처 로딩 함수 호출
+            clients_tab = self.tabs["clients"]
+            if hasattr(clients_tab, "display_client_by_id"):
+                clients_tab.display_client_by_id(client_id)
+            else:
+                print("⚠️ ClientsTab에 display_client_by_id 함수가 없습니다.")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'signature_label'):
+            self.signature_label.move(
+                self.width() - self.signature_label.width() - 10,
+                self.height() - self.signature_label.height() - 10
+            )
+            
     # -------------------------------------------------------------------
     # 4) 회사 정보 다이얼로그를 띄우고, 서버에 저장/수정 후 라벨 반영
     def open_company_info_dialog(self):
@@ -1375,10 +1421,13 @@ class MainApp(QMainWindow):
             if resp.status_code == 200:
                 data = resp.json()
                 self.update_company_info_label(data)
+                return data  # ✅ 반환 추가
             else:
                 print("회사 정보가 없거나 로드 실패:", resp.text)
+                return {}
         except Exception as e:
             print("회사 정보 로드 오류:", e)
+            return {}
 
 
     def show_company_freezers(self):
@@ -1560,19 +1609,7 @@ class MainApp(QMainWindow):
         except Exception as e:
             print(f"❌ 서버 전송 오류: {e}")
 
-    def load_company_info(self, filename="company_info.json") -> dict:
-        if not os.path.exists(filename):
-            return {}
-        try:
-            with open(filename, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-                else:
-                    return {}
-        except Exception as e:
-            print(f"회사 정보 로드 실패: {e}")
-            return {}
+    
 
     # ─────────────────────────────────────────────────────────────────
     # 6) 사이드바 탭 전환 함수 (기존 기능 그대로)

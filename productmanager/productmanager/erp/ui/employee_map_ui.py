@@ -1,6 +1,7 @@
 # employee_map_ui.py
 import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import io
 import requests
 import folium
@@ -89,7 +90,7 @@ class EmployeeMapTab(QWidget):
             return
 
         try:
-            url = f"{self.base_url}/employee_map/all_visits"
+            url = f"{self.base_url}/employee_map/daily_visits"
             params = {"employee_name": name}
             resp = requests.get(url, params=params, timeout=5)
             if resp.status_code == 404:

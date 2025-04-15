@@ -41,7 +41,7 @@ def get_company_freezers(db: Session = Depends(get_db)):
     return db.query(Lent).filter(Lent.client_id == 0).all()
 
 
-@router.get("/lent", response_model=list[LentOut])
+@router.get("/lent", response_model=List[LentOut])
 def list_lents(db: Session = Depends(get_db)):
     return db.query(Lent).all()
 

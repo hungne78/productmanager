@@ -173,6 +173,9 @@ QHeaderView::section {
         self.update_inventory_table(inventory_list)
 
     def update_inventory_table(self, inventory_list):
+        # 먼저 보여줄 재고가 있는 상품만 필터링
+        inventory_list = [item for item in inventory_list if item.get("quantity", 0) > 0]
+
         self.inventory_table.setRowCount(len(inventory_list))
 
         total_boxes = 0
@@ -207,6 +210,7 @@ QHeaderView::section {
         # ✅ 총 박스 수 및 총 가격 갱신
         self.total_boxes_label.setText(f"📦 총 박스 수: {total_boxes}")
         self.total_price_label.setText(f"💰 총 가격 합: {total_price:,} 원")
+
 
     def print_inventory(self):
         """ 직원 차량 재고 프린트 기능 """

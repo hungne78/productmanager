@@ -24,6 +24,7 @@ from app.models.employees import Employee
 from app.models.employee_inventory import EmployeeInventory
 from app.models.orders_archive import OrderArchive , OrderItemArchive
 from app.routers.employee_map_routers import router as employee_map_router
+from app.routers.category_price_override import router as category_price_override_router
 from app.routers import client_visits 
 from app.routers.employee_inventory import router as employee_inventory_router  # ✅ 수정
 from app.utils.time_utils import convert_utc_to_kst  # ✅ KST 변환 함수 추가
@@ -39,7 +40,55 @@ from app.models.products import Product
 from app.models.sales_records import SalesRecord
 from app.utils.time_utils import get_kst_now
 from dateutil.relativedelta import relativedelta
+from app.utils.monthly_aggregation import aggregate_sales_to_monthly
+from app.routers.monthly_sales import router as monthly_sales_router
+from app.models.admin_users import AdminUser  # ✅ 이 줄이 꼭 필요함
+from app.models.brands import Brand
+from app.models.category_price_override import CategoryPriceOverride
+from app.models.client_prices import ClientProductPrice
+from app.models.client_visit_archive import ClientVisitArchive
+from app.models.clients import Client
+from app.models.company import CompanyInfo
+from app.models.employee_clients import EmployeeClient
+from app.models.employee_vehicle import EmployeeVehicle
+from app.models.franchise_order_archive import FranchiseOrderArchive
+from app.models.franchise_order import FranchiseOrder
+from app.models.lent import Lent
+from app.models.monthly_sales import MonthlySales
 
+from app.models.orders import Order, OrderItem
+from app.models.payments import Payment
+from app.models.product_barcodes import ProductBarcode
+from app.models.product_purchase_prices import ProductPurchasePrice
+from app.models.purchases import Purchase
+from app.models.purchase_archive import PurchaseArchive
+from app.models.sales_record_archive import SalesRecordArchive
+from app.models.sales import Sales
+from app.routers.admin_auth  import router as admin_auth_router 
+# 기존 scheduler 초기화 이후에 추가
+
+
+def run_monthly_aggregation():
+    from app.db.database import SessionLocal
+    from datetime import datetime
+    from dateutil.relativedelta import relativedelta
+
+    today = datetime.now()
+    # 집계 대상: 전달 기준 (ex. 2025-04-01 → 2025-03)
+    year = today.year
+    month = today.month - 1
+    if month == 0:
+        year -= 1
+        month = 12
+
+    db = SessionLocal()
+    try:
+        aggregate_sales_to_monthly(db, year, month)
+    except Exception as e:
+        print(f"❌ [월간 집계 오류] {e}")
+    finally:
+        db.close()
+        
 def cleanup_unused_products_task():
     db = SessionLocal()  # 직접 세션 획득
     try:
@@ -67,7 +116,7 @@ def cleanup_unused_products_task():
         db.close()
 
 scheduler = BackgroundScheduler()
-
+scheduler.add_job(run_monthly_aggregation, "cron", day=1, hour=3, minute=10)  # 매월 1일 03:10
 
 logging.basicConfig(level=logging.DEBUG)  # DEBUG 레벨로 설정하여 모든 로그 출력
 logger = logging.getLogger(__name__)
@@ -83,7 +132,7 @@ async def lifespan(app: FastAPI):
     #         print(f"➡️ {route.path} ({route.methods})")
     # Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-
+    print("📦 현재 연결된 DB 주소:", engine.url)
     db = SessionLocal()
     try:
         admin = db.query(Employee).filter(Employee.id == 1).first()
@@ -99,9 +148,34 @@ async def lifespan(app: FastAPI):
             db.commit()
             db.refresh(admin)
             print("Default admin created")
+        default_admins = [
+            {
+                "email": "hcjang0528@naver.com",
+                "name": "장현철",
+                "password": "admin123"
+            },
+            {
+                "email": "kimdoohan@naver.com",
+                "name": "김두한",
+                "password": "admin123"
+            }
+        ]
+
+        for admin_data in default_admins:
+            existing_admin = db.query(AdminUser).filter(AdminUser.email == admin_data["email"]).first()
+            if not existing_admin:
+                new_admin = AdminUser(
+                    email=admin_data["email"],
+                    name=admin_data["name"],
+                    role="admin",
+                    password_hash=get_password_hash(admin_data["password"])
+                )
+                db.add(new_admin)
+                print(f"✅ 기본 관리자 계정 생성됨: {admin_data['email']}")
+        db.commit()        
     finally:
         db.close()
-
+    
     scheduler.add_job(cleanup_unused_products_task, "cron", hour=3, minute=0)
     scheduler.start()
     print("✅ 스케줄러 시작됨 (매일 03:00 자동 삭제)")
@@ -209,6 +283,9 @@ def create_app() -> FastAPI:
     app.include_router(company_router, prefix="/company", tags=["Company"]) 
     app.include_router(franchise_order_router, prefix="/franchise_orders", tags=["FranchiseOrders"])
     app.include_router(client_auth_router, prefix="/client_auth", tags=["ClientAuth"])
+    app.include_router(category_price_override_router, prefix="/category_price_overrides", tags=["CategoryPriceOverride"])
+    app.include_router(monthly_sales_router, prefix="/monthly_sales", tags=["MonthlySales"])
+    app.include_router(admin_auth_router, prefix="/admin_auth", tags=["AdminUser"])
     return app
 
 app = create_app()

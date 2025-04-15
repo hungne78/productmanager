@@ -11,6 +11,7 @@ from jose import JWTError, jwt
 
 auth_router = APIRouter()
 
+
 @auth_router.post("/login", response_model=EmployeeLoginResponse)
 def login_employee(payload: EmployeeLogin, db: Session = Depends(get_db)):
     emp = db.query(Employee).filter(Employee.id == payload.id).first()

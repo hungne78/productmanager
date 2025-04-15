@@ -672,3 +672,30 @@ def get_available_shipment_round(order_date: date, employee_id: int, db: Session
             raise HTTPException(status_code=403, detail="첫 주문은 20:00~07:00 사이에만 가능합니다.")
 
     return {"available_shipment_round": available_round}
+
+# 예: app/routers/orders.py 내부
+@router.get("/monthly_sales_product/{product_id}/{year}")
+def get_monthly_sales_product(product_id: int, year: int, db: Session = Depends(get_db)):
+    """
+    특정 상품(product_id)에 대한 해당 연도의 월별 '판매량(=주문수량 합계)'을
+    길이 12짜리 배열로 반환.
+    예) [10, 5, 7, 0, 12, ...] (1월부터 12월까지)
+    """
+    from sqlalchemy import extract, func
+    results = (
+        db.query(
+            extract('month', Order.order_date).label('sale_month'),
+            func.sum(OrderItem.quantity).label('sum_qty')
+        )
+        .join(OrderItem, Order.id == OrderItem.order_id)
+        .filter(OrderItem.product_id == product_id)
+        .filter(extract('year', Order.order_date) == year)
+        .group_by(extract('month', Order.order_date))
+        .all()
+    )
+
+    monthly_data = [0]*12
+    for row in results:
+        m = int(row.sale_month) - 1  # 1월→인덱스0
+        monthly_data[m] = int(row.sum_qty or 0)
+    return monthly_data

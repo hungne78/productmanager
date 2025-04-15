@@ -22,6 +22,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // 🔹 Firebase 초기화 전에 필요
   // await Firebase.initializeApp(); // 🔹 Firebase 연결
+  final authProvider = AuthProvider();
+  await authProvider.tryAutoLogin(); // ✅ 자동 로그인 시도
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -31,7 +33,7 @@ void main() async {
     runApp(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider<AuthProvider>(create: (_) => AuthProvider()),
+          ChangeNotifierProvider<AuthProvider>.value(value: authProvider),
           ChangeNotifierProvider<ProductProvider>(create: (_) => ProductProvider()),
           ChangeNotifierProvider<VehicleStockProvider>(create: (_) => VehicleStockProvider()),
           ChangeNotifierProvider(create: (context) => BluetoothPrinterProvider()),

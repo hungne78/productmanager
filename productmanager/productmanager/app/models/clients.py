@@ -14,7 +14,7 @@ class Client(Base):
     __tablename__ = "clients"
 
     id = Column(Integer, primary_key=True, index=True)
-    password_hash = Column(String, nullable=True)
+    password_hash = Column(String(255), nullable=True)
 
     client_name = Column(String(100), nullable=False)
     representative_name = Column(String(100), nullable=True)
@@ -27,6 +27,7 @@ class Client(Base):
     
     business_number = Column(String(50), nullable=True)
     email = Column(String(100), nullable=True)
+    virtual_account = Column(String(100), nullable=True)  # ✅ 가상계좌번호
 
     # ✅ KST 기준으로 생성/수정 시간 저장
     created_at = Column(DateTime, default=get_kst_now)
@@ -41,3 +42,4 @@ class Client(Base):
     sales = relationship("Sales", back_populates="client", cascade="all, delete-orphan")
     employees = relationship("Employee", secondary="employee_clients", back_populates="clients", overlaps="employee_clients")
     sales_records = relationship("SalesRecord", back_populates="client", cascade="all, delete-orphan")
+    category_overrides = relationship("CategoryPriceOverride", back_populates="client", cascade="all, delete-orphan")

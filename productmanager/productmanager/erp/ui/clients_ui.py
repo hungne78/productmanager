@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, \
-    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QDialog, QVBoxLayout, QListWidget, QGroupBox, QInputDialog
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,  QGridLayout, QFrame,\
+    QHeaderView, QMessageBox, QFormLayout, QLineEdit, QLabel, QDialog, QVBoxLayout, QListWidget, QGroupBox, QInputDialog, QDateEdit, QComboBox
 import sys
 import os
 from PyQt5.QtGui import QColor
@@ -8,13 +8,158 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from services.api_services import api_fetch_clients, api_create_client, api_update_client, api_delete_client, api_fetch_client_names,\
     api_assign_employee_client, api_fetch_employee_clients_all, get_auth_headers, api_fetch_lent_freezers, api_fetch_employees, api_unassign_employee_client
 from baselefttabwidget import BaseLeftTableWidget
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtWidgets import QSizePolicy
 import requests
+from PyQt5.QtGui import QFont
 from datetime import datetime
 from config import BASE_URL
-
+from PyQt5.QtWidgets import QFileDialog
+import pandas as pd
+import traceback
 global_token = get_auth_headers
+
+class CustomCalendarCell(QFrame):
+    def __init__(self, date: QDate, sales_amount: int = 0, parent=None):
+        super().__init__(parent)
+        self.date = date
+        self.sales_amount = sales_amount
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(2)
+
+        self.date_label = QLabel(str(self.date.day()))
+        self.date_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.date_label.setFont(QFont("Malgun Gothic", 10, QFont.Bold))
+
+        self.sales_label = QLabel(f"{self.sales_amount:,}원" if self.sales_amount else "")
+        self.sales_label.setAlignment(Qt.AlignCenter)
+        self.sales_label.setFont(QFont("Malgun Gothic", 9))
+
+        layout.addWidget(self.date_label)
+        layout.addStretch()
+        layout.addWidget(self.sales_label)
+        self.setLayout(layout)
+
+        bg = "#ffffff"
+        if self.date.dayOfWeek() == 7:
+            bg = "#ffeaea"  # 일요일
+        elif self.date.dayOfWeek() == 6:
+            bg = "#eaf1ff"  # 토요일
+
+        self.setStyleSheet(f"""
+            QFrame {{
+                border: 1px solid #d0d7e2;
+                border-radius: 6px;
+                background-color: {bg};
+            }}
+            QLabel {{
+                color: #1E3A8A;
+            }}
+        """)
+
+class CustomCalendarWidget(QWidget):
+    def __init__(self, year: int, month: int, sales_data: dict[int, int], parent=None):
+        super().__init__(parent)
+        self.year = year
+        self.month = month
+        self.sales_data = sales_data
+        self.init_ui()
+
+    def init_ui(self):
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
+
+        self.title = QLabel(f"{self.year}년 {self.month}월")
+        self.title.setAlignment(Qt.AlignCenter)
+        self.title.setFont(QFont("Malgun Gothic", 12, QFont.Bold))
+        self.layout.addWidget(self.title)
+
+        self.grid = QGridLayout()
+        self.layout.addLayout(self.grid)
+
+        # 요일 헤더
+        weekdays = ["월", "화", "수", "목", "금", "토", "일"]
+        for i, name in enumerate(weekdays):
+            label = QLabel(name)
+            label.setAlignment(Qt.AlignCenter)
+            if name in ["토", "일"]:
+                label.setStyleSheet("color: red;" if name == "일" else "color: blue;")
+            self.grid.addWidget(label, 0, i)
+
+        self.build_calendar()
+
+    def build_calendar(self):
+        # 이전 위젯 제거
+        for i in reversed(range(self.grid.count())):
+            if i >= 7:  # 요일 라벨 제외
+                widget = self.grid.itemAt(i).widget()
+                self.grid.removeWidget(widget)
+                widget.deleteLater()
+
+        first_day = QDate(self.year, self.month, 1)
+        start_col = first_day.dayOfWeek() - 1  # Monday = 0
+        days_in_month = first_day.daysInMonth()
+
+        row = 1
+        col = start_col
+        for day in range(1, days_in_month + 1):
+            date = QDate(self.year, self.month, day)
+            amount = self.sales_data.get(day, 0)
+            cell = CustomCalendarCell(date, amount)
+            self.grid.addWidget(cell, row, col)
+
+            col += 1
+            if col > 6:
+                col = 0
+                row += 1
+
+    def update_sales(self, sales_dict: dict[int, int]):
+        """
+        일별 매출을 받아서 달력 셀에 업데이트
+        sales_dict 예시: {1: 10000, 2: 5000, 15: 120000}
+        """
+        for i in reversed(range(self.layout().count())):
+            item = self.layout().itemAt(i)
+            widget = item.widget()
+            if widget:
+                widget.setParent(None)
+
+        first_day = QDate(self.year, self.month, 1)
+        start_col = first_day.dayOfWeek() - 1  # Monday=0
+        days_in_month = first_day.daysInMonth()
+
+        # 요일 라벨 (월~일)
+        weekdays = ["월", "화", "수", "목", "금", "토", "일"]
+        for col in range(7):
+            label = QLabel(weekdays[col])
+            label.setAlignment(Qt.AlignCenter)
+            label.setStyleSheet("font-weight: bold; color: #2F3A66;")
+            self.layout().addWidget(label, 0, col)
+
+        row = 1
+        col = start_col
+        for day in range(1, days_in_month + 1):
+            current_date = QDate(self.year, self.month, day)
+            sales = sales_dict.get(day, 0)
+            cell = CustomCalendarCell(current_date, sales)
+
+            # 토/일 색상 지정
+            if current_date.dayOfWeek() == 7:  # 일요일
+                cell.setStyleSheet("background-color: #ffeef0; border: 1px solid #ccc; border-radius: 6px;")
+            elif current_date.dayOfWeek() == 6:  # 토요일
+                cell.setStyleSheet("background-color: #e7f1ff; border: 1px solid #ccc; border-radius: 6px;")
+
+            self.layout().addWidget(cell, row, col)
+
+            col += 1
+            if col > 6:
+                col = 0
+                row += 1
+
 
 class LentEditorDialog(QDialog):
     def __init__(self, client_id, parent=None):
@@ -295,56 +440,127 @@ class ClientLeftPanel(BaseLeftTableWidget):
         
         super().__init__(row_count=len(labels), labels=labels, parent=parent)
         
-        # ✅ 현재 레이아웃을 가져옴 (None 방지)
+       # ✅ 현재 레이아웃 가져오기
         main_layout = self.layout()
         if main_layout is None:
             main_layout = QVBoxLayout()
             self.setLayout(main_layout)
-            
-        # ✅ 담당 직원 목록을 보여줄 테이블 추가
+
+        # 🔹 버튼을 그리드로 깔끔하게 정리
+        btn_grid = QGridLayout()
+        btn_grid.setSpacing(6)
+
+        # 1) 기존 부모 클래스의 버튼들
+        self.btn_new.setFixedHeight(32)
+        self.btn_edit.setFixedHeight(32)
+        btn_grid.addWidget(self.btn_new, 0, 0)
+        btn_grid.addWidget(self.btn_edit, 0, 1)
+
+        # 2) 자식 클래스에서 추가한 버튼들
+        self.btn_delete = QPushButton("삭제")
+        self.btn_assign = QPushButton("담당 직원 배정")
+        self.btn_unassign = QPushButton("담당 직원 해제")
+        self.btn_lent = QPushButton("대여 냉동고")
+        for btn in [self.btn_delete, self.btn_assign, self.btn_unassign, self.btn_lent]:
+            btn.setFixedHeight(32)
+            btn.setMinimumWidth(100)
+        btn_grid.addWidget(self.btn_delete,   1, 0)
+        btn_grid.addWidget(self.btn_assign,   1, 1)
+        btn_grid.addWidget(self.btn_unassign, 2, 0)
+        btn_grid.addWidget(self.btn_lent,     2, 1)
+
+        # 3) 🔽 "서버 → 엑셀 내보내기" + "엑셀 → 서버 등록" 버튼도 같은 그리드에 추가
+        self.btn_export_excel = QPushButton("서버 거래처 → 엑셀")
+        self.btn_export_excel.clicked.connect(self.export_excel_clients)
+        self.btn_import_excel = QPushButton("엑셀 → 서버 등록")
+        self.btn_import_excel.clicked.connect(self.import_excel_clients)
+
+        # 버튼 크기 통일
+        for btn in [self.btn_export_excel, self.btn_import_excel]:
+            btn.setFixedHeight(32)
+            btn.setMinimumWidth(160)
+
+        btn_grid.addWidget(self.btn_export_excel, 3, 0)
+        btn_grid.addWidget(self.btn_import_excel, 3, 1)
+        font = QFont("맑은 고딕", 7)  # 폰트 이름 + 크기
+
+        for btn in [self.btn_export_excel, self.btn_import_excel, self.btn_new, self.btn_edit,
+                    self.btn_delete, self.btn_assign, self.btn_unassign, self.btn_lent]:
+            btn.setFont(font)
+        # 🔹 구성된 그리드 레이아웃을 메인 레이아웃에 추가
+        main_layout.addLayout(btn_grid)
+
+        # 🔹 담당 직원 목록 라벨 및 테이블
+        main_layout.addWidget(QLabel("담당 직원 목록"))
         self.assigned_employees_table = QTableWidget()
         self.assigned_employees_table.setColumnCount(1)
         self.assigned_employees_table.setHorizontalHeaderLabels(["담당 직원"])
         self.assigned_employees_table.horizontalHeader().setStretchLastSection(True)
-
-        # ✅ "대여 냉동고" 버튼을 개별 레이아웃으로 추가
-        btn_layout_top = QHBoxLayout()
-        self.btn_lent = QPushButton("대여 냉동고")
-        btn_layout_top.addWidget(self.btn_lent)
-
-        # ✅ 기존 버튼 줄에 "삭제" 버튼 추가
-        btn_layout_bottom = QHBoxLayout()
-        self.btn_delete = QPushButton("삭제")
-        self.btn_assign = QPushButton("담당 직원 배정")  # ✅ 담당 직원 배정 버튼 추가
-        btn_layout_bottom.addWidget(self.btn_delete)
-        btn_layout_bottom.addWidget(self.btn_assign)
-        
-        # ✅ 부모 클래스의 버튼 레이아웃이 있는지 확인하고 가져오기
-        if main_layout.count() > 1 and main_layout.itemAt(1) is not None:
-            btn_layout_bottom = main_layout.itemAt(1).layout()
-        else:
-            btn_layout_bottom = QHBoxLayout()
-            main_layout.addLayout(btn_layout_bottom)
-
-        # ✅ 기존 버튼 줄에 "삭제" 버튼 추가
-        self.btn_delete = QPushButton("삭제")
-         # ✅ "담당 직원 배정 해제" 버튼 추가
-        self.btn_unassign = QPushButton("담당 직원 해제")
-        btn_layout_bottom.addWidget(self.btn_delete)
-        btn_layout_bottom.addWidget(self.btn_assign)
-        # ✅ 버튼 레이아웃에 추가
-        btn_layout_bottom.addWidget(self.btn_unassign)      
-       
-        # ✅ "대여 냉동고" 버튼을 최상단에 추가
-        main_layout.insertLayout(0, btn_layout_top)
-
-        # ✅ 담당 직원 목록 추가
-        main_layout.addWidget(QLabel("담당 직원 목록"))
         main_layout.addWidget(self.assigned_employees_table)
 
-        # ✅ 버튼 레이아웃 추가
-        main_layout.addLayout(btn_layout_bottom)
-        
+        # 예시: 테이블에서 직원 더블클릭 시 어떤 동작
+        self.assigned_employees_table.itemDoubleClicked.connect(self.on_employee_double_clicked)
+
+        # 🔹 행사 등록 박스 (예시)
+        promo_box = QGroupBox("📣 행사 등록")
+        promo_layout = QVBoxLayout()
+
+        # 행사 시작/종료일
+        row1 = QHBoxLayout()
+        self.promo_start = QDateEdit()
+        self.promo_start.setCalendarPopup(True)
+        self.promo_start.setDate(QDate.currentDate())
+        self.promo_end = QDateEdit()
+        self.promo_end.setCalendarPopup(True)
+        self.promo_end.setDate(QDate.currentDate().addDays(7))
+
+        # 🔹 줄1: 시작일 ~ 종료일
+        # 🔹 줄1: 시작일 ~ 종료일
+        row1 = QHBoxLayout()
+        self.promo_start = QDateEdit()
+        self.promo_start.setCalendarPopup(True)
+        self.promo_start.setDate(QDate.currentDate())
+        self.promo_end = QDateEdit()
+        self.promo_end.setCalendarPopup(True)
+        self.promo_end.setDate(QDate.currentDate().addDays(7))
+        row1.addWidget(QLabel("시작일:"))
+        row1.addWidget(self.promo_start)
+        row1.addWidget(QLabel("종료일:"))
+        row1.addWidget(self.promo_end)
+
+        # 🔹 줄2: 카테고리 ~ 단가
+        row2 = QHBoxLayout()
+        self.promo_category = QComboBox()
+        self.load_category_options()  # 여기서 404 날 수 있으니 try/except로 감싸도 됨
+        self.promo_price = QLineEdit()
+        self.promo_price.setPlaceholderText("단가 (숫자)")
+        row2.addWidget(QLabel("분류:"))
+        row2.addWidget(self.promo_category)
+        row2.addWidget(QLabel("단가:"))
+        row2.addWidget(self.promo_price)
+
+        # 🔹 줄3: 적용 버튼 (먼저 선언해야 에러 안 나!)
+        row3 = QHBoxLayout()
+        apply_btn = QPushButton("적용")
+        apply_btn.clicked.connect(self.apply_promotion)
+        row3.addStretch()
+        row3.addWidget(apply_btn)
+
+        # 전체 추가
+        promo_layout.addLayout(row1)
+        promo_layout.addLayout(row2)
+        promo_layout.addLayout(row3)
+
+        # ── 행사 테이블
+        # ── 행사 테이블
+        self.promo_table = QTableWidget(0, 4)
+        self.promo_table.setHorizontalHeaderLabels(["분류", "단가", "시작", "종료"])
+        self.promo_table.horizontalHeader().setStretchLastSection(True)
+        self.promo_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        promo_layout.addWidget(self.promo_table)
+        promo_box.setLayout(promo_layout)
+        main_layout.addWidget(promo_box)
         # ✅ 버튼 이벤트 연결
         self.btn_lent.clicked.connect(self.open_lent_editor_dialog)
         self.btn_new.clicked.connect(self.create_client)
@@ -353,7 +569,233 @@ class ClientLeftPanel(BaseLeftTableWidget):
         self.btn_assign.clicked.connect(self.assign_employee)
         
         self.btn_unassign.clicked.connect(self.unassign_employee)
-        
+    
+    def export_excel_clients(self):
+        """
+        서버에 저장된 거래처들을 조회해 엑셀로 저장 (JSON 문자열/bytes 대응)
+        """
+        try:
+            # 1. 서버로부터 거래처 목록 가져오기
+            raw_clients = api_fetch_clients(get_auth_headers)
+
+            # 2. 응답이 문자열 혹은 bytes 형태일 경우 JSON 파싱
+            if isinstance(raw_clients, bytes):
+                clients = json.loads(raw_clients.decode("utf-8"))
+            elif isinstance(raw_clients, str):
+                clients = json.loads(raw_clients)
+            elif isinstance(raw_clients, list):
+                clients = raw_clients
+            else:
+                QMessageBox.critical(self, "에러", "서버 응답 형식을 인식할 수 없습니다.")
+                return
+
+            if not clients:
+                QMessageBox.information(self, "알림", "서버에 거래처가 없습니다.")
+                return
+
+            # 3. pandas DataFrame으로 변환
+            df = pd.DataFrame(clients)
+            if df.empty:
+                QMessageBox.information(self, "알림", "서버에 거래처가 없습니다.")
+                return
+
+            # 4. 사용자에게 저장 경로를 물어봄
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "엑셀로 저장",
+                "",
+                "Excel Files (*.xlsx *.xls)"
+            )
+            if not file_path:
+                return  # 취소 시
+
+            # 5. DataFrame을 엑셀로 저장 (한글 깨짐 방지: utf-8-sig)
+            df.to_excel(file_path, index=False, sheet_name="Clients", encoding="utf-8-sig")
+            QMessageBox.information(self, "완료", f"거래처 목록을 엑셀로 저장했습니다:\n{file_path}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"엑셀 내보내기 실패:\n{e}")
+            
+    def import_excel_clients(self):
+        """
+        엑셀 파일에서 거래처 데이터를 읽어 한 번에 등록하는 로직
+        """
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "엑셀 파일 불러오기", 
+            "", 
+            "Excel Files (*.xls *.xlsx)"
+        )
+        if not file_path:
+            return  # 파일 선택이 취소된 경우
+
+        try:
+            df = pd.read_excel(file_path)
+            # df.columns → 예: ['거래처명','대표자명','주소','전화번호','미수금','일반가','고정가','사업자번호','이메일','비밀번호']
+
+            total_count = 0
+            success_count = 0
+
+            for idx, row in df.iterrows():
+                # 필요한 컬럼만 추출, NaN 방어코드
+                client_name = str(row.get('거래처명','')).strip()
+                rep_name    = str(row.get('대표자명','')).strip()
+                address     = str(row.get('주소','')).strip()
+                phone       = str(row.get('전화번호','')).strip()
+                outstanding = float(row.get('미수금', 0) or 0)
+                regular_p   = float(row.get('일반가', 35) or 35)
+                fixed_p     = float(row.get('고정가', 70) or 70)
+                business    = str(row.get('사업자번호','')).strip()
+                email       = str(row.get('이메일','')).strip()
+                password    = str(row.get('비밀번호','')).strip()  # 비밀번호가 꼭 필요한 경우
+
+                # 필수 값이 부족하면 건너뛰기
+                if not client_name:
+                    print(f"[{idx}행] 거래처명 없음 → 스킵")
+                    continue
+
+                # API에 보낼 payload 구성
+                payload = {
+                    "client_name": client_name,
+                    "representative_name": rep_name,
+                    "address": address,
+                    "phone": phone,
+                    "outstanding_amount": outstanding,
+                    "regular_price": regular_p,
+                    "fixed_price": fixed_p,
+                    "business_number": business,
+                    "email": email
+                }
+                # 비밀번호 입력이 있다면 서버 쪽에 맞춰 전달
+                if password:
+                    payload["password"] = password
+
+                # 요청 전송
+                resp = api_create_client(get_auth_headers, payload)
+                total_count += 1
+                if resp and hasattr(resp, "status_code") and resp.status_code in (200,201):
+                    success_count += 1
+                else:
+                    print(f"[{idx}행] 등록 실패: {resp.text if resp else 'No response'}")
+
+            QMessageBox.information(
+                self,
+                "엑셀 등록 완료",
+                f"총 {total_count}건 중 {success_count}건 등록 성공!"
+            )
+            # 등록 후 테이블 새로고침
+            self.load_data_from_server()  # 예: self.parentWidget().reload_clients() 식으로 갱신
+
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"엑셀 불러오기 실패: {e}\n{traceback.format_exc()}")
+
+    def on_employee_double_clicked(self, item):
+        """
+        담당 직원 테이블에서 직원 이름 또는 ID 더블클릭 시 → 직원 탭 전환 요청
+        """
+        row = item.row()
+        if row < 0:
+            return
+
+        # 예시: 첫 번째 컬럼이 직원 이름일 경우
+        employee_name_item = self.assigned_employees_table.item(row, 0)
+        if not employee_name_item:
+            return
+
+        employee_name = employee_name_item.text().strip()
+
+        print(f"✅ 직원 더블클릭: {employee_name}")
+
+        # MainApp 찾아서 직원 탭 전환 요청
+        main_window = self.find_main_window()
+        if main_window:
+            main_window.show_employee_tab(employee_name)  # 아래에서 정의할 함수
+
+    def find_main_window(self):
+        from PyQt5.QtWidgets import QMainWindow
+        parent = self.parent()
+        while parent:
+            if isinstance(parent, QMainWindow):
+                return parent
+            parent = parent.parent()
+        return None
+
+
+    def fetch_client_detail(self, client_id: int) -> dict:
+        """
+        서버로부터 client_id를 이용해 상세 정보를 가져오는 함수(예시)
+        """
+        import requests
+        url = f"{BASE_URL}/clients/{client_id}"
+        headers = {"Authorization": f"Bearer {global_token}"}
+        resp = requests.get(url, headers=headers)
+        if resp.status_code == 200:
+            return resp.json()  # { "id":..., "client_name":..., ... }
+        return {}
+    
+    def apply_promotion(self):
+        client_id = self.get_value(0).strip()
+        if not client_id or not client_id.isdigit():
+            QMessageBox.warning(self, "입력 오류", "먼저 거래처를 선택하세요.")
+            return
+
+        category = self.promo_category.currentText()
+        try:
+            price = float(self.promo_price.text())
+        except:
+            QMessageBox.warning(self, "입력 오류", "올바른 숫자 단가를 입력하세요.")
+            return
+
+        # 🔍 단가 유형은 서버에서 카테고리마다 고정이므로 여기선 서버가 처리한다고 가정
+        payload = {
+            "client_id": int(client_id),
+            "category_name": category,
+            "price_type": "normal" if category == "바" else "fixed",  # 💡 규칙 기반
+            "override_price": price,
+            "start_date": self.promo_start.date().toString("yyyy-MM-dd"),
+            "end_date": self.promo_end.date().toString("yyyy-MM-dd")
+        }
+
+        try:
+            url = f"{BASE_URL}/category_price_overrides/"
+            resp = requests.post(url, json=payload)
+            if resp.status_code == 200:
+                QMessageBox.information(self, "성공", "행사 단가가 등록되었습니다.")
+                self.load_promotions_for_client(client_id)
+            else:
+                QMessageBox.warning(self, "실패", f"등록 실패: {resp.text}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", str(e))
+
+    def load_promotions_for_client(self, client_id):
+        """ 서버에서 유효한 행사만 불러와서 테이블 표시 """
+        try:
+            today = QDate.currentDate().toString("yyyy-MM-dd")
+            url = f"{BASE_URL}/category_price_overrides/"
+            resp = requests.get(url)
+            if resp.status_code != 200:
+                return
+
+            data = resp.json()
+            filtered = [
+                p for p in data
+                if str(p["client_id"]) == str(client_id)
+                and p["start_date"] <= today <= p["end_date"]
+            ]
+
+            self.promo_table.setRowCount(len(filtered))
+            for row, item in enumerate(filtered):
+                start_str = datetime.strptime(item["start_date"], "%Y-%m-%d").strftime("%m/%d")
+                end_str = datetime.strptime(item["end_date"], "%Y-%m-%d").strftime("%m/%d")
+
+                self.promo_table.setItem(row, 0, QTableWidgetItem(item["category_name"]))
+                self.promo_table.setItem(row, 1, QTableWidgetItem(str(item["override_price"])))
+                self.promo_table.setItem(row, 2, QTableWidgetItem(start_str))
+                self.promo_table.setItem(row, 3, QTableWidgetItem(end_str))
+        except Exception as e:
+            print("❌ 행사 목록 불러오기 실패:", e)
+
+
     def open_lent_editor_dialog(self):
         client_id = self.get_value(0).strip()
         if not client_id:
@@ -388,6 +830,16 @@ class ClientLeftPanel(BaseLeftTableWidget):
         else:
             error_msg = response.text if response and hasattr(response, "text") else "알 수 없는 오류 발생"
             QMessageBox.critical(self, "실패", f"담당 직원 해제 실패: {error_msg}")
+
+
+    def load_category_options(self):
+        import os, json
+
+        if os.path.exists("category_order.json"):
+            with open("category_order.json", "r", encoding="utf-8") as f:
+                order = json.load(f)
+                self.promo_category.clear()
+                self.promo_category.addItems(order)
 
 
 
@@ -517,6 +969,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
         client_id = client.get("id")
         if client_id:
             print(f"🚀 거래처 ID {client_id}의 담당 직원 목록을 불러옵니다.")
+            self.load_promotions_for_client(client_id)
             self.load_assigned_employees(client_id)
         else:
             print("⚠️ 거래처 ID가 없습니다. 담당 직원 목록을 불러오지 않습니다.")
@@ -629,140 +1082,75 @@ class ClientRightPanel(QWidget):
 
     def init_ui(self):
         main_layout = QVBoxLayout()
-        # 1) box1
-        self.box1 = QGroupBox("해당거래처 월별 매출")
-        self.tbl_box1 = QTableWidget(2, 12)  # 2행 12열
-        # box1 (월별 매출)에서,
-        # - 열 헤더가 "1월"~"12월"
-        # - row=0 (첫 행)에 매출값을 쓰고 싶다.
-        self.tbl_box1.setRowCount(1)          # 1행
-        self.tbl_box1.setColumnCount(12)      # 12열
-        self.tbl_box1.setHorizontalHeaderLabels([
-            "1월","2월","3월","4월","5월","6월",
-            "7월","8월","9월","10월","11월","12월"
-        ])
 
-        # 그다음에 update_data_example 등에서 데이터 넣기:
-        # sales_data = [100,200,300,400,500,600,700,800,900,1000,1100,1200]
-        # for c in range(12):
-        #     # row=0, col=c 위치에 매출값 쓰기
-        #     self.tbl_box1.setItem(0, c, QTableWidgetItem(str(sales_data[c])))
+        # 상단 3개 (Box1, Box2, Box3)
+        top_row = QHBoxLayout()
 
+        # 1) 월별 매출
+        self.box1 = QGroupBox("월별 매출")
+        self.tbl_box1 = QTableWidget(12, 1)
+        self.tbl_box1.setVerticalHeaderLabels([f"{i+1}월" for i in range(12)])
+        self.tbl_box1.setHorizontalHeaderLabels(["매출"])
         self.tbl_box1.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_box1.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        # self.tbl_box1.setHorizontalHeaderLabels([""]*12)
-        box1_layout = QVBoxLayout()
-        box1_layout.addWidget(self.tbl_box1)
-        self.box1.setLayout(box1_layout)
-        main_layout.addWidget(self.box1)
+        layout1 = QVBoxLayout()
+        layout1.addWidget(self.tbl_box1)
+        self.box1.setLayout(layout1)
+        top_row.addWidget(self.box1, 2)
 
-        # 2) box2
-        self.box2 = QGroupBox("해당거래처 영업사원 방문횟수")
-        self.tbl_box2 = QTableWidget(2, 12)
-        # box1 (월별 매출)에서,
-        # - 열 헤더가 "1월"~"12월"
-        # - row=0 (첫 행)에 매출값을 쓰고 싶다.
-        self.tbl_box2.setRowCount(1)          # 1행
-        self.tbl_box2.setColumnCount(12)      # 12열
-        self.tbl_box2.setHorizontalHeaderLabels([
-            "1월","2월","3월","4월","5월","6월",
-            "7월","8월","9월","10월","11월","12월"
-        ])
-
-        # 그다음에 update_data_example 등에서 데이터 넣기:
-        # sales_data = [100,200,300,400,500,600,700,800,900,1000,1100,1200]
-        # for c in range(12):
-        #     # row=0, col=c 위치에 매출값 쓰기
-        #     self.tbl_box2.setItem(0, c, QTableWidgetItem(str(sales_data[c])))
+        # 2) 월별 방문
+        self.box2 = QGroupBox("월별 방문 횟수")
+        self.tbl_box2 = QTableWidget(12, 1)
+        self.tbl_box2.setVerticalHeaderLabels([f"{i+1}월" for i in range(12)])
+        self.tbl_box2.setHorizontalHeaderLabels(["방문"])
         self.tbl_box2.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_box2.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        box2_layout = QVBoxLayout()
-        box2_layout.addWidget(self.tbl_box2)
-        self.box2.setLayout(box2_layout)
-        main_layout.addWidget(self.box2)
+        layout2 = QVBoxLayout()
+        layout2.addWidget(self.tbl_box2)
+        self.box2.setLayout(layout2)
+        top_row.addWidget(self.box2, 2)
 
-        # 3) box3: 이번달 일별 매출 (2줄)
-        #    - 첫 번째 테이블: 1~15일
-        #    - 두 번째 테이블: 16~31일
-        self.box3 = QGroupBox("이번달 일별 매출")
-        v = QVBoxLayout()
+        # 3) 커스텀 달력 (일별 매출)
+        self.box3 = QGroupBox("일별 매출 (달력)")
+        self.box3_layout = QVBoxLayout()
+        self.box3.setLayout(self.box3_layout)
+        from datetime import date
+        today = date.today()
+        self.custom_calendar = CustomCalendarWidget(today.year, today.month, {})
+        self.box3_layout.addWidget(self.custom_calendar)
+        top_row.addWidget(self.box3, 7)
 
+        # 상단 3개 → 전체 레이아웃에 추가
+        main_layout.addLayout(top_row, 2)
 
-        self.tbl_box3_top = QTableWidget(2, 15)  # 1~15일
-        self.tbl_box3_top.setRowCount(1)          # 1행
-        self.tbl_box3_top.setColumnCount(15)      # 12열
-        self.tbl_box3_top.setHorizontalHeaderLabels([
-            "1일","2일","3일","4일","5일","6일",
-            "7일","8일","9일","10일","11일","12일","13일","14일","15일"
-        ])
-
-        self.tbl_box3_top.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_box3_top.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        # self.tbl_box3_top.setHorizontalHeaderLabels([""]*15)
-
-        self.tbl_box3_bottom = QTableWidget(2, 16)  # 16~31일
-        self.tbl_box3_bottom.setRowCount(1)          # 1행
-        self.tbl_box3_bottom.setColumnCount(16)      # 12열
-        self.tbl_box3_bottom.setHorizontalHeaderLabels([
-            "16일","17일","18일","19일","20일","21일",
-            "22일","23일","24일","25일","26일","27일","28일","29일","30일","31일"
-        ])
-        self.tbl_box3_bottom.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_box3_bottom.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        # self.tbl_box3_bottom.setHorizontalHeaderLabels([""]*16)
-
-        v.addWidget(self.tbl_box3_top)
-        v.addWidget(self.tbl_box3_bottom)
-        self.box3.setLayout(v)
-        main_layout.addWidget(self.box3)
-
-        # 4) box4
-        self.box4 = QGroupBox("당일 분류별 판매내용용")
-        box4_layout = QVBoxLayout()
-        self.tbl_box4_main = QTableWidget(10, 5)
-        self.tbl_box4_main.setRowCount(50)  # 원하는 만큼
-        self.tbl_box4_main.setColumnCount(5)
-        self.tbl_box4_main.setHorizontalHeaderLabels(["분류","판매금액","수량","직원","기타"])
+        # 하단 - Box4: 분류별 당일 판매
+        self.box4 = QGroupBox("당일 분류별 판매")
+        layout4 = QVBoxLayout()
+        self.tbl_box4_main = QTableWidget(50, 5)
+        self.tbl_box4_main.setHorizontalHeaderLabels(["분류", "총매출", "수량", "직원", "기타"])
         self.tbl_box4_main.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_box4_main.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        box4_layout.addWidget(self.tbl_box4_main)
-        
-        self.tbl_box4_footer = QTableWidget()
-        self.tbl_box4_footer.setRowCount(1)
-        self.tbl_box4_footer.setColumnCount(5)
-        # 헤더 감추기 (가로/세로 둘 다)
-        self.tbl_box4_footer.horizontalHeader().setVisible(False)
-        # self.tbl_box4_footer.verticalHeader().setVisible(False)
-        self.tbl_box4_footer.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        # 가로 스크롤은 필요하지만, 세로 스크롤은 필요없음
-        self.tbl_box4_footer.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        layout4.addWidget(self.tbl_box4_main)
 
-        # 푸터 테이블 높이 제한 (1행이므로 크게 필요없음)
-        self.tbl_box4_footer.setFixedHeight(35)  # 원하는 높이로 조절. 예: 35px
-        # 또는 self.tbl_box4_footer.setRowHeight(0, 30) 등으로 높이를 조절 가능
-
-        # 헤더도 보이게 할 수 있지만, 합계 행만 있으므로 세로헤더는 안 보이게
+        self.tbl_box4_footer = QTableWidget(1, 5)
+        self.tbl_box4_footer.setFixedHeight(35)
         self.tbl_box4_footer.verticalHeader().setVisible(False)
-        box4_layout.addWidget(self.tbl_box4_footer)
-        # 메인테이블 스크롤 동기화
-        self.tbl_box4_main.horizontalScrollBar().valueChanged.connect(
-            self.tbl_box4_footer.horizontalScrollBar().setValue
-        )
-        item = QTableWidgetItem("합계")
-        item.setBackground(QColor("#333333"))
-        item.setForeground(QColor("white"))
-        self.tbl_box4_footer.setItem(0, 0, item)
-        # box4_layout = QVBoxLayout()
-        # box4_layout.addWidget(self.tbl_box4)
-        self.box4.setLayout(box4_layout)
-        main_layout.addWidget(self.box4)
+        self.tbl_box4_footer.horizontalHeader().setVisible(False)
+        self.tbl_box4_footer.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        layout4.addWidget(self.tbl_box4_footer)
+        self.box4.setLayout(layout4)
 
-        main_layout.setStretchFactor(self.box1, 1)
-        main_layout.setStretchFactor(self.box2, 1)
-        main_layout.setStretchFactor(self.box3, 3)
-        main_layout.setStretchFactor(self.box4, 10)
-        
+        main_layout.addWidget(self.box4, 1)
         self.setLayout(main_layout)
+
+    def update_sales_calendar(self, year: int, month: int, daily_sales: list[int]):
+        sales_map = {i + 1: amt for i, amt in enumerate(daily_sales) if amt > 0}
+
+        self.box3_layout.removeWidget(self.custom_calendar)
+        self.custom_calendar.deleteLater()
+
+        self.custom_calendar = CustomCalendarWidget(year, month, sales_map)
+        self.box3_layout.addWidget(self.custom_calendar)
 
     def update_data_for_client(self, client_id: int):
         """
@@ -817,23 +1205,14 @@ class ClientRightPanel(QWidget):
             self.tbl_box2.setItem(0, c, QTableWidgetItem(str(monthly_visits[c])))
 
         # 3) 이번달 일별 매출
-        url_daily = f"{base_url}/sales/daily_sales_client/{client_id}/{year}/{month}"
         try:
-            resp = requests.get(url_daily, headers=headers)
+            resp = requests.get(f"{BASE_URL}/sales/daily_sales_client/{client_id}/{year}/{month}", headers=headers)
             resp.raise_for_status()
-            daily_sales = resp.json()  # 최대 길이 31
-        except Exception as e:
-            print(f"❌ 일별 매출 조회 실패: {e}")
-            daily_sales = [0]*31
+            daily_sales = resp.json()
+        except:
+            daily_sales = [0] * 31
 
-        # 상단(1~15일)
-        for i in range(15):
-            self.tbl_box3_top.setItem(0, i, QTableWidgetItem(str(daily_sales[i])))
-
-        # 하단(16~31일)
-        for i in range(15, 31):
-            col_index = i - 15
-            self.tbl_box3_bottom.setItem(0, col_index, QTableWidgetItem(str(daily_sales[i])))
+        self.update_sales_calendar(year, month, daily_sales)
 
         # 4) 당일 분류별 판매
         url_today = f"{base_url}/sales/today_categories_client/{client_id}"
@@ -991,6 +1370,24 @@ QHeaderView::section {
     border-bottom: 1px solid #ddd;
 }
 """)
+        
+    
+    def display_client_by_id(self, client_id: int):
+        """
+        직원창에서 넘어온 client_id를 받아, 서버에서 해당 거래처 정보를 로딩 후
+        왼쪽 패널 or 테이블에 표시해주는 함수
+        """
+        from services.api_services import api_fetch_client_by_id  # 예시
+        client_data = api_fetch_client_by_id(global_token, client_id)
+        if not client_data:
+            print(f"❌ 거래처 ID={client_id} 정보를 가져오지 못했습니다.")
+            return
+        
+        # 예: 왼쪽 테이블/폼에 표시
+        # display_client 함수가 있다면 재사용
+        self.left_panel.display_client(client_data)
+        self.right_panel.update_data_for_client(client_id)
+
     def do_custom_action(self):
         """ '기능 버튼' 클릭 시 실행되는 동작 (모든 거래처 보기) """
         self.show_all_clients()
@@ -1030,7 +1427,7 @@ QHeaderView::section {
                 self.left_panel.display_client(selected_client)  # ✅ 왼쪽 패널 업데이트
                 self.right_panel.update_data_for_client(selected_client["id"])  # ✅ 오른쪽 패널 업데이트
             else:
-                print(f"🚨 거래처 '{selected_client_name}'를 찾을 수 없음!")
+                print(f"🚨 거래처를 찾을 수 없음!")
 
 
 

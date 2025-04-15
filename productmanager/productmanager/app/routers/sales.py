@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 import json
 import logging
 from decimal import Decimal  # ✅ Import Decimal
+from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -411,11 +412,14 @@ from fastapi.exceptions import RequestValidationError
 # -----------------------------------------------------------------------------
 # 13. 판매 데이터 등록 (매출 등록 API)
 # -----------------------------------------------------------------------------
+
 @router.post("", response_model=SalesRecordOut)
 def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
     print("📡 [FastAPI] create_sale() 호출됨")  
-    print(f"📡 [FastAPI] 받은 요청 데이터: {sale_data.model_dump()}")  
-    today_date = date.today()
+    print(f"📡 받은 요청 데이터: {sale_data.model_dump()}")  
+    now = get_kst_now()
+    today_kst = now.date()
+    
     try:
         print(f"📡 판매 등록 요청 데이터: {sale_data.model_dump()}")
 
@@ -424,10 +428,9 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         is_subsidy = subsidy_amount > 0
 
         if is_subsidy:
-            # ✅ 지원금 처리: 제품 없이 지원금만 적용 (미수금에서 차감)
             client = db.query(Client).filter(Client.id == sale_data.client_id).first()
             if client:
-                client.outstanding_amount -= subsidy_amount  # ✅ 미수금에서 차감
+                client.outstanding_amount -= subsidy_amount
                 db.commit()
                 print(f"✅ 지원금 적용 완료: 거래처 {sale_data.client_id}, 지원금 {subsidy_amount}")
             return {"message": "지원금이 적용되었습니다."}
@@ -441,7 +444,6 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         sale_datetime_kst = sale_data.sale_datetime
 
         # ✅ 거래처 방문 기록 확인 및 업데이트
-        today_kst = get_kst_now().date()
         existing_visit = (
             db.query(ClientVisit)
             .filter(ClientVisit.employee_id == sale_data.employee_id)
@@ -451,20 +453,34 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         )
 
         if existing_visit:
-            existing_visit.visit_datetime = get_kst_now()
+            visit_dt = existing_visit.visit_datetime
+
+            # ✅ visit_datetime이 naive일 경우 KST timezone 붙이기
+            if visit_dt.tzinfo is None:
+                visit_dt = visit_dt.replace(tzinfo=now.tzinfo)
+
+            time_diff = now - visit_dt
+
+            if time_diff > timedelta(hours=2):
+                existing_visit.visit_count += 1
+                print(f"🔼 방문 2시간 경과 → visit_count 증가: {existing_visit.visit_count}")
+            else:
+                print(f"🕒 2시간 이내 재방문 → visit_count 증가하지 않음")
+
+            existing_visit.visit_datetime = now
             db.commit()
-            print(f"🔄 기존 방문 기록 업데이트: 직원 {sale_data.employee_id}, 거래처 {sale_data.client_id}, 날짜 {today_kst}")
         else:
+            # 오늘 첫 방문
             new_visit = ClientVisit(
                 employee_id=sale_data.employee_id,
                 client_id=sale_data.client_id,
-                visit_datetime=get_kst_now(),
+                visit_datetime=now,
                 visit_date=today_kst,
                 visit_count=1
             )
             db.add(new_visit)
             db.flush()
-            print(f"✅ 새로운 방문 기록 추가: 직원 {sale_data.employee_id}, 거래처 {sale_data.client_id}, 날짜 {today_kst}")
+            print(f"✅ 새로운 방문 기록 추가")
 
         # ✅ 매출 저장
         new_sale = SalesRecord(
@@ -474,7 +490,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
             quantity=sale_data.quantity,
             sale_datetime=sale_datetime_kst,
             return_amount=sale_data.return_amount,
-            subsidy_amount=0.0  # ✅ 일반 매출이므로 지원금 없음
+            subsidy_amount=0.0
         )
         db.add(new_sale)
         db.flush()
@@ -483,7 +499,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
 
         print(f"✅ 매출 저장 완료: ID={new_sale.id}, 총액={total_amount}")
 
-        # ✅ 판매 완료 후 차량 재고 자동 업데이트 실행
+        # ✅ 차량 재고 차감
         subtract_inventory_on_sale(
             employee_id=sale_data.employee_id,
             product_id=sale_data.product_id,
@@ -492,17 +508,12 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         )
 
         return new_sale
-    
+
     except Exception as e:
         db.rollback()
         print(f"❌ 판매 등록 실패: {e}")
         raise HTTPException(status_code=500, detail=f"판매 등록 실패: {e}")
 
-    
-    except Exception as e:
-        db.rollback()
-        print(f"❌ 판매 등록 실패: {e}")
-        raise HTTPException(status_code=500, detail=f"판매 등록 실패: {e}")
 
 def convert_sales_to_kst(sale: SalesRecord, db: Session, visit_id: int):
     """
@@ -1007,15 +1018,14 @@ def get_client_sales(
     db: Session = Depends(get_db)
 ):
     """
-    직원(employee_id)이 담당하는 거래처들의 월별 매출과 이름 포함한 결과 반환
-
+    직원(employee_id)이 담당하는 거래처들의 월별 매출과 이름, 미수금(outstanding_amount)까지 포함
     """
     from app.models.clients import Client
     from sqlalchemy import extract, func
 
-    # 🔹 1) 직원 담당 거래처 목록 (client_id + 이름)
+    # 1) 직원 담당 거래처 목록
     employee_client_rows = (
-        db.query(EmployeeClient.client_id, Client.client_name)
+        db.query(EmployeeClient.client_id, Client.client_name, Client.outstanding_amount)
         .join(Client, EmployeeClient.client_id == Client.id)
         .filter(EmployeeClient.employee_id == employee_id)
         .all()
@@ -1026,16 +1036,20 @@ def get_client_sales(
             "year": year,
             "per_client": {},
             "total_monthly": [0]*12,
-            "client_names": {}
+            "client_names": {},
+            "outstanding_map": {}
         }
 
     client_ids = []
     client_names = {}
+    outstanding_map = {}
     for row in employee_client_rows:
-        client_ids.append(row.client_id)
-        client_names[row.client_id] = row.client_name
+        cid = row.client_id
+        client_ids.append(cid)
+        client_names[cid] = row.client_name
+        outstanding_map[cid] = float(row.outstanding_amount or 0.0)  # 미수금
 
-    # 🔹 2) 각 거래처 월별 매출 조회
+    # 2) 각 거래처 월별 매출 조회
     results = (
         db.query(
             SalesRecord.client_id.label("cid"),
@@ -1046,16 +1060,17 @@ def get_client_sales(
         .filter(SalesRecord.client_id.in_(client_ids))
         .filter(SalesRecord.employee_id == employee_id)
         .filter(extract('year', SalesRecord.sale_datetime) == year)
-        
         .group_by(SalesRecord.client_id, extract('month', SalesRecord.sale_datetime))
         .all()
     )
 
+    # 거래처별 매출 저장
     per_client = {cid: [0]*12 for cid in client_ids}
     for row in results:
         m = int(row.sale_month)
         per_client[int(row.cid)][m - 1] = float(row.sum_sales or 0)
 
+    # 월별 합계
     total_monthly = [0]*12
     for values in per_client.values():
         for i in range(12):
@@ -1063,9 +1078,10 @@ def get_client_sales(
 
     return {
         "year": year,
-        "per_client": per_client,
+        "per_client": per_client,    # { client_id: [월별 매출...], ...}
         "total_monthly": total_monthly,
-        "client_names": client_names
+        "client_names": client_names,
+        "outstanding_map": outstanding_map  # { client_id: 미수금, ...}
     }
 
 
@@ -1099,3 +1115,20 @@ def get_client_monthly_sales(
     total_sales = float(sum_val or 0.0)
     return { "total_sales": total_sales }
 
+@router.get("/monthly_box_count_client/{client_id}/{year}")
+def get_monthly_box_count(client_id: int, year: int, db: Session = Depends(get_db)):
+    results = (
+        db.query(
+            extract('month', SalesRecord.sale_datetime).label('sale_month'),
+            func.sum(SalesRecord.quantity).label('total_boxes')
+        )
+        .filter(SalesRecord.client_id == client_id)
+        .filter(extract('year', SalesRecord.sale_datetime) == year)
+        .group_by(extract('month', SalesRecord.sale_datetime))
+        .all()
+    )
+    monthly_boxes = [0] * 12
+    for row in results:
+        m = int(row.sale_month) - 1
+        monthly_boxes[m] = int(row.total_boxes or 0)
+    return monthly_boxes

@@ -29,7 +29,44 @@ class ApiService {
       print("❌ FCM 토큰 등록 중 예외 발생: $e");
     }
   }
+  static Future<List<dynamic>> fetchCategoryOverrides(String token) async {
+    final url = Uri.parse('$BASE_URL/category_price_overrides/');
+    final response = await http.get(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
 
+    print("📦 응답 코드: ${response.statusCode}");
+
+    if (response.statusCode == 200) {
+      // ✅ 명시적으로 UTF-8 디코딩
+      final decoded = utf8.decode(response.bodyBytes);
+      print("📦 응답 본문 (UTF-8): $decoded");
+      return jsonDecode(decoded);
+    } else {
+      print("❌ 에러 응답: ${response.body}");
+      throw Exception('Failed to load category price overrides');
+    }
+  }
+
+  static Future<Map<String, dynamic>> getMe(String token) async {
+    final response = await http.get(
+      Uri.parse("http://your-server.com/employees/me"),  // ✅ 주소에 맞게 수정
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception("getMe 실패: ${response.statusCode}");
+    }
+  }
   static Future<void> markOrderAsRead(int orderId) async {
     final response = await _dio.patch('/franchise_orders/$orderId/mark_read');
     if (response.statusCode != 200) {
