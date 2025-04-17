@@ -2096,7 +2096,7 @@ $line
         {"outstanding_amount": updatedOutstandingAmount},
       );
       for (var item in _scannedItems) {
-        final int totalUnits = item['box_count'];
+        final int totalUnits = (item['box_quantity'] * item['box_count']  * item['client_price'] * 0.01).round();
         final double returnAmount = 0.0; // ✅ 기본적으로 반품 금액 0으로 설정
         final payload = {
           "employee_id": auth.user?.id, // ✅ 직원 ID 포함
