@@ -21,6 +21,7 @@ class SalesRecord(Base):
     
     return_amount = Column(Float, nullable=False, default=0.0)  # ✅ 반품 금액 추가
     subsidy_amount = Column(Float, nullable=False, default=0.0)  # ✅ 지원금 필드 추가
+    total_amount = Column(Float, nullable=False, default=0.0)  # ✅ 추가
     # ✅ KST 기준으로 판매 날짜 저장
     sale_datetime = Column(DateTime, nullable=False, default=get_kst_now)
 

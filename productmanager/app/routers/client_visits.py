@@ -98,7 +98,7 @@ def get_today_visits_details(
     employee_id: int = Query(...),
     db: Session = Depends(get_db)
 ):
-    """ 오늘(KST) 방문한 거래처 목록 조회 (개별 방문 기록 유지) """
+    """ 오늘(KST) 방문한 거래처 목록 조회 (개별 방문 기록 유지, 매출은 total_amount 기준) """
 
     today_kst = get_kst_today()
     print(f"🔍 KST 기준 오늘 날짜: {today_kst}")
@@ -107,12 +107,12 @@ def get_today_visits_details(
         db.query(
             ClientVisit.id.label("visit_id"),
             ClientVisit.visit_datetime,
-            ClientVisit.visit_count,  # ✅ 방문 횟수 추가
+            ClientVisit.visit_count,
             Client.id.label("client_id"),
             Client.client_name,
             Client.outstanding_amount,
             func.coalesce(
-                func.sum(Product.default_price * SalesRecord.quantity), 0
+                func.sum(SalesRecord.total_amount), 0
             ).label("today_sales")
         )
         .join(Client, ClientVisit.client_id == Client.id)
@@ -122,21 +122,24 @@ def get_today_visits_details(
             & (SalesRecord.employee_id == ClientVisit.employee_id)
             & (cast(SalesRecord.sale_datetime, Date) == cast(ClientVisit.visit_datetime, Date))
         )
-        .outerjoin(Product, Product.id == SalesRecord.product_id)
         .filter(ClientVisit.employee_id == employee_id)
-        .filter(ClientVisit.visit_date == today_kst)  # ✅ 오늘 방문 데이터만 조회
-        .group_by(ClientVisit.id, ClientVisit.visit_datetime, ClientVisit.visit_count, Client.id, Client.client_name, Client.outstanding_amount)  # ✅ 방문 기록 개별 출력
+        .filter(ClientVisit.visit_date == today_kst)
+        .group_by(
+            ClientVisit.id, ClientVisit.visit_datetime, ClientVisit.visit_count,
+            Client.id, Client.client_name, Client.outstanding_amount
+        )
         .all()
     )
 
     results = []
     for row in query:
-        visit_datetime_kst = row.visit_datetime.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=9))) if row.visit_datetime else None
+        visit_dt = row.visit_datetime
+        visit_time_str = visit_dt.strftime("%Y-%m-%d %H:%M:%S") if visit_dt else "방문 기록 없음"
 
         results.append({
             "visit_id": row.visit_id,
-            "visit_datetime": visit_datetime_kst.strftime("%Y-%m-%d %H:%M:%S") if visit_datetime_kst else "방문 기록 없음",
-            "visit_count": row.visit_count,  # ✅ 방문 횟수 반환 추가
+            "visit_datetime": visit_time_str,
+            "visit_count": row.visit_count,
             "client_id": row.client_id,
             "client_name": row.client_name,
             "outstanding_amount": float(row.outstanding_amount or 0),
@@ -146,7 +149,6 @@ def get_today_visits_details(
     print(f"📝 조회된 방문 기록: {len(results)}개")
 
     return results
-
 
 
 

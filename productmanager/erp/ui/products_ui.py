@@ -467,8 +467,9 @@ class ProductLeftPanel(BaseLeftTableWidget):
                     box_qty = int(row.get("박스당수량", 1))
                     category = str(row.get("카테고리", "")).strip()
                     is_active = 1 if str(row.get("활성화여부", "1")).strip() == "1" else 0
-                    is_fixed_price = str(row.get("가격유형", "")).strip() == "고정가"
-
+                    val = str(row.get("가격유형", "")).strip().lower()
+                    is_fixed_price = val in ["고정가", "1", "true"]
+                    
                     data = {
                         "brand_name": brand_name,
                         "product_name": product_name,

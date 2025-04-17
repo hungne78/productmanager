@@ -805,7 +805,8 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
       final product = matchedProduct;
       final productName = product['product_name'] ?? "상품명 없음";
       final defaultPrice = (product['default_price'] ?? 0).toDouble();
-      final isProductFixedPrice = product['is_fixed_price'] == true;
+      final isProductFixedPrice = ["1", 1, true].contains(product['is_fixed_price']);
+
       final clientRegularPrice = (widget.client['regular_price'] ?? 0).toDouble();
       final clientFixedPrice = (widget.client['fixed_price'] ?? 0).toDouble();
       final category = product['category'];
@@ -816,7 +817,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
             promo['price_type'] == (isProductFixedPrice ? "fixed" : "normal"),
         orElse: () => {},
       );
-
+      print("📦 상품 is_fixed_price = ${product['is_fixed_price']}");
       final overridePrice = matchedPromo.containsKey('override_price')
           ? matchedPromo['override_price']
           : null;
@@ -2104,6 +2105,9 @@ $line
           "quantity": totalUnits,
           "sale_datetime": nowStr,
           "return_amount": returnAmount,
+          "subsidy_amount": 0.0,
+          "client_price": item['client_price'],    // ✅ 단가 (개당 단가)
+          "box_unit_count": item['box_unit_count'] // ✅ 박스당 개수
         };
 
         final resp = await ApiService.createSales(widget.token, payload);
@@ -2113,7 +2117,7 @@ $line
       }
       // ✅ 반품 상품 서버 전송
       for (var item in _returnedItems) {
-        final int totalUnits = item['box_quantity'];
+        final int totalUnits = (item['box_quantity'] * item['client_price'] * 0.01).round();
         final double defaultPrice = (item['default_price'] ?? 0).toDouble();
         final double clientPrice = (item['client_price'] ?? 0).toDouble();
         final double returnAmount = (totalUnits * defaultPrice * clientPrice * 0.01).toDouble();

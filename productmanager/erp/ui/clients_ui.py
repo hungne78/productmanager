@@ -572,22 +572,34 @@ class ClientLeftPanel(BaseLeftTableWidget):
     
     def export_excel_clients(self):
         """
-        서버에 저장된 거래처들을 조회해 엑셀로 저장
+        서버에 저장된 거래처들을 조회해 엑셀로 저장 (JSON 문자열/bytes 대응)
         """
         try:
             # 1. 서버로부터 거래처 목록 가져오기
-            clients = api_fetch_clients(get_auth_headers)  # 실제로는 페이지네이션 등 처리 가능
+            raw_clients = api_fetch_clients(get_auth_headers)
+
+            # 2. 응답이 문자열 혹은 bytes 형태일 경우 JSON 파싱
+            if isinstance(raw_clients, bytes):
+                clients = json.loads(raw_clients.decode("utf-8"))
+            elif isinstance(raw_clients, str):
+                clients = json.loads(raw_clients)
+            elif isinstance(raw_clients, list):
+                clients = raw_clients
+            else:
+                QMessageBox.critical(self, "에러", "서버 응답 형식을 인식할 수 없습니다.")
+                return
+
             if not clients:
                 QMessageBox.information(self, "알림", "서버에 거래처가 없습니다.")
                 return
 
-            # 2. pandas DataFrame으로 변환
+            # 3. pandas DataFrame으로 변환
             df = pd.DataFrame(clients)
             if df.empty:
                 QMessageBox.information(self, "알림", "서버에 거래처가 없습니다.")
                 return
 
-            # 3. 사용자에게 저장 경로를 물어봄
+            # 4. 사용자에게 저장 경로를 물어봄
             file_path, _ = QFileDialog.getSaveFileName(
                 self,
                 "엑셀로 저장",
@@ -597,12 +609,12 @@ class ClientLeftPanel(BaseLeftTableWidget):
             if not file_path:
                 return  # 취소 시
 
-            # 4. DataFrame을 엑셀로 저장
-            df.to_excel(file_path, index=False, sheet_name="Clients")
+            # 5. DataFrame을 엑셀로 저장 (한글 깨짐 방지: utf-8-sig)
+            df.to_excel(file_path, index=False, sheet_name="Clients", encoding="utf-8-sig")
             QMessageBox.information(self, "완료", f"거래처 목록을 엑셀로 저장했습니다:\n{file_path}")
 
         except Exception as e:
-            QMessageBox.critical(self, "오류", f"엑셀 내보내기 실패: {e}")
+            QMessageBox.critical(self, "오류", f"엑셀 내보내기 실패:\n{e}")
             
     def import_excel_clients(self):
         """

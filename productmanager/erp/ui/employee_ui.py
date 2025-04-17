@@ -343,18 +343,26 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         # -------------------------------------------
         # 📌 1) 테이블 설정
         self.client_sales_table = QTableWidget()
-        self.client_sales_table.setColumnCount(3)
-        self.client_sales_table.setHorizontalHeaderLabels(["거래처명", "이번달 매출", "미수금"])
+        self.client_sales_table.setColumnCount(4)
+        self.client_sales_table.setHorizontalHeaderLabels(["거래처명", "이번달 매출", "미수금", "id"])
         self.client_sales_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.client_sales_table.verticalHeader().setVisible(False)
 
         self.client_sales_table.itemDoubleClicked.connect(self.on_client_sales_double_clicked)
 
-        # 👉 열 너비 설정
+        # 열 크기 조절
         header = self.client_sales_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
+
+        # 첫 번째 열 (client_id) - 최소 크기 설정
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # client_id는 자동 크기
+
+        # 두 번째, 세 번째, 네 번째 열 - 내용에 맞게 크기 조정
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 거래처명
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 이번달 매출
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 미수금
+
+        # 네 번째 열에 대해서는 Stretch를 사용해서 테이블 내 공간을 나눠줍니다.
+        header.setSectionResizeMode(3, QHeaderView.Stretch) 
 
         # 📌 2) 스크롤 영역으로 감싸기
         scroll_area = QScrollArea()
@@ -395,31 +403,29 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         """
         담당 거래처 테이블의 셀을 더블클릭하면 실행되는 슬롯 함수
         - 더블클릭된 거래처(순번, 거래처명 등) 행 정보를 가져와서 거래처 ID를 파악
-        - MainWindow의 Client 탭으로 전환 후, 해당 거래처 정보를 불러오도록 요청
         """
         row = item.row()
         if row < 0:
             return
 
-        # 여기서는 예시로 '0번 열' 또는 숨겨진 열에서 client_id를 가져온다고 가정
-        # 만약 실제로는 '거래처명'을 키로 사용한다면, 그에 맞춰 서버/딕셔너리 조회를 해야 합니다.
-        # 예) 첫 번째 컬럼에 client_id가 들어있다면:
-        client_id_item = self.client_sales_table.item(row, 0)
+        # 첫 번째 열에 client_id가 들어 있다고 가정하고 이를 가져옵니다.
+        client_id_item = self.client_sales_table.item(row, 3)  # 첫 번째 열
         if not client_id_item:
             return
 
-        client_id_str = client_id_item.text().strip()
+        client_id_str = client_id_item.text().strip()  # 텍스트로 읽어오기
         if not client_id_str.isdigit():
             print("⚠️ 잘못된 거래처 ID:", client_id_str)
             return
 
-        client_id = int(client_id_str)
+        client_id = int(client_id_str)  # client_id를 정수로 변환
         print(f"✅ 더블클릭으로 거래처 ID={client_id} 확인")
 
-        # 이제 MainWindow 혹은 상위 컨테이너에서 탭 전환 + 거래처 로딩을 요청
-        main_window = self.find_main_window()
+        # MainWindow에서 거래처 탭으로 이동하도록 요청
+        main_window = self.find_main_window()  # 상위 MainWindow를 찾기 위한 메서드
         if main_window:
-            main_window.show_client_tab(client_id)  # 아래에서 설명할 메서드
+            main_window.show_client_tab(client_id)  # 거래처 화면으로 이동하는 메서드 호출
+
 
     def find_main_window(self):
         """
@@ -568,25 +574,31 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         outstanding_map = data.get("outstanding_map", {})  # 추가된 미수금 map
 
         self.client_sales_table.clearContents()
-        
-        # 열 수: 순번 / 거래처명 / 이번달 매출 / 미수금 → 4열로 변경
-        # '순번'은 없앨 예정이면, 그 자리를 그냥 비우거나 안 쓴다.
-        self.client_sales_table.setColumnCount(3)  
-        self.client_sales_table.setHorizontalHeaderLabels(["거래처명", "이번달 매출", "미수금"])
+
+        # 열 수: 거래처명, 이번달 매출, 미수금, client_id (숨겨진 열로 추가)
+        self.client_sales_table.setColumnCount(4)  
+        self.client_sales_table.setHorizontalHeaderLabels(["거래처명", "이번달 매출", "미수금", "id"])
 
         self.client_sales_table.setRowCount(len(per_client))
 
         # 열 크기 조절
         header = self.client_sales_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
+
+        # 첫 번째 열 (client_id) - 최소 크기 설정
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # client_id는 자동 크기
+
+        # 두 번째, 세 번째, 네 번째 열 - 내용에 맞게 크기 조정
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 거래처명
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 이번달 매출
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 미수금
+
+        # 네 번째 열에 대해서는 Stretch를 사용해서 테이블 내 공간을 나눠줍니다.
+        header.setSectionResizeMode(3, QHeaderView.Stretch) 
 
         total_sum = 0
         for row_idx, (client_id, monthly_sales) in enumerate(per_client.items()):
             name = client_names.get(str(client_id), f"거래처 {client_id}")
             this_month_sales = monthly_sales[month - 1]  # 이번 달 매출
-            # 미수금
             outstanding_val = outstanding_map.get(str(client_id), 0.0)
 
             # 거래처명
@@ -604,12 +616,18 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
             item_outs.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.client_sales_table.setItem(row_idx, 2, item_outs)
 
+            # client_id (숨겨진 열에 설정)
+            item_client_id = QTableWidgetItem(str(client_id))
+            item_client_id.setTextAlignment(Qt.AlignCenter)
+            item_client_id.setFlags(item_client_id.flags() & ~Qt.ItemIsEditable)  # 읽기 전용으로 설정
+            self.client_sales_table.setItem(row_idx, 3, item_client_id)
+
             total_sum += this_month_sales
 
-        # 합계 라벨 표시 (필요하면 유지)
+        # 합계 라벨 표시
         self.client_sales_total_label.setText(f"합계: {total_sum:,.0f} 원")
         self.client_sales_total_label.setAlignment(Qt.AlignRight)
-        # 폰트 설정 등…
+
 
 
 
@@ -768,6 +786,7 @@ class EmployeeRightPanel(QWidget):
         # ▣ 일별 매출 (달력)
         self.box3 = QGroupBox("일별 매출 (달력)")
         self.box3_layout = QVBoxLayout()
+        
         self.box3.setLayout(self.box3_layout)
         from datetime import date
         today = date.today()

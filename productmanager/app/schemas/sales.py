@@ -23,7 +23,8 @@ class SalesRecordCreate(BaseModel):
     sale_datetime: datetime
     return_amount: float = 0.0  # ✅ 기본값 0.0
     subsidy_amount: float = 0.0  # ✅ 지원금 필드 추가   
-    
+    client_price: Optional[float] = None         # ✅ 프론트에서 보낸 단가
+    box_unit_count: Optional[int] = None
 
 class TotalSalesOut(BaseModel):
     """ 거래처별 당일 총매출 출력 스키마 """

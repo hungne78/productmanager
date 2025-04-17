@@ -22,7 +22,7 @@ class AuthProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
 
-    final url = Uri.parse("http://hungne78.synology.me:8000/admin_auth/login"); // 실제 서버 주소/포트로 교체
+    final url = Uri.parse("http://192.168.50.221:8000/admin_auth/login"); // 실제 서버 주소/포트로 교체
 
     try {
       final resp = await http.post(

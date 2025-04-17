@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/sales_api_service.dart';
 import 'sales_detail_screen.dart';
+import 'dart:convert';
 
 class SalesMainScreen extends StatefulWidget {
   const SalesMainScreen({Key? key}) : super(key: key);
@@ -166,8 +167,6 @@ class _SalesMainScreenState extends State<SalesMainScreen> {
     }
 
     try {
-      // 🔸 SalesApiService에서 통합 API를 호출하여
-      // "일자별", "직원별", "거래처별" 세 가지 데이터를 함께 가져온다고 가정
       final data = await SalesApiService.fetchSalesAggregates(
         token,
         startDate: _startDate,
@@ -176,19 +175,23 @@ class _SalesMainScreenState extends State<SalesMainScreen> {
         clientId: _selectedClientId,
       );
 
-      // data = {
-      //   "by_date": [
-      //     { "date":"2025-05-01", "sum_sales":..., "items": [...], },
-      //     ...
-      //   ],
-      //   "by_employee": [...],
-      //   "by_client": [...]
-      // }
+      // 응답의 'items' 필드가 String으로 오면 JSON으로 변환
+      for (var group in data["by_date"] ?? []) {
+        if (group["items"] is String) {
+          try {
+            // `items`가 String 형식으로 오면 JSON 배열로 변환
+            group["items"] = json.decode('[' + group["items"] + ']') as List<dynamic>;
+          } catch (e) {
+            print("JSON 파싱 오류: $e");
+          }
+        }
+
+      }
 
       setState(() {
-        _byDate = List<Map<String, dynamic>>.from(data["by_date"]);
-        _byEmployee = List<Map<String, dynamic>>.from(data["by_employee"]);
-        _byClient = List<Map<String, dynamic>>.from(data["by_client"]);
+        _byDate = List<Map<String, dynamic>>.from(data["by_date"] ?? []);
+        _byEmployee = List<Map<String, dynamic>>.from(data["by_employee"] ?? []);
+        _byClient = List<Map<String, dynamic>>.from(data["by_client"] ?? []);
       });
     } catch (e) {
       setState(() => _error = "검색 실패: $e");
@@ -196,6 +199,7 @@ class _SalesMainScreenState extends State<SalesMainScreen> {
       setState(() => _isLoading = false);
     }
   }
+
 
   Widget _buildExpansionSection(String title, List<Map<String, dynamic>> dataList, String labelKey) {
     if (dataList.isEmpty) {

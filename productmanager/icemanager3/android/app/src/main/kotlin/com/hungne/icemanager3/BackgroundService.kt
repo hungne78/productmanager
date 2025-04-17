@@ -1,4 +1,4 @@
-package com.example.icemanager3
+package com.hungne.icemanager3
 
 import android.app.Service
 import android.content.Intent

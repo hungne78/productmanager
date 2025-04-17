@@ -13,6 +13,41 @@ from typing import List
 from passlib.hash import bcrypt
 router = APIRouter()
 
+@router.get("/by_employee")
+def get_clients_grouped_by_employee(db: Session = Depends(get_db)):
+    from app.models.employees import Employee
+    from app.models.employee_clients import EmployeeClient
+    from app.models.clients import Client
+
+    result = []
+
+    employees = db.query(Employee).all()
+    for emp in employees:
+        emp_clients = (
+            db.query(Client)
+            .join(EmployeeClient, EmployeeClient.client_id == Client.id)
+            .filter(EmployeeClient.employee_id == emp.id)
+            .all()
+        )
+
+        clients_list = [
+            {
+                "client_id": c.id,
+                "client_name": c.client_name,
+                "region": getattr(c, "region", ""),  # region 필드가 있다고 가정
+                "outstanding": int(c.outstanding_amount or 0)
+            }
+            for c in emp_clients
+        ]
+
+        result.append({
+            "employee_id": emp.id,
+            "employee_name": emp.name,
+            "clients": clients_list
+        })
+
+    return result
+
 @router.post("/", response_model=ClientOut)
 def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
     """ 새로운 거래처 등록 (KST로 저장) """
@@ -142,3 +177,132 @@ def get_all_clients(employee_id: int, db: Session = Depends(get_db)):
 
     print(f"📌 Final API Response: {response_data}")
     return response_data
+
+
+@router.get("/{client_id}/detail")
+def get_client_detail(client_id: int, db: Session = Depends(get_db)):
+    from app.models.clients import Client
+    from app.models.employee_clients import EmployeeClient
+    from app.models.employees import Employee
+    from app.models.sales_records import SalesRecord
+    from sqlalchemy import desc
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="거래처를 찾을 수 없습니다.")
+
+    # 담당 직원 목록
+    emp_links = (
+        db.query(EmployeeClient)
+        .filter(EmployeeClient.client_id == client_id)
+        .all()
+    )
+    employees = [
+        {
+            "employee_id": link.employee_id,
+            "employee_name": db.query(Employee).get(link.employee_id).name
+        } for link in emp_links
+    ]
+
+    # 최근 매출
+    recent_sales = (
+        db.query(SalesRecord)
+        .filter(SalesRecord.client_id == client_id)
+        .order_by(desc(SalesRecord.sale_datetime))
+        .limit(10)
+        .all()
+    )
+    sales_data = [
+        {
+            "date": sr.sale_datetime.date().isoformat(),
+            "amount": int(sr.quantity * sr.product.default_price),
+            "products": [  # 실제로는 조인 필요
+                {"product_name": sr.product.product_name, "qty": sr.quantity}
+            ]
+        } for sr in recent_sales
+    ]
+
+    # 최근 방문
+    visit_data = [
+        {
+            "date": sr.sale_datetime.date().isoformat(),
+            "employee_id": sr.employee_id
+        }
+        for sr in recent_sales
+    ]
+
+    return {
+        "client_id": client.id,
+        "client_name": client.client_name,
+        "representative": client.representative_name,
+        "business_number": client.business_number,
+        "address": client.address,
+        "phone": client.phone,
+        "outstanding": int(client.outstanding_amount or 0),
+        "employees": employees,
+        "recent_sales": sales_data,
+        "visits": visit_data
+    }
+from decimal import Decimal
+
+@router.get("/monthly_sales_client/{client_id}/{year}")
+def get_monthly_sales(client_id: int, year: int, db: Session = Depends(get_db)):
+    from app.models.sales_records import SalesRecord
+    from app.models.products import Product
+    from sqlalchemy import extract
+
+    monthly = [0.0] * 12
+
+    records = (
+        db.query(SalesRecord, Product)
+        .join(Product, Product.id == SalesRecord.product_id)
+        .filter(SalesRecord.client_id == client_id)
+        .filter(extract("year", SalesRecord.sale_datetime) == year)
+        .all()
+    )
+
+    for sr, prod in records:
+        month_idx = sr.sale_datetime.month - 1
+        price = float(prod.default_price or 0)
+        quantity = sr.quantity or 0
+        monthly[month_idx] += price * quantity
+
+    return [round(m, 2) for m in monthly]
+@router.get("/monthly_visits_client/{client_id}/{year}")
+def get_monthly_visits(client_id: int, year: int, db: Session = Depends(get_db)):
+    from app.models.sales_records import SalesRecord
+    from sqlalchemy import func, extract
+
+    monthly_visits = [0] * 12
+
+    visit_data = (
+        db.query(func.date(SalesRecord.sale_datetime))
+        .filter(SalesRecord.client_id == client_id)
+        .filter(extract("year", SalesRecord.sale_datetime) == year)
+        .distinct()
+        .all()
+    )
+
+    for (visit_date_str,) in visit_data:
+        visit_date = datetime.strptime(visit_date_str, "%Y-%m-%d")
+        monthly_visits[visit_date.month - 1] += 1
+
+    return monthly_visits
+@router.get("/monthly_box_count_client/{client_id}/{year}")
+def get_monthly_box_count(client_id: int, year: int, db: Session = Depends(get_db)):
+    from app.models.sales_records import SalesRecord
+    from sqlalchemy import extract
+
+    monthly = [0] * 12
+
+    records = (
+        db.query(SalesRecord)
+        .filter(SalesRecord.client_id == client_id)
+        .filter(extract("year", SalesRecord.sale_datetime) == year)
+        .all()
+    )
+
+    for r in records:
+        monthly[r.sale_datetime.month - 1] += r.quantity or 0
+
+    return monthly

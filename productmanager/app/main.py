@@ -160,6 +160,10 @@ async def lifespan(app: FastAPI):
                 "password": "admin123"
             }
         ]
+        from app.utils.archive_utils import archive_sales_for_year_if_not_archived
+        from datetime import datetime
+        last_year = datetime.now().year - 1
+        archive_sales_for_year_if_not_archived(last_year, db)
 
         for admin_data in default_admins:
             existing_admin = db.query(AdminUser).filter(AdminUser.email == admin_data["email"]).first()

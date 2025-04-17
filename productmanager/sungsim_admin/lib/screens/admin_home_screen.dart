@@ -135,15 +135,24 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
     final auth = context.read<AuthProvider>();
     final token = auth.token;
-    if (token == null) {
-      return;
-    }
+    if (token == null) return;
 
     try {
-      // 예시 API:  GET /admin/sales/monthly
-      final data = await AdminApiService.fetchMonthlyEmployeeSales(token);
-      // 예: data = [{ "employee_id": 1, "employee_name": "홍길동", "total_sales": 2300000 }, ... ]
-      double total = data.fold(0.0, (sum, item) => sum + (item["total_sales"] as num).toDouble());
+      final user = auth.user as Map<String, dynamic>;
+      final int employeeId = user['id'];
+      final DateTime now = DateTime.now();
+      final int year = now.year;
+      final int month = now.month;
+
+      // ✅ year와 month를 함께 전달
+      final data = await AdminApiService.fetchMonthlySales(token, employeeId, year, month);
+
+      // ✅ List<Map> 형태일 때 총 매출 합산
+      double total = data.fold(0.0, (sum, item) {
+        final value = item["total_sales"];
+        return sum + (value is num ? value.toDouble() : 0.0);
+      });
+
       setState(() {
         _monthlySalesData = List<Map<String, dynamic>>.from(data);
         _totalMonthlySales = total;
@@ -154,6 +163,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       setState(() => _isLoading = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

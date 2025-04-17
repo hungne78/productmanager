@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ClientApiService {
-  static const String baseUrl = "http://hungne78.synology.me:8000";
+  static const String baseUrl = "http://192.168.50.221:8000";
 
   /// 직원별 거래처 목록 조회
   /// 응답 예:
@@ -17,7 +17,7 @@ class ClientApiService {
   ///   ...
   /// ]
   static Future<List<Map<String, dynamic>>> fetchClientsByEmployee(String token) async {
-    final url = Uri.parse("$baseUrl/admin/clients/by_employee");
+    final url = Uri.parse("$baseUrl/clients/by_employee");
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json",
@@ -41,7 +41,7 @@ class ClientApiService {
   ///   "visits":[{"date":"2025-05-02","employee_id":1}, ...]
   /// }
   static Future<Map<String, dynamic>> fetchClientDetail(String token, int clientId) async {
-    final url = Uri.parse("$baseUrl/admin/clients/$clientId/detail");
+    final url = Uri.parse("$baseUrl/clients/$clientId/detail");
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json",
@@ -53,7 +53,7 @@ class ClientApiService {
     }
   }
   static Future<List<double>> fetchMonthlySales(int clientId, int year, String token) async {
-    final url = Uri.parse("$baseUrl/monthly_sales_client/$clientId/$year");
+    final url = Uri.parse("$baseUrl/clients/monthly_sales_client/$clientId/$year");
 
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",
@@ -69,7 +69,7 @@ class ClientApiService {
   }
   /// 🔹 월별 방문 횟수
   static Future<List<int>> fetchMonthlyVisits(int clientId, int year, String token) async {
-    final url = Uri.parse("$baseUrl/monthly_visits_client/$clientId/$year");
+    final url = Uri.parse("$baseUrl/clients/monthly_visits_client/$clientId/$year");
 
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",
@@ -86,7 +86,7 @@ class ClientApiService {
 
   /// 📦 월별 박스 수량 (SalesRecord.quantity 합계)
   static Future<List<int>> fetchMonthlyBoxCount(int clientId, int year, String token) async {
-    final url = Uri.parse("$baseUrl/monthly_box_count_client/$clientId/$year");
+    final url = Uri.parse("$baseUrl/clients/monthly_box_count_client/$clientId/$year");
 
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",

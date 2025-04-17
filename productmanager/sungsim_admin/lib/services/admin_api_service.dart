@@ -2,34 +2,49 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class AdminApiService {
-  static const String baseUrl = "http://hungne78.synology.me:8000"; // 👉 여기에 서버 주소 넣으세요
+  static const String baseUrl = "http://192.168.50.221:8000"; // 👉 여기에 서버 주소 넣으세요
 
   /// 🔹 이번 달 직원별 매출 조회 (GET /admin/sales/monthly)
-  static Future<List<Map<String, dynamic>>> fetchMonthlyEmployeeSales(String token) async {
-    final url = Uri.parse("$baseUrl/admin/sales/monthly");
+  static Future<List<Map<String, dynamic>>> fetchMonthlySales(
+      String token, int employeeId, int year, int month) async {
+    try {
+      print("📡 Requesting monthly sales: $baseUrl/sales/daily_sales/$employeeId/$year/$month");
 
-    final response = await http.get(
-      url,
-      headers: {
-        "Authorization": "Bearer $token",
-        "Content-Type": "application/json",
-      },
-    );
+      final response = await http.get(
+        Uri.parse('$baseUrl/sales/daily_sales/$employeeId/$year/$month'),
+        headers: {
+          "Authorization": "Bearer $token",
+          "Content-Type": "application/json; charset=UTF-8"  // ✅ Ensure UTF-8 decoding
+        },
+      );
 
-    if (response.statusCode == 200) {
-      final body = utf8.decode(response.bodyBytes); // 한글깨짐 방지
-      final List<dynamic> jsonList = json.decode(body);
-      return List<Map<String, dynamic>>.from(jsonList);
-    } else {
-      throw Exception("월간 매출 조회 실패: ${response.statusCode} - ${response.body}");
+      print("✅ Response Code: ${response.statusCode}");
+      print("✅ Raw Response Body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        var jsonData = utf8.decode(response.bodyBytes);  // ✅ Decode response to preserve Korean text
+        var parsedData = jsonDecode(jsonData);
+
+        if (parsedData is List) {
+          return List<Map<String, dynamic>>.from(parsedData);
+        } else {
+          return [];
+        }
+      } else {
+        throw Exception("Failed to load monthly sales data: ${response.body}");
+      }
+    } catch (e) {
+      print("❌ Error fetching monthly sales: $e");
+      throw Exception("Error fetching monthly sales: $e");
     }
   }
+
 
   // 직원화면 관련 api
 
   // 직원 목록 (간단 info)
   static Future<List<Map<String, dynamic>>> fetchEmployeesBasicInfo(String token) async {
-    final url = Uri.parse("$baseUrl/admin/employees/basic_info");
+    final url = Uri.parse("$baseUrl/employees/basic_info");
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json"
@@ -44,7 +59,7 @@ class AdminApiService {
 
   // 직원 상세 프로필
   static Future<Map<String, dynamic>> fetchEmployeeProfile(String token, int employeeId) async {
-    final url = Uri.parse("$baseUrl/admin/employees/$employeeId/profile");
+    final url = Uri.parse("$baseUrl/employees/admin/employees/$employeeId/profile");
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json"
@@ -58,7 +73,7 @@ class AdminApiService {
 
   // 일 매출/주문/방문
   static Future<Map<String, dynamic>> fetchEmployeeDailyStats(String token, int employeeId) async {
-    final url = Uri.parse("$baseUrl/admin/employees/$employeeId/stats/daily");
+    final url = Uri.parse("$baseUrl/employees/admin/employees/$employeeId/stats/daily");
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json"
@@ -72,7 +87,7 @@ class AdminApiService {
 
   // 월 매출/주문/방문
   static Future<Map<String, dynamic>> fetchEmployeeMonthlyStats(String token, int employeeId) async {
-    final url = Uri.parse("$baseUrl/admin/employees/$employeeId/stats/monthly");
+    final url = Uri.parse("$baseUrl/employees/admin/employees/$employeeId/stats/monthly");
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json"
@@ -86,7 +101,7 @@ class AdminApiService {
 
   // 연 매출/주문/방문
   static Future<Map<String, dynamic>> fetchEmployeeYearlyStats(String token, int employeeId) async {
-    final url = Uri.parse("$baseUrl/admin/employees/$employeeId/stats/yearly");
+    final url = Uri.parse("$baseUrl/employees/admin/employees/$employeeId/stats/yearly");
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json"
@@ -100,7 +115,7 @@ class AdminApiService {
 
   // 거래처별 매출/미수금/방문
   static Future<List<Map<String, dynamic>>> fetchEmployeeClientStats(String token, int employeeId) async {
-    final url = Uri.parse("$baseUrl/admin/employees/$employeeId/clients/stats");
+    final url = Uri.parse("$baseUrl/employees/admin/employees/$employeeId/clients/stats");
     final resp = await http.get(url, headers: {
       "Authorization": "Bearer $token",
       "Content-Type": "application/json"

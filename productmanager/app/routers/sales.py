@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timedelta, timezone
-from sqlalchemy import cast, Date, extract, func
+from sqlalchemy import cast, Date, extract, func, text
 from app.db.database import get_db
 from app.models.sales_records import SalesRecord
 from app.models.products import Product
@@ -23,9 +23,17 @@ import json
 import logging
 from decimal import Decimal  # ✅ Import Decimal
 from datetime import timedelta
-
+from typing import Optional
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+    
+def convert_utc_to_kst(dt: datetime) -> datetime:
+    """입력 datetime이 UTC 또는 naive이면 KST로 변환"""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone(timedelta(hours=9)))
 
 def decimal_to_float(obj):
     """Helper function to convert Decimal values to float"""
@@ -40,6 +48,86 @@ def get_kst_today():
 # -----------------------------------------------------------------------------
 # 1. 특정 직원이 담당하는 거래처들의 매출 조회
 # -----------------------------------------------------------------------------
+
+@router.post("/aggregates")
+async def get_sales_aggregates(
+    request: Request,
+    start_date: date = Query(...),  # 쿼리 파라미터로 날짜 받기
+    end_date: date = Query(...),    # 쿼리 파라미터로 날짜 받기
+    employee_id: Optional[int] = None,
+    client_id: Optional[int] = None,
+    db: Session = Depends(get_db)  # DB 연결
+):
+    token = request.headers.get("Authorization")
+    if token is None:
+        raise HTTPException(status_code=400, detail="Token is required")
+    token = token.split(" ")[1] if token.startswith("Bearer") else token
+
+    try:
+        query = db.query(
+            func.date(SalesRecord.sale_datetime).label("date"),
+            func.sum(SalesRecord.quantity * Product.default_price).label("sum_sales"),
+            func.group_concat(  # GROUP_CONCAT()을 사용하여 문자열 결합
+                func.concat(
+                    '{"sale_id":', SalesRecord.id,
+                    ',"product_name":"', Product.product_name,
+                    '","quantity":', SalesRecord.quantity,
+                    ',"price":', Product.default_price,
+                    '}'
+                ), ','
+            ).label("items")  # 결과를 쉼표로 구분된 문자열로 결합
+        ).join(Product, SalesRecord.product_id == Product.id)
+
+        query = query.filter(
+            SalesRecord.sale_datetime >= start_date,
+            SalesRecord.sale_datetime <= end_date
+        )
+
+        if employee_id:
+            query = query.filter(SalesRecord.employee_id == employee_id)
+        if client_id:
+            query = query.filter(SalesRecord.client_id == client_id)
+
+        results = query.group_by(func.date(SalesRecord.sale_datetime)).all()
+
+        # JSON 직렬화 처리: SQLAlchemy 모델을 dict로 변환
+        def serialize_row(row):
+            return {
+                "date": row.date,
+                "sum_sales": row.sum_sales,
+                "items": row.items
+            }
+
+        serialized_results = [serialize_row(row) for row in results]
+
+        return {"by_date": serialized_results}
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"판매 집계 조회 실패: {e}")
+    
+@router.get("/detail/{sale_id}")
+async def get_sale_detail(sale_id: int, db: Session = Depends(get_db)):
+    try:
+        sale = db.query(SalesRecord).filter(SalesRecord.id == sale_id).first()
+
+        if not sale:
+            raise HTTPException(status_code=404, detail="판매 내역을 찾을 수 없습니다.")
+
+        return {
+            "sale_id": sale.id,
+            "datetime": sale.sale_datetime,
+            "employee_id": sale.employee_id,
+            "employee_name": sale.employee.name,
+            "client_id": sale.client_id,
+            "client_name": sale.client.client_name,
+            "items": [{"product_id": item.product_id, "product_name": item.product.product_name, "quantity": item.quantity, "price": item.product.default_price} for item in sale.items],
+            "total_price": sum(item.quantity * item.product.default_price for item in sale.items),
+            "incentive": sale.incentive,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"판매 상세 조회 실패: {e}")
+    
 @router.get("/by_employee/{employee_id}/{sale_date}", response_model=List[EmployeeClientSalesOut])
 def get_sales_by_employee(employee_id: int, sale_date: date, db: Session = Depends(get_db)):
     """
@@ -198,24 +286,24 @@ def get_total_sales(sale_date: date, db: Session = Depends(get_db)):
 @router.get("/monthly_sales_pc/{employee_id}/{year}")
 def get_monthly_sales(employee_id: int, year: int, db: Session = Depends(get_db)):
     """
-    특정 직원의 해당 연도 월별 매출 합계 반환
+    특정 직원의 해당 연도 월별 매출 합계 반환 (total_amount 기준)
     """
     results = (
         db.query(
             extract('month', SalesRecord.sale_datetime).label('sale_month'),
-            func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
+            func.sum(SalesRecord.total_amount).label('sum_sales')
         )
-        .join(Product, SalesRecord.product_id == Product.id)
         .filter(SalesRecord.employee_id == employee_id)
         .filter(extract('year', SalesRecord.sale_datetime) == year)
-        .group_by(extract('month', SalesRecord.sale_datetime))
+        .group_by('sale_month')
         .all()
     )
 
     monthly_data = [0] * 12
     for row in results:
-        m = int(row.sale_month) - 1  # 1월이면 index=0
-        monthly_data[m] = float(row.sum_sales)
+        m = int(row.sale_month) - 1
+        monthly_data[m] = float(row.sum_sales or 0)
+
     return monthly_data
 @router.get("/monthly_sales/{employee_id}/{year}")
 def get_yearly_sales(employee_id: int, year: int, db: Session = Depends(get_db)):
@@ -285,24 +373,32 @@ def get_yearly_sales(employee_id: int, year: int, db: Session = Depends(get_db))
 # -----------------------------------------------------------------------------
 @router.get("/daily_sales_pc/{employee_id}/{year}/{month}")
 def get_daily_sales(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
-    daily_data = [0] * 31
+    """
+    특정 직원의 해당 연/월의 일별 매출 합계 (total_amount 기준)
+    """
+    from sqlalchemy import extract, func
+    from app.models.sales_records import SalesRecord
+
+    daily_data = [0.0] * 31
+
     results = (
         db.query(
             extract('day', SalesRecord.sale_datetime).label('sale_day'),
-            func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
+            func.sum(SalesRecord.total_amount).label('sum_sales')
         )
-        .join(Product, SalesRecord.product_id == Product.id)
         .filter(SalesRecord.employee_id == employee_id)
         .filter(extract('year', SalesRecord.sale_datetime) == year)
         .filter(extract('month', SalesRecord.sale_datetime) == month)
-        .group_by(extract('day', SalesRecord.sale_datetime))
+        .group_by('sale_day')
         .all()
     )
+
     for row in results:
         d = int(row.sale_day) - 1
         daily_data[d] = float(row.sum_sales or 0)
+
     return daily_data
-    
+
 @router.get("/daily_sales/{employee_id}/{year}/{month}")
 def get_daily_sales(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
     logger.info(f"📡 Received request: /sales/daily_sales/{employee_id}/{year}/{month}")
@@ -419,11 +515,10 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
     print(f"📡 받은 요청 데이터: {sale_data.model_dump()}")  
     now = get_kst_now()
     today_kst = now.date()
-    
-    try:
-        print(f"📡 판매 등록 요청 데이터: {sale_data.model_dump()}")
+    print(f"🚧 최종 저장 수량 (quantity): {sale_data.quantity}")
 
-        # ✅ 지원금 여부 확인
+    try:
+        # ✅ 지원금 처리
         subsidy_amount = sale_data.subsidy_amount if hasattr(sale_data, "subsidy_amount") else 0.0
         is_subsidy = subsidy_amount > 0
 
@@ -435,15 +530,29 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
                 print(f"✅ 지원금 적용 완료: 거래처 {sale_data.client_id}, 지원금 {subsidy_amount}")
             return {"message": "지원금이 적용되었습니다."}
 
-        # ✅ 일반 매출 처리
+        # ✅ 상품 조회
         product = db.query(Product).filter(Product.id == sale_data.product_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
-        
-        total_amount = sale_data.quantity * product.default_price
-        sale_datetime_kst = sale_data.sale_datetime
+        if not product.box_quantity:
+            raise HTTPException(status_code=400, detail="상품의 박스당 개수가 설정되지 않았습니다.")
+        from decimal import Decimal
+        # ✅ 단가 결정: 고정가 있으면 사용, 없으면 기본가
+        # 단가 계산
+        if sale_data.client_price and sale_data.client_price > 0:
+            unit_price = product.default_price * Decimal(sale_data.client_price) / Decimal("100.0")
+        else:
+            unit_price = product.default_price
+        unit_count = sale_data.box_unit_count if sale_data.box_unit_count else product.box_quantity
 
-        # ✅ 거래처 방문 기록 확인 및 업데이트
+        # ✅ 총액 계산: 박스수 * 박스당개수 * 단가
+        total_amount = sale_data.quantity * unit_count * unit_price
+        print(f"💰 계산된 총 금액: {total_amount:.2f} (박스수={sale_data.quantity}, 개수/박스={unit_count}, 단가={unit_price})")
+
+        # ✅ KST 시간 변환
+        sale_datetime_kst = convert_utc_to_kst(sale_data.sale_datetime)
+
+        # ✅ 방문 기록 처리
         existing_visit = (
             db.query(ClientVisit)
             .filter(ClientVisit.employee_id == sale_data.employee_id)
@@ -454,23 +563,17 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
 
         if existing_visit:
             visit_dt = existing_visit.visit_datetime
-
-            # ✅ visit_datetime이 naive일 경우 KST timezone 붙이기
             if visit_dt.tzinfo is None:
                 visit_dt = visit_dt.replace(tzinfo=now.tzinfo)
-
             time_diff = now - visit_dt
-
             if time_diff > timedelta(hours=2):
                 existing_visit.visit_count += 1
-                print(f"🔼 방문 2시간 경과 → visit_count 증가: {existing_visit.visit_count}")
+                print(f"🔼 방문 2시간 경과 → visit_count 증가")
             else:
-                print(f"🕒 2시간 이내 재방문 → visit_count 증가하지 않음")
-
+                print(f"🕒 2시간 이내 재방문 → visit_count 증가 안함")
             existing_visit.visit_datetime = now
             db.commit()
         else:
-            # 오늘 첫 방문
             new_visit = ClientVisit(
                 employee_id=sale_data.employee_id,
                 client_id=sale_data.client_id,
@@ -482,12 +585,13 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
             db.flush()
             print(f"✅ 새로운 방문 기록 추가")
 
-        # ✅ 매출 저장
+        # ✅ 매출 저장 (total_amount 포함)
         new_sale = SalesRecord(
             employee_id=sale_data.employee_id,
             client_id=sale_data.client_id,
             product_id=sale_data.product_id,
             quantity=sale_data.quantity,
+            total_amount=total_amount,  # ✅ 총 매출 금액 저장
             sale_datetime=sale_datetime_kst,
             return_amount=sale_data.return_amount,
             subsidy_amount=0.0
@@ -497,7 +601,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(new_sale)
 
-        print(f"✅ 매출 저장 완료: ID={new_sale.id}, 총액={total_amount}")
+        print(f"✅ 매출 저장 완료: ID={new_sale.id}, 총액={new_sale.total_amount:.2f}")
 
         # ✅ 차량 재고 차감
         subtract_inventory_on_sale(
@@ -513,6 +617,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
         db.rollback()
         print(f"❌ 판매 등록 실패: {e}")
         raise HTTPException(status_code=500, detail=f"판매 등록 실패: {e}")
+
 
 
 def convert_sales_to_kst(sale: SalesRecord, db: Session, visit_id: int):
@@ -638,21 +743,25 @@ def create_aggregate_sales(payload: SalesAggregateCreate, db: Session = Depends(
 # -----------------------------------------------------------------------------
 @router.get("/monthly_sales_client/{client_id}/{year}")
 def get_monthly_sales_by_client(client_id: int, year: int, db: Session = Depends(get_db)):
+    """
+    특정 거래처의 연도별 월간 매출 합계 (total_amount 기준)
+    """
     results = (
         db.query(
             extract('month', SalesRecord.sale_datetime).label('sale_month'),
-            func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
+            func.sum(SalesRecord.total_amount).label('sum_sales')
         )
-        .join(Product, SalesRecord.product_id == Product.id)
         .filter(SalesRecord.client_id == client_id)
         .filter(extract('year', SalesRecord.sale_datetime) == year)
-        .group_by(extract('month', SalesRecord.sale_datetime))
+        .group_by('sale_month')
         .all()
     )
-    monthly_data = [0] * 12
+
+    monthly_data = [0.0] * 12
     for row in results:
         m = int(row.sale_month) - 1
         monthly_data[m] = float(row.sum_sales or 0)
+
     return monthly_data
 
 
@@ -662,29 +771,30 @@ def get_monthly_sales_by_client(client_id: int, year: int, db: Session = Depends
 @router.get("/daily_sales_client/{client_id}/{year}/{month}")
 def get_daily_sales_by_client(client_id: int, year: int, month: int, db: Session = Depends(get_db)):
     """
-    특정 거래처 기준, 해당 연도의 월별 매출 합계 반환
+    특정 거래처의 해당 연/월 일별 매출 합계 (total_amount 기준)
     """
-    daily_data = [0] * 31
+    from sqlalchemy import extract, func
+    from app.models.sales_records import SalesRecord
+
+    daily_data = [0.0] * 31
 
     results = (
         db.query(
             extract('day', SalesRecord.sale_datetime).label('sale_day'),
-            func.sum(Product.default_price * SalesRecord.quantity).label('sum_sales')
+            func.sum(SalesRecord.total_amount).label('sum_sales')
         )
-        .join(Product, SalesRecord.product_id == Product.id)
         .filter(SalesRecord.client_id == client_id)
         .filter(extract('year', SalesRecord.sale_datetime) == year)
         .filter(extract('month', SalesRecord.sale_datetime) == month)
-        .group_by(extract('day', SalesRecord.sale_datetime))
+        .group_by('sale_day')
         .all()
     )
 
     for row in results:
         d = int(row.sale_day) - 1
-        daily_data[d] = float(row.sum_sales)
+        daily_data[d] = float(row.sum_sales or 0)
 
     return daily_data
-
 
 # -----------------------------------------------------------------------------
 # 18. '오늘' 날짜 기준, 특정 거래처의 상품 카테고리별 집계 반환
@@ -695,20 +805,20 @@ def get_today_categories_for_client(client_id: int, db: Session = Depends(get_db
     '오늘' 날짜 기준, 특정 거래처의 상품 카테고리별 집계 반환
     """
     today_kst = get_kst_today()
-    start_of_day = datetime.combine(today_kst, datetime.min.time())  # 00:00:00
-    end_of_day = datetime.combine(today_kst, datetime.max.time())    # 23:59:59
+    start_of_day = datetime.combine(today_kst, datetime.min.time())
+    end_of_day = datetime.combine(today_kst, datetime.max.time())
 
     results = (
         db.query(
             Product.category.label('category'),
-            func.sum(Product.default_price * SalesRecord.quantity).label('total_amount'),
+            func.sum(SalesRecord.total_amount).label('total_amount'),
             func.sum(SalesRecord.quantity).label('total_qty'),
             Employee.name.label('employee_name')
         )
         .join(SalesRecord, SalesRecord.product_id == Product.id)
         .join(Employee, SalesRecord.employee_id == Employee.id, isouter=True)
         .filter(SalesRecord.client_id == client_id)
-        .filter(SalesRecord.sale_datetime.between(start_of_day, end_of_day))  # ✅ KST 기준 필터링
+        .filter(SalesRecord.sale_datetime.between(start_of_day, end_of_day))
         .group_by(Product.category, Employee.name)
         .all()
     )
@@ -722,7 +832,7 @@ def get_today_categories_for_client(client_id: int, db: Session = Depends(get_db
             "employee_name": row.employee_name or "",
         })
 
-    print(f"📌 오늘 카테고리별 판매 데이터: {data}")  # ✅ 디버깅 로그 추가
+    print(f"📌 오늘 카테고리별 판매 데이터: {data}")
     return data
 
 
@@ -992,7 +1102,7 @@ def fetch_monthly_sales(db: Session = Depends(get_db)):
     print(f"📊 [FastAPI] 매출 데이터 반환: {sales_data}")
 
     return sales_data
-from fastapi.responses import JSONResponse
+
 
 @router.get("/outstanding/{employee_id}")
 def get_outstanding_balances(employee_id: int, db: Session = Depends(get_db)):
