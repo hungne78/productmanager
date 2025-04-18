@@ -1112,7 +1112,8 @@ class MainApp(QMainWindow):
             ("방문주기", "sales", self.show_employee_sales_tab),
             ("월급여", "payments", self.show_payments_tab),
             ("세금계산서", "invoices", self.show_invoices_tab),
-            ("차량재고", "inventory", self.show_inventory_tab)
+            ("차량재고", "inventory", self.show_inventory_tab),
+            ("log","log",self.show_log_tab),
         ]
 
         for name, icon, handler in self.toolbar_icons:
@@ -1314,7 +1315,7 @@ class MainApp(QMainWindow):
         from invoices_ui import InvoicesTab
         from employee_sales_ui import EmployeeSalesTab
         from employee_vehicle_inventory_tab import EmployeeVehicleInventoryTab
-
+        from log_ui import LogTabWidget
         self.tabs = {
             "employees": EmployeesTab(),
             "clients": ClientsTab(),
@@ -1326,7 +1327,8 @@ class MainApp(QMainWindow):
             "employee_sales": EmployeeSalesTab(),
             "payments": PaymentsTab(),
             "invoices": InvoicesTab(),
-            "inventory": EmployeeVehicleInventoryTab()
+            "inventory": EmployeeVehicleInventoryTab(),
+            "log":LogTabWidget()
         }
 
         for tab in self.tabs.values():
@@ -1669,6 +1671,11 @@ class MainApp(QMainWindow):
         self.update_search_placeholder("inventory")
         self.update_custom_button("inventory")
 
+    def show_log_tab(self):
+        self.stacked.setCurrentWidget(self.tabs["log"])
+        self.update_search_placeholder("log")
+        self.update_custom_button("log")
+        
     def on_search_clicked(self):
         """
         검색 버튼 클릭 시 현재 탭에 맞춰 검색 수행
@@ -1696,6 +1703,7 @@ class MainApp(QMainWindow):
             "employee_sales": "직원이름 검색",
             "payments": "직원이름 검색",
             "invoices": "거래처명 검색",
-            "inventory": "직원이름 검색"
+            "inventory": "직원이름 검색",
+            "log":"log 검색",
         }
         self.search_edit.setPlaceholderText(placeholders.get(tab_name, "검색"))

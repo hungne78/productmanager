@@ -863,7 +863,9 @@ class EmployeeRightPanel(QWidget):
     def update_calendar_title(self):
         self.lbl_calendar_title.setText(f"{self.year}년 {self.month}월")
 
-
+    def update_calendar_title_1(self, year, month):
+        self.lbl_calendar_title.setText(f"{year}년 {month}월") 
+           
     def update_all(self):
         """ 모든 박스(매출, 방문, 달력)를 한 번에 업데이트 """
         self.update_monthly_sales()
@@ -927,16 +929,20 @@ class EmployeeRightPanel(QWidget):
         try:
             resp = requests.get(f"{BASE_URL}/sales/monthly_sales_pc/{employee_id}/{year}", headers=headers)
             monthly_sales = resp.json()
+           
         except:
             monthly_sales = {}
 
-        # ✅ 혹시라도 리스트나 이상한 형식일 경우 방지
         if not isinstance(monthly_sales, dict):
-            monthly_sales = {}
+            print("⚠️ dict 아님! 서버 응답 확인 필요")
+            monthly_sales = {i + 1: 0 for i in range(12)}
 
         for i in range(12):
-            value = monthly_sales.get(i + 1, 0)
+            key = str(i + 1)  # 문자열 키로!
+            value = monthly_sales.get(key, 0)
             self.tbl_box1.setItem(i, 0, QTableWidgetItem(f"{value:,}"))
+
+
 
        # 월별 방문
         try:
@@ -1120,12 +1126,15 @@ QHeaderView::section {
 
         # ✅ 오른쪽 패널도 업데이트
         employee_id = match.get("id")
+        
         if employee_id:
-            self.update_employee_ui(employee_id)
             self.employee_id = employee_id  # 선택된 직원 ID 저장
+            self.update_employee_ui(employee_id)
+            
+        
 
     def do_update_data_from_db(self, year, month):
-        
+        print(f"{self.employee_id}")
         self.right_panel.update_data_from_db(self.employee_id, year, month)
 
     def update_employee_ui(self, employee_id: int):
@@ -1133,6 +1142,7 @@ QHeaderView::section {
         now = datetime.now()
         year = now.year
         month = now.month
+        self.employee_id = employee_id
         self.right_panel.update_data_from_db(employee_id, year, month)    
 
     def do_custom_action(self):
@@ -1152,13 +1162,14 @@ QHeaderView::section {
         dialog = EmployeeSelectionDialog(employees, parent=self)
         if dialog.exec_() == QDialog.Accepted and dialog.selected_employee:
             selected_emp = dialog.selected_employee
+            self.employee_id = selected_emp["id"]
             self.left_panel.display_employee(selected_emp)
             self.left_panel.fetch_vehicle()  # ✅ 선택된 직원의 차량 정보 조회
 
             # ✅ 오른쪽 패널 업데이트 (현재 연도/월 기준)
             now = datetime.now()
             self.right_panel.update_data_from_db(selected_emp["id"], now.year, now.month)
-
+            self.right_panel.update_calendar_title_1(now.year,now.month)
 
     def do_search(self, keyword):
         global global_token
@@ -1202,4 +1213,5 @@ QHeaderView::section {
                 # 🟢 동일하게 오른쪽 패널 업데이트
                 now = datetime.now()
                 self.right_panel.update_data_from_db(selected_emp["id"], now.year, now.month)
-
+        self.employee_id = selected_emp["id"]
+        self.right_panel.update_calendar_title_1(now.year,now.month)

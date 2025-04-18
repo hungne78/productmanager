@@ -73,10 +73,6 @@ class CustomCalendarWidget(QWidget):
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
 
-        self.title = QLabel(f"{self.year}년 {self.month}월")
-        self.title.setAlignment(Qt.AlignCenter)
-        self.title.setFont(QFont("Malgun Gothic", 12, QFont.Bold))
-        self.layout.addWidget(self.title)
 
         self.grid = QGridLayout()
         self.layout.addLayout(self.grid)
@@ -1078,50 +1074,86 @@ class ClientLeftPanel(BaseLeftTableWidget):
 class ClientRightPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.parent_tab = parent  # 부모 탭을 저장
+        self.year = datetime.now().year  # 기본값으로 현재 연도 설정
+        self.month = datetime.now().month  # 기본값으로 현재 월 설정
         self.init_ui()
 
     def init_ui(self):
         main_layout = QVBoxLayout()
 
-        # 상단 3개 (Box1, Box2, Box3)
-        top_row = QHBoxLayout()
-
-        # 1) 월별 매출
+        # 🔷 월별 매출 박스
         self.box1 = QGroupBox("월별 매출")
         self.tbl_box1 = QTableWidget(12, 1)
         self.tbl_box1.setVerticalHeaderLabels([f"{i+1}월" for i in range(12)])
         self.tbl_box1.setHorizontalHeaderLabels(["매출"])
         self.tbl_box1.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_box1.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        layout1 = QVBoxLayout()
-        layout1.addWidget(self.tbl_box1)
-        self.box1.setLayout(layout1)
-        top_row.addWidget(self.box1, 2)
+        box1_layout = QVBoxLayout()
+        box1_layout.addWidget(self.tbl_box1)
+        self.box1.setLayout(box1_layout)
 
-        # 2) 월별 방문
+        # 🔷 월별 방문 박스
         self.box2 = QGroupBox("월별 방문 횟수")
         self.tbl_box2 = QTableWidget(12, 1)
         self.tbl_box2.setVerticalHeaderLabels([f"{i+1}월" for i in range(12)])
         self.tbl_box2.setHorizontalHeaderLabels(["방문"])
         self.tbl_box2.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_box2.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        layout2 = QVBoxLayout()
-        layout2.addWidget(self.tbl_box2)
-        self.box2.setLayout(layout2)
-        top_row.addWidget(self.box2, 2)
+        box2_layout = QVBoxLayout()
+        box2_layout.addWidget(self.tbl_box2)
+        self.box2.setLayout(box2_layout)
 
-        # 3) 커스텀 달력 (일별 매출)
+        # 🔷 달력 박스
         self.box3 = QGroupBox("일별 매출 (달력)")
         self.box3_layout = QVBoxLayout()
-        self.box3.setLayout(self.box3_layout)
-        from datetime import date
-        today = date.today()
-        self.custom_calendar = CustomCalendarWidget(today.year, today.month, {})
+
+      
+
+        # 🔹 달력 타이틀 라벨
+        self.lbl_calendar_title = QLabel()
+        self.lbl_calendar_title.setAlignment(Qt.AlignCenter)
+        self.lbl_calendar_title.setFont(QFont("Malgun Gothic", 13, QFont.Bold))
+        self.update_calendar_title()
+
+        # 🔹 이전/다음 버튼
+        self.prev_button = QPushButton("◀")
+        self.next_button = QPushButton("▶")
+        self.prev_button.setFixedSize(60, 32)
+        self.next_button.setFixedSize(60, 32)
+        self.prev_button.clicked.connect(self.show_previous_month)
+        self.next_button.clicked.connect(self.show_next_month)
+
+        # 🔹 버튼과 타이틀을 나란히
+        title_row = QHBoxLayout()
+        title_row.addWidget(self.prev_button)
+        title_row.addStretch()
+        title_row.addWidget(self.lbl_calendar_title)
+        title_row.addStretch()
+        title_row.addWidget(self.next_button)
+
+        # 🔹 달력 위젯
+        self.custom_calendar = CustomCalendarWidget(self.year, self.month, {})
+        self.custom_calendar.setFixedHeight(360)
+
+        # 🔹 box3 조립
+        
         self.box3_layout.addWidget(self.custom_calendar)
+        self.box3.setLayout(self.box3_layout)
+
+        # 🔷 상단 3박스 정렬 (2:2:7 비율)
+        top_row = QHBoxLayout()
+        top_row.addWidget(self.box1, 2)
+        top_row.addWidget(self.box2, 2)
         top_row.addWidget(self.box3, 7)
 
-        # 상단 3개 → 전체 레이아웃에 추가
-        main_layout.addLayout(top_row, 2)
+        # 🔷 상단 컨테이너
+        top_container = QWidget()
+        top_container_layout = QVBoxLayout()
+        top_container_layout.addLayout(title_row)
+        top_container_layout.addLayout(top_row)
+        top_container.setLayout(top_container_layout)
+        top_container.setMaximumHeight(600)  # 크기 흔들림 방지
 
         # 하단 - Box4: 분류별 당일 판매
         self.box4 = QGroupBox("당일 분류별 판매")
@@ -1140,18 +1172,65 @@ class ClientRightPanel(QWidget):
         layout4.addWidget(self.tbl_box4_footer)
         self.box4.setLayout(layout4)
 
+        # 🔷 전체 레이아웃 조립
+        main_layout.addWidget(top_container, 2)
         main_layout.addWidget(self.box4, 1)
         self.setLayout(main_layout)
+        
+    def update_calendar_title(self):
+        self.lbl_calendar_title.setText(f"{self.year}년 {self.month}월")
 
-    def update_sales_calendar(self, year: int, month: int, daily_sales: list[int]):
-        sales_map = {i + 1: amt for i, amt in enumerate(daily_sales) if amt > 0}
+    def update_calendar_title_1(self, year, month):
+        self.lbl_calendar_title.setText(f"{year}년 {month}월") 
+           
+    def update_all(self):
+        """ 모든 박스(매출, 방문, 달력)를 한 번에 업데이트 """
+        self.update_monthly_sales()
+        self.update_monthly_visits()
+        
+        self.update_calendar()
 
+    def update_monthly_sales(self):
+        """ 월별 매출 업데이트 """
+        print(f"✅ 월별 매출 업데이트: {self.year}년 {self.month}월")
+
+    def update_monthly_visits(self):
+        """ 월별 방문 횟수 업데이트 """
+        print(f"✅ 월별 방문 횟수 업데이트: {self.year}년 {self.month}월")
+
+    def update_calendar(self):
+        """ 일별 매출 (달력) 업데이트 """
+        print(f"✅ 달력 업데이트: {self.year}년 {self.month}월")
+        self.parent_tab.do_update_data_from_db(self.year, self.month)
+
+    def show_previous_month(self):
+        """ 이전 달로 이동 """
+        self.month -= 1
+        if self.month < 1:
+            self.month = 12
+            self.year -= 1
+        self.update_all()
+        self.update_calendar_title()
+
+    def show_next_month(self):
+        """ 다음 달로 이동 """
+        self.month += 1
+        if self.month > 12:
+            self.month = 1
+            self.year += 1
+        self.update_all()
+        self.update_calendar_title()
+    def update_calendar_sales(self, year: int, month: int, sales_list: list[int]):
+        sales_map = {day + 1: amt for day, amt in enumerate(sales_list) if amt > 0}
+
+        # 이전 달력 제거
         self.box3_layout.removeWidget(self.custom_calendar)
         self.custom_calendar.deleteLater()
 
+        # 새 달력 추가
         self.custom_calendar = CustomCalendarWidget(year, month, sales_map)
         self.box3_layout.addWidget(self.custom_calendar)
-
+        
     def update_data_for_client(self, client_id: int):
         """
         실제로 client_id를 받아서 서버에서
@@ -1166,16 +1245,13 @@ class ClientRightPanel(QWidget):
             print("⚠️ 토큰이 없어 서버 호출이 불가합니다.")
             return
 
-        # 오늘 날짜
-        now = datetime.now()
-        year = now.year
-        month = now.month
+       
 
         headers = {"Authorization": f"Bearer {global_token}"}
         base_url = BASE_URL  # 서버 주소 (환경에 맞춰 수정)
 
         # 1) 해당 거래처의 월별 매출
-        url_monthly = f"{base_url}/sales/monthly_sales_client/{client_id}/{year}"
+        url_monthly = f"{base_url}/sales/monthly_sales_client/{client_id}/{self.year}"
         try:
             resp = requests.get(url_monthly, headers=headers)
             resp.raise_for_status()
@@ -1186,10 +1262,14 @@ class ClientRightPanel(QWidget):
 
         # 테이블( box1 )에 채워넣기
         for c in range(12):
-            self.tbl_box1.setItem(0, c, QTableWidgetItem(str(monthly_sales[c])))
+            try:
+                value = monthly_sales[c] if c < len(monthly_sales) else 0
+            except Exception:
+                value = 0
+            self.tbl_box1.setItem(0, c, QTableWidgetItem(str(value)))
 
         # 2) 해당 거래처의 월별 방문 횟수
-        url_visits = f"{base_url}/client_visits/monthly_visits_client/{client_id}/{year}"
+        url_visits = f"{base_url}/client_visits/monthly_visits_client/{client_id}/{self.year}"
         try:
             resp = requests.get(url_visits, headers=headers)
             resp.raise_for_status()
@@ -1201,18 +1281,25 @@ class ClientRightPanel(QWidget):
         
         if len(monthly_visits) < 12:
             monthly_visits += [0] * (12 - len(monthly_visits))
+
         for c in range(12):
-            self.tbl_box2.setItem(0, c, QTableWidgetItem(str(monthly_visits[c])))
+            try:
+                self.tbl_box2.setItem(0, c, QTableWidgetItem(str(monthly_visits[c])))
+            except Exception:
+                self.tbl_box2.setItem(0, c, QTableWidgetItem("0"))
+
 
         # 3) 이번달 일별 매출
         try:
-            resp = requests.get(f"{BASE_URL}/sales/daily_sales_client/{client_id}/{year}/{month}", headers=headers)
+            resp = requests.get(f"{BASE_URL}/sales/daily_sales_client/{client_id}/{self.year}/{self.month}", headers=headers)
             resp.raise_for_status()
             daily_sales = resp.json()
+            if not isinstance(daily_sales, list) or len(daily_sales) != 31:
+                daily_sales = [0] * 31
         except:
             daily_sales = [0] * 31
 
-        self.update_sales_calendar(year, month, daily_sales)
+        self.update_calendar_sales(self.year, self.month, daily_sales)
 
         # 4) 당일 분류별 판매
         url_today = f"{base_url}/sales/today_categories_client/{client_id}"
@@ -1256,38 +1343,37 @@ class ClientRightPanel(QWidget):
         total_qty = 0
 
         for row_idx in range(default_row_count - 1):
-            if row_idx < len(category_data):
-                item = category_data[row_idx]
-                cat = item.get("category", "기타")  # ✅ None 방지
-                amt = float(item.get("total_amount", 0))  # ✅ None 방지 후 변환
-                qty = int(item.get("total_qty", 0))  # ✅ None 방지 후 변환
-                emp = item.get("employee_name", "")  # ✅ None 방지
+            try:
+                item = category_data[row_idx] if row_idx < len(category_data) else {}
 
-                self.tbl_box4_main.setItem(row_idx, 0, QTableWidgetItem(cat))  # 분류
-                self.tbl_box4_main.setItem(row_idx, 1, QTableWidgetItem(f"{amt:,} 원"))  # ✅ 천 단위 콤마 추가
-                self.tbl_box4_main.setItem(row_idx, 2, QTableWidgetItem(f"{qty:,} 개"))  # ✅ 천 단위 콤마 추가
-                self.tbl_box4_main.setItem(row_idx, 3, QTableWidgetItem(emp))  # 직원
-                self.tbl_box4_main.setItem(row_idx, 4, QTableWidgetItem(""))  # 기타
+                cat = item.get("category", "기타")
+                amt = float(item.get("total_amount") or 0)
+                qty = int(item.get("total_qty") or 0)
+                emp = item.get("employee_name") or ""
+
+                self.tbl_box4_main.setItem(row_idx, 0, QTableWidgetItem(cat))
+                self.tbl_box4_main.setItem(row_idx, 1, QTableWidgetItem(f"{amt:,} 원"))
+                self.tbl_box4_main.setItem(row_idx, 2, QTableWidgetItem(f"{qty:,} 개"))
+                self.tbl_box4_main.setItem(row_idx, 3, QTableWidgetItem(emp))
+                self.tbl_box4_main.setItem(row_idx, 4, QTableWidgetItem(""))
 
                 total_amt += amt
                 total_qty += qty
-            else:
-                # ✅ 남은 행은 빈 값으로 초기화
-                self.tbl_box4_main.setItem(row_idx, 0, QTableWidgetItem(""))
-                self.tbl_box4_main.setItem(row_idx, 1, QTableWidgetItem(""))
-                self.tbl_box4_main.setItem(row_idx, 2, QTableWidgetItem(""))
-                self.tbl_box4_main.setItem(row_idx, 3, QTableWidgetItem(""))
-                self.tbl_box4_main.setItem(row_idx, 4, QTableWidgetItem(""))
 
-        # ✅ 마지막 행(합계) 업데이트 (테이블 크기 유지)
+            except Exception as e:
+                print(f"⚠️ {row_idx}행 처리 중 오류: {e}")
+                for col in range(5):
+                    self.tbl_box4_main.setItem(row_idx, col, QTableWidgetItem(""))
+
+        # ✅ 마지막 행(합계)
         sum_row = default_row_count - 1
         self.tbl_box4_main.setItem(sum_row, 0, QTableWidgetItem("합계"))
-        self.tbl_box4_main.setItem(sum_row, 1, QTableWidgetItem(f"{total_amt:,} 원"))  # ✅ 천 단위 콤마 추가
-        self.tbl_box4_main.setItem(sum_row, 2, QTableWidgetItem(f"{total_qty:,} 개"))  # ✅ 천 단위 콤마 추가
+        self.tbl_box4_main.setItem(sum_row, 1, QTableWidgetItem(f"{total_amt:,} 원"))
+        self.tbl_box4_main.setItem(sum_row, 2, QTableWidgetItem(f"{total_qty:,} 개"))
         self.tbl_box4_main.setItem(sum_row, 3, QTableWidgetItem(""))
         self.tbl_box4_main.setItem(sum_row, 4, QTableWidgetItem(""))
 
-        # ✅ 푸터 테이블도 동일하게 업데이트
+        # ✅ 푸터에도 동일 반영
         self.tbl_box4_footer.setItem(0, 0, QTableWidgetItem("합계"))
         self.tbl_box4_footer.setItem(0, 1, QTableWidgetItem(f"{total_amt:,} 원"))
         self.tbl_box4_footer.setItem(0, 2, QTableWidgetItem(f"{total_qty:,} 개"))
@@ -1302,13 +1388,14 @@ class ClientsTab(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.client_id = None
         self.init_ui()
 
     def init_ui(self):
         main_layout = QHBoxLayout()
 
         self.left_panel = ClientLeftPanel()
-        self.right_panel = ClientRightPanel()
+        self.right_panel = ClientRightPanel(parent=self)
 
         # ✅ 크기 정책 설정
         self.left_panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
@@ -1370,7 +1457,9 @@ QHeaderView::section {
     border-bottom: 1px solid #ddd;
 }
 """)
-        
+    def do_update_data_from_db(self, year, month):
+        print(f"{self.client_id}")
+        self.right_panel.update_data_for_client(self.client_id)    
     
     def display_client_by_id(self, client_id: int):
         """
@@ -1382,7 +1471,7 @@ QHeaderView::section {
         if not client_data:
             print(f"❌ 거래처 ID={client_id} 정보를 가져오지 못했습니다.")
             return
-        
+        self.client_id = client_id
         # 예: 왼쪽 테이블/폼에 표시
         # display_client 함수가 있다면 재사용
         self.left_panel.display_client(client_data)
@@ -1428,7 +1517,7 @@ QHeaderView::section {
                 self.right_panel.update_data_for_client(selected_client["id"])  # ✅ 오른쪽 패널 업데이트
             else:
                 print(f"🚨 거래처를 찾을 수 없음!")
-
+        self.client_id = selected_client["id"]
 
 
 
@@ -1486,3 +1575,4 @@ QHeaderView::section {
                 # 동일하게 오른쪽 패널도 갱신
                 cid = dialog.selected_client["id"]
                 self.right_panel.update_data_for_client(cid)
+        self.client_id = selected_client["id"]

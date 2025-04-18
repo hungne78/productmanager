@@ -76,43 +76,32 @@ def delete_payment(payment_id: int, db: Session = Depends(get_db)):
 def calculate_salary(year: int, month: int, db: Session = Depends(get_db)):
     """
     특정 연/월의 직원별 월매출을 구한 뒤,
-    { 직원명: 매출 } 형태로 반환
+    { 직원명: 매출 } 형태로 반환 (total_amount 기준)
     """
     from sqlalchemy import extract, func
 
     start_date = f"{year}-{int(month):02d}-01"
     end_date   = f"{year}-{int(month):02d}-31"
 
-    # SalesRecord + Product 조인 → (Product.default_price * SalesRecord.quantity)
-    # 직원(employee_id)별 sum()
     results = (
         db.query(
             Employee.name.label("emp_name"),
-            func.sum(Product.default_price * SalesRecord.quantity).label("total_sales")
+            func.sum(SalesRecord.total_amount).label("total_sales")  # ✅ 핵심 변경
         )
-        # 기준이 되는 메인 테이블을 명시적으로 잡아줌:
         .select_from(SalesRecord)
-        # SalesRecord → Employee
         .join(Employee, SalesRecord.employee_id == Employee.id)
-        # SalesRecord → Product
-        .join(Product, SalesRecord.product_id == Product.id)
-        # 날짜 필터
         .filter(SalesRecord.sale_datetime >= start_date)
         .filter(SalesRecord.sale_datetime <= end_date)
-        # 직원명으로 그룹
         .group_by(Employee.name)
         .all()
     )
 
-    # { 직원명: 매출 } 형태로 변환
-    output = {}
-    for row in results:
-        emp_name = row.emp_name
-        total_amt = float(row.total_sales or 0)
-        output[emp_name] = total_amt
+    output = {
+        row.emp_name: float(row.total_sales or 0)
+        for row in results
+    }
 
     return output
-
 
 # app/routers/payments.py
 
