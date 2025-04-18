@@ -24,6 +24,8 @@ import logging
 from decimal import Decimal  # ✅ Import Decimal
 from datetime import timedelta
 from typing import Optional
+from app.utils.sales_table_utils import get_sales_model
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -52,134 +54,166 @@ def get_kst_today():
 @router.post("/aggregates")
 async def get_sales_aggregates(
     request: Request,
-    start_date: date = Query(...),  # 쿼리 파라미터로 날짜 받기
-    end_date: date = Query(...),    # 쿼리 파라미터로 날짜 받기
+    start_date: date = Query(...),
+    end_date:   date = Query(...),
     employee_id: Optional[int] = None,
-    client_id: Optional[int] = None,
-    db: Session = Depends(get_db)  # DB 연결
+    client_id:   Optional[int] = None,
+    db: Session = Depends(get_db)
 ):
-    token = request.headers.get("Authorization")
-    if token is None:
-        raise HTTPException(status_code=400, detail="Token is required")
-    token = token.split(" ")[1] if token.startswith("Bearer") else token
+    # ── 1) 연도 목록 산출 ───────────────────────────────
+    years = {start_date.year, end_date.year}
+    # 두 날짜가 다른 연도를 가리키면 → 두 테이블 UNION 필요
+    union_queries = []
 
-    try:
-        query = db.query(
-            func.date(SalesRecord.sale_datetime).label("date"),
-            func.sum(SalesRecord.quantity * Product.default_price).label("sum_sales"),
-            func.group_concat(  # GROUP_CONCAT()을 사용하여 문자열 결합
-                func.concat(
-                    '{"sale_id":', SalesRecord.id,
-                    ',"product_name":"', Product.product_name,
-                    '","quantity":', SalesRecord.quantity,
-                    ',"price":', Product.default_price,
-                    '}'
-                ), ','
-            ).label("items")  # 결과를 쉼표로 구분된 문자열로 결합
-        ).join(Product, SalesRecord.product_id == Product.id)
+    for yr in sorted(years):
+        Model = get_sales_model(yr)    # ★ 유틸 호출
+        q = (
+            db.query(
+                func.date(Model.sale_datetime).label("date"),
+                func.sum(Model.quantity * Product.default_price).label("sum_sales")
+            )
+            .join(Product, Model.product_id == Product.id)
+            .filter(Model.sale_datetime.between(start_date, end_date))
+        )
+        if employee_id:
+            q = q.filter(Model.employee_id == employee_id)
+        if client_id:
+            q = q.filter(Model.client_id == client_id)
 
-        query = query.filter(
-            SalesRecord.sale_datetime >= start_date,
-            SalesRecord.sale_datetime <= end_date
+        union_queries.append(q)
+
+    # ── 2) UNION ALL (연도가 1 개면 그냥 첫 쿼리) ─────────
+    if len(union_queries) == 1:
+        rows = union_queries[0].group_by("date").all()
+    else:
+        # SQLAlchemy 2.x 기준
+        union_stmt = union_queries[0].union_all(*union_queries[1:]).subquery()
+        rows = (
+            db.query(
+                union_stmt.c.date,
+                func.sum(union_stmt.c.sum_sales).label("sum_sales")
+            )
+            .group_by(union_stmt.c.date)
+            .all()
         )
 
-        if employee_id:
-            query = query.filter(SalesRecord.employee_id == employee_id)
-        if client_id:
-            query = query.filter(SalesRecord.client_id == client_id)
+    return [{"date": r.date, "sum_sales": r.sum_sales} for r in rows]
 
-        results = query.group_by(func.date(SalesRecord.sale_datetime)).all()
-
-        # JSON 직렬화 처리: SQLAlchemy 모델을 dict로 변환
-        def serialize_row(row):
-            return {
-                "date": row.date,
-                "sum_sales": row.sum_sales,
-                "items": row.items
-            }
-
-        serialized_results = [serialize_row(row) for row in results]
-
-        return {"by_date": serialized_results}
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"판매 집계 조회 실패: {e}")
-    
 @router.get("/detail/{sale_id}")
-async def get_sale_detail(sale_id: int, db: Session = Depends(get_db)):
+async def get_sale_detail(
+    sale_id: int,
+    year: int = Query(None, description="생략 시 올해"),
+    db: Session = Depends(get_db),
+):
     try:
-        sale = db.query(SalesRecord).filter(SalesRecord.id == sale_id).first()
+        year = year or datetime.now().year
+        Model = get_sales_model(year)
 
+        sale = db.query(Model).filter(Model.id == sale_id).first()
         if not sale:
-            raise HTTPException(status_code=404, detail="판매 내역을 찾을 수 없습니다.")
+            raise HTTPException(404, "판매 내역을 찾을 수 없습니다.")
+
+        # ─ 관계 속성이 없어도 안전하게 이름 가져오기 ─
+        emp_name = getattr(sale, "employee", None).name if hasattr(sale, "employee") \
+                   else db.query(Employee).get(sale.employee_id).name
+        cli_name = getattr(sale, "client", None).client_name if hasattr(sale, "client") \
+                   else db.query(Client).get(sale.client_id).client_name
+
+        # ─ 품목(다건) or 단일 품목 대응 ─
+        if hasattr(sale, "items") and sale.items:
+            items = [
+                {
+                    "product_id": i.product_id,
+                    "product_name": i.product.product_name,
+                    "quantity": i.quantity,
+                    "price": i.product.default_price,
+                }
+                for i in sale.items
+            ]
+        else:  # 단일 컬럼 구조
+            prod = db.query(Product).get(sale.product_id)
+            items = [{
+                "product_id": sale.product_id,
+                "product_name": prod.product_name if prod else "",
+                "quantity": sale.quantity,
+                "price": prod.default_price if prod else 0,
+            }]
+
+        total_price = sum(it["quantity"] * it["price"] for it in items)
 
         return {
             "sale_id": sale.id,
             "datetime": sale.sale_datetime,
             "employee_id": sale.employee_id,
-            "employee_name": sale.employee.name,
+            "employee_name": emp_name,
             "client_id": sale.client_id,
-            "client_name": sale.client.client_name,
-            "items": [{"product_id": item.product_id, "product_name": item.product.product_name, "quantity": item.quantity, "price": item.product.default_price} for item in sale.items],
-            "total_price": sum(item.quantity * item.product.default_price for item in sale.items),
-            "incentive": sale.incentive,
+            "client_name": cli_name,
+            "items": items,
+            "total_price": total_price,
+            "incentive": getattr(sale, "incentive", 0),
         }
-
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"판매 상세 조회 실패: {e}")
+        raise HTTPException(400, f"판매 상세 조회 실패: {e}")
+
     
-@router.get("/by_employee/{employee_id}/{sale_date}", response_model=List[EmployeeClientSalesOut])
-def get_sales_by_employee(employee_id: int, sale_date: date, db: Session = Depends(get_db)):
-    """
-    특정 직원이 담당하는 거래처들의 매출 데이터를 조회합니다.
-    """
-    client_data = db.query(Client.id, Client.client_name).all()
-    client_map = {c.id: c.client_name for c in client_data}
+@router.get("/by_employee/{employee_id}/{sale_date}",
+            response_model=List[EmployeeClientSalesOut])
+def get_sales_by_employee(
+    employee_id: int,
+    sale_date: date,
+    db: Session = Depends(get_db),
+):
+    year   = sale_date.year
+    Model  = get_sales_model(year)
 
-    client_ids = [c[0] for c in db.query(EmployeeClient.client_id).filter(
-        EmployeeClient.employee_id == employee_id
-    ).all()]
-
+    client_ids = [
+        c[0] for c in db.query(EmployeeClient.client_id)
+                        .filter(EmployeeClient.employee_id == employee_id).all()
+    ]
     if not client_ids:
-        return [{"client_id": 0, "client_name": "알 수 없음", "total_boxes": 0, "total_sales": 0, "products": []}]
+        return [{
+            "client_id": 0, "client_name": "알 수 없음",
+            "total_boxes": 0, "total_sales": 0, "products": []
+        }]
 
-    # ✅ 거래처들의 매출 내역 조회
-    sales = (
+    client_map = dict(db.query(Client.id, Client.client_name).all())
+
+    rows = (
         db.query(
-            SalesRecord.client_id,
+            Model.client_id,
             Product.product_name,
-            SalesRecord.quantity,
-            Product.default_price
+            Model.quantity,
+            Product.default_price,
         )
-        .join(Product, SalesRecord.product_id == Product.id)
-        .filter(func.date(SalesRecord.sale_datetime) == sale_date, SalesRecord.client_id.in_(client_ids))
+        .join(Product, Model.product_id == Product.id)
+        .filter(func.date(Model.sale_datetime) == sale_date,
+                Model.client_id.in_(client_ids))
         .all()
     )
 
-    if not sales:
-        return [{"client_id": 0, "client_name": "알 수 없음", "total_boxes": 0, "total_sales": 0, "products": []}]
+    if not rows:
+        return [{
+            "client_id": 0, "client_name": "알 수 없음",
+            "total_boxes": 0, "total_sales": 0, "products": []
+        }]
 
-    # ✅ 거래처별 총 매출 및 박스 수 계산
-    sales_summary = {}
-    for s in sales:
-        total_price = (s.default_price or 0) * (s.quantity or 0)
-        client_name = client_map.get(s.client_id, "알 수 없음")
-
-        if s.client_id in sales_summary:
-            sales_summary[s.client_id]["total_sales"] += total_price
-            sales_summary[s.client_id]["total_boxes"] += s.quantity  # ✅ 박스 수 추가
-            sales_summary[s.client_id]["products"].append({"product_name": s.product_name, "quantity": s.quantity})
-        else:
-            sales_summary[s.client_id] = {
-                "client_id": s.client_id,
-                "client_name": client_name,
-                "total_boxes": s.quantity,  # ✅ 박스 수 추가
-                "total_sales": total_price,
-                "products": [{"product_name": s.product_name, "quantity": s.quantity}]
+    summary = {}
+    for r in rows:
+        price = (r.default_price or 0) * (r.quantity or 0)
+        if r.client_id not in summary:
+            summary[r.client_id] = {
+                "client_id":   r.client_id,
+                "client_name": client_map.get(r.client_id, "알 수 없음"),
+                "total_boxes": 0,
+                "total_sales": 0,
+                "products":    [],
             }
+        s = summary[r.client_id]
+        s["total_boxes"] += r.quantity
+        s["total_sales"] += price
+        s["products"].append({"product_name": r.product_name, "quantity": r.quantity})
 
-    print(f"📌 최종 반환 데이터: {list(sales_summary.values())}")   
-    return list(sales_summary.values())
+    return list(summary.values())
 
 
 # -----------------------------------------------------------------------------
@@ -210,310 +244,336 @@ def create_sales_record(payload: SalesRecordCreate, db: Session = Depends(get_db
 # 3. 전체 매출 목록 조회
 # -----------------------------------------------------------------------------
 @router.get("/", response_model=List[SalesRecordOut])
-def list_sales_records(db: Session = Depends(get_db)):
-    """ 전체 매출 목록 조회 (KST 그대로 반환) """
-    return db.query(SalesRecord).all()  # ✅ 변환 없이 그대로 반환
+def list_sales_records(
+    year: int = Query(None, description="생략 시 올해"),
+    db: Session = Depends(get_db),
+):
+    Model = get_sales_model(year or datetime.now().year)
+    return db.query(Model).all()
+
 
 # -----------------------------------------------------------------------------
 # 4. 특정 직원의 매출 조회
 # -----------------------------------------------------------------------------
 @router.get("/employee/{employee_id}", response_model=List[SalesOut])
-def get_sales_by_employee(employee_id: int, db: Session = Depends(get_db)):
-    return db.query(SalesRecord).filter(SalesRecord.employee_id == employee_id).all()
+def get_sales_by_employee_all(
+    employee_id: int,
+    year: int = Query(None),
+    db: Session = Depends(get_db),
+):
+    Model = get_sales_model(year or datetime.now().year)
+    return db.query(Model).filter(Model.employee_id == employee_id).all()
 
 
 # -----------------------------------------------------------------------------
 # 5. 특정 날짜의 매출 조회
 # -----------------------------------------------------------------------------
 @router.get("/date/{sale_date}", response_model=List[SalesOut])
-def get_sales_by_date(sale_date: date, db: Session = Depends(get_db)):
-    """
-    특정 날짜의 매출 조회 (KST 변환 적용)
-    """
-    sales = db.query(SalesRecord).filter(
-        cast(SalesRecord.sale_datetime, Date) == convert_utc_to_kst(sale_date)  # ✅ KST 변환 적용
-    ).all()
-    return [convert_sales_to_kst(s) for s in sales]  # ✅ KST 변환 적용
+def get_sales_by_date(
+    sale_date: date,
+    db: Session = Depends(get_db),
+):
+    Model = get_sales_model(sale_date.year)
+    rows = (
+        db.query(Model)
+          .filter(cast(Model.sale_datetime, Date) == sale_date)
+          .all()
+    )
+    return [convert_sales_to_kst(r) for r in rows]
 
 
-# -----------------------------------------------------------------------------
-# 6. 매출 삭제
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 6. 매출 삭제  ─ year 쿼리파라미터(생략 시 올해)
+# ---------------------------------------------------------------------------
 @router.delete("/{sales_id}")
-def delete_sales_record(sales_id: int, db: Session = Depends(get_db)):
-    sales = db.query(SalesRecord).get(sales_id)
-    if not sales:
-        raise HTTPException(status_code=404, detail="Sales record not found")
-    db.delete(sales)
+def delete_sales_record(
+    sales_id: int,
+    year: int = Query(None, description="생략 시 올해"),
+    db: Session = Depends(get_db),
+):
+    Model = get_sales_model(year or datetime.now().year)
+
+    obj = db.query(Model).get(sales_id)
+    if not obj:
+        raise HTTPException(404, "Sales record not found")
+    db.delete(obj)
     db.commit()
     return {"detail": "Sales record deleted"}
 
 
-# -----------------------------------------------------------------------------
-# 7. 특정 날짜의 거래처별 판매 품목 목록 반환
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 7. 특정 날짜의 거래처별 판매 품목 목록
+# ---------------------------------------------------------------------------
 @router.get("/by_client/{sale_date}", response_model=List[SalesOut])
 def get_sales_by_client(sale_date: date, db: Session = Depends(get_db)):
-    sales = (
-        db.query(SalesRecord.client_id, SalesRecord.product_id, Product.product_name, SalesRecord.quantity)
-        .join(Product, SalesRecord.product_id == Product.id)
-        .filter(cast(SalesRecord.sale_datetime, Date) == sale_date)
+    Model = get_sales_model(sale_date.year)
+
+    rows = (
+        db.query(
+            Model.client_id,
+            Model.product_id,
+            Product.product_name,
+            Model.quantity,
+        )
+        .join(Product, Model.product_id == Product.id)
+        .filter(cast(Model.sale_datetime, Date) == sale_date)
         .all()
     )
-    return [{"client_id": s.client_id, "product_id": s.product_id, "product_name": s.product_name, "quantity": s.quantity} for s in sales]
+    return [
+        {
+            "client_id": r.client_id,
+            "product_id": r.product_id,
+            "product_name": r.product_name,
+            "quantity": r.quantity,
+        }
+        for r in rows
+    ]
 
 
-# -----------------------------------------------------------------------------
-# 8. 특정 날짜의 거래처별 총 매출 반환
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 8. 특정 날짜의 거래처별 총 매출
+# ---------------------------------------------------------------------------
 @router.get("/sales/total/{sale_date}")
 def get_total_sales(sale_date: date, db: Session = Depends(get_db)):
-    sales = (
-        db.query(SalesRecord.client_id, Product.default_price, SalesRecord.quantity)
-        .join(Product, SalesRecord.product_id == Product.id)
-        .filter(cast(SalesRecord.sale_datetime, Date) == sale_date)
+    Model = get_sales_model(sale_date.year)
+
+    rows = (
+        db.query(Model.client_id, Product.default_price, Model.quantity)
+        .join(Product, Model.product_id == Product.id)
+        .filter(cast(Model.sale_datetime, Date) == sale_date)
         .all()
     )
-    total_sales = {}
-    for s in sales:
-        total_sales[s.client_id] = total_sales.get(s.client_id, 0) + (s.default_price * s.quantity)
-    return [{"client_id": k, "total_sales": v} for k, v in total_sales.items()]
+    agg = {}
+    for r in rows:
+        agg[r.client_id] = agg.get(r.client_id, 0) + (r.default_price * r.quantity)
+    return [{"client_id": cid, "total_sales": amt} for cid, amt in agg.items()]
 
 
-# -----------------------------------------------------------------------------
-# 9. 특정 직원 기준, 해당 년도 월별 매출 합계 반환
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 9‑1. 직원별 월별 매출 합계  (PC 그래프용)
+# ---------------------------------------------------------------------------
 @router.get("/monthly_sales_pc/{employee_id}/{year}")
 def get_monthly_sales(employee_id: int, year: int, db: Session = Depends(get_db)):
-    """
-    특정 직원의 해당 연도 월별 매출 합계 반환 (total_amount 기준)
-    """
-    results = (
+    Model = get_sales_model(year)
+
+    rows = (
         db.query(
-            extract('month', SalesRecord.sale_datetime).label('sale_month'),
-            func.sum(SalesRecord.total_amount).label('sum_sales')
+            extract("month", Model.sale_datetime).label("m"),
+            func.sum(Model.total_amount).label("sum_sales"),
         )
-        .filter(SalesRecord.employee_id == employee_id)
-        .filter(extract('year', SalesRecord.sale_datetime) == year)
-        .group_by('sale_month')
+        .filter(Model.employee_id == employee_id)
+        .group_by("m")
         .all()
     )
+    data = {i + 1: 0 for i in range(12)}
+    for r in rows:
+        data[int(r.m)] = float(r.sum_sales or 0)
+    return data
 
-    monthly_data = {i + 1: 0 for i in range(12)}
-    for row in results:
-        m = int(row.sale_month)
-        monthly_data[m] = float(row.sum_sales or 0)
-    print("📦 반환값 확인:", monthly_data)
-    return monthly_data
 
+# ---------------------------------------------------------------------------
+# 9‑2. 직원별 ‑ 거래처 연간 총매출
+# ---------------------------------------------------------------------------
 @router.get("/monthly_sales/{employee_id}/{year}")
 def get_yearly_sales(employee_id: int, year: int, db: Session = Depends(get_db)):
-    logger.info(f"📡 Received request: /sales/monthly_sales/{employee_id}/{year}")
+    Model = get_sales_model(year)
 
-    try:
-        # ✅ Query yearly sales grouped by client
-        results = (
-            db.query(
-                SalesRecord.client_id,
-                Client.client_name,
-                func.sum(SalesRecord.quantity).label('total_boxes'),
-                func.sum(SalesRecord.return_amount).label('total_refunds'),
-                func.sum(Product.default_price * SalesRecord.quantity).label('total_sales')
-            )
-            .join(Product, SalesRecord.product_id == Product.id)
-            .join(Client, SalesRecord.client_id == Client.id)
-            .filter(SalesRecord.employee_id == employee_id)
-            .filter(extract('year', SalesRecord.sale_datetime) == year)
-            .group_by(SalesRecord.client_id, Client.client_name)  # ✅ FIXED: Now grouping by client
-            .all()
-        )
-
-        logger.info(f"🔍 Raw SQL Query Results: {results}")  # ✅ Log raw data
-
-        # ✅ Convert to list of dictionaries
-        sales_data = []
-        total_boxes = 0
-        total_refunds = 0.0
-        total_sales = 0.0
-
-        for idx, row in enumerate(results, start=1):
-            sales_data.append({
-                "index": idx,  # ✅ 순번 추가
-                "client_name": row[1],  # ✅ Korean text preserved
-                "total_boxes": int(row[2]) if row[2] else 0,  # ✅ Convert Decimal to int
-                "total_refunds": float(row[3]) if row[3] else 0.0,  # ✅ Convert Decimal to float
-                "total_sales": float(row[4]) if row[4] else 0.0  # ✅ Convert Decimal to float
-            })
-
-            # ✅ Calculate totals for the last row
-            total_boxes += int(row[2]) if row[2] else 0
-            total_refunds += float(row[3]) if row[3] else 0.0
-            total_sales += float(row[4]) if row[4] else 0.0
-
-        # ✅ Add final row for totals (합계)
-        if sales_data:
-            sales_data.append({
-                "index": "합계",
-                "client_name": "합계",  # ✅ Korean text for "Total"
-                "total_boxes": total_boxes,
-                "total_refunds": total_refunds,
-                "total_sales": total_sales
-            })
-
-        logger.info(f"✅ Formatted Sales Data: {sales_data}")  # ✅ Log formatted data
-
-        return sales_data  # ✅ Return correctly formatted response
-
-    except Exception as e:
-        logger.error(f"❌ Error fetching yearly sales for employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal Server Error")
-
-
-# -----------------------------------------------------------------------------
-# 10. 특정 직원 기준, 해당 년도-월의 일자별 매출 합계 반환
-# -----------------------------------------------------------------------------
-@router.get("/daily_sales_pc/{employee_id}/{year}/{month}")
-def get_daily_sales(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
-    """
-    특정 직원의 해당 연/월의 일별 매출 합계 (total_amount 기준)
-    """
-    from sqlalchemy import extract, func
-    from app.models.sales_records import SalesRecord
-
-    daily_data = [0.0] * 31
-
-    results = (
+    rows = (
         db.query(
-            extract('day', SalesRecord.sale_datetime).label('sale_day'),
-            func.sum(SalesRecord.total_amount).label('sum_sales')
+            Model.client_id,
+            Client.client_name,
+            func.sum(Model.quantity).label("boxes"),
+            func.sum(Model.return_amount).label("refunds"),
+            func.sum(Product.default_price * Model.quantity).label("sales"),
         )
-        .filter(SalesRecord.employee_id == employee_id)
-        .filter(extract('year', SalesRecord.sale_datetime) == year)
-        .filter(extract('month', SalesRecord.sale_datetime) == month)
-        .group_by('sale_day')
+        .join(Product, Model.product_id == Product.id)
+        .join(Client, Model.client_id == Client.id)
+        .filter(Model.employee_id == employee_id)
+        .group_by(Model.client_id, Client.client_name)
         .all()
     )
 
-    for row in results:
-        d = int(row.sale_day) - 1
-        daily_data[d] = float(row.sum_sales or 0)
+    out, tot_boxes, tot_ref, tot_sales = [], 0, 0.0, 0.0
+    for idx, r in enumerate(rows, 1):
+        out.append(
+            {
+                "index": idx,
+                "client_name": r.client_name,
+                "total_boxes": int(r.boxes or 0),
+                "total_refunds": float(r.refunds or 0),
+                "total_sales": float(r.sales or 0),
+            }
+        )
+        tot_boxes += int(r.boxes or 0)
+        tot_ref += float(r.refunds or 0)
+        tot_sales += float(r.sales or 0)
 
-    return daily_data
+    if out:
+        out.append(
+            {
+                "index": "합계",
+                "client_name": "합계",
+                "total_boxes": tot_boxes,
+                "total_refunds": tot_ref,
+                "total_sales": tot_sales,
+            }
+        )
+    return out
 
+
+# ---------------------------------------------------------------------------
+# 10‑1. 직원별 월‑일자별 매출 (PC 그래프용)
+# ---------------------------------------------------------------------------
+@router.get("/daily_sales_pc/{employee_id}/{year}/{month}")
+def get_daily_sales_pc(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
+    Model = get_sales_model(year)
+
+    rows = (
+        db.query(
+            extract("day", Model.sale_datetime).label("d"),
+            func.sum(Model.total_amount).label("sum_sales"),
+        )
+        .filter(Model.employee_id == employee_id)
+        .filter(extract("month", Model.sale_datetime) == month)
+        .group_by("d")
+        .all()
+    )
+    daily = [0.0] * 31
+    for r in rows:
+        daily[int(r.d) - 1] = float(r.sum_sales or 0)
+    return daily
+
+
+# ---------------------------------------------------------------------------
+# 10‑2. 직원‑거래처‑일자별 상세 매출
+# ---------------------------------------------------------------------------
 @router.get("/daily_sales/{employee_id}/{year}/{month}")
-def get_daily_sales(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
-    logger.info(f"📡 Received request: /sales/daily_sales/{employee_id}/{year}/{month}")
-
-    try:
-        results = (
-            db.query(
-                extract('day', SalesRecord.sale_datetime).label('sale_day'),
-                SalesRecord.client_id,
-                Client.client_name,
-                func.sum(SalesRecord.quantity).label('total_boxes'),
-                func.sum(SalesRecord.total_amount).label('total_sales')  # ✅ 핵심 변경
-            )
-            .join(Client, SalesRecord.client_id == Client.id)
-            .filter(SalesRecord.employee_id == employee_id)
-            .filter(extract('year', SalesRecord.sale_datetime) == year)
-            .filter(extract('month', SalesRecord.sale_datetime) == month)
-            .group_by(SalesRecord.client_id, Client.client_name, extract('day', SalesRecord.sale_datetime))
-            .all()
-        )
-
-        sales_data = {}
-        for row in results:
-            client_id = row.client_id
-            day = str(row.sale_day)
-
-            if client_id not in sales_data:
-                sales_data[client_id] = {
-                    "client_id": client_id,
-                    "client_name": row.client_name,
-                    "total_boxes": 0,
-                    "total_sales": 0,
-                }
-
-            sales_data[client_id][day] = float(row.total_sales or 0)
-            sales_data[client_id]["total_boxes"] += int(row.total_boxes or 0)
-            sales_data[client_id]["total_sales"] += float(row.total_sales or 0)
-
-            print(f"🔍 Processed Sales Data: {sales_data}")
-
-        return JSONResponse(
-            content=json.loads(
-                json.dumps(list(sales_data.values()), ensure_ascii=False, default=decimal_to_float)
-            )
-        )
-
-    except Exception as e:
-        logger.error(f"❌ Error fetching sales for employee {employee_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal Server Error")
-
-# -----------------------------------------------------------------------------
-# 11. 기간별 직원별 총 매출 조회 (직원별 합계)
-# -----------------------------------------------------------------------------
-@router.get("/sales/employees", response_model=List[dict])
-def get_employee_sales(
+def get_daily_sales(
+    employee_id: int,
+    year: int,
+    month: int,
     db: Session = Depends(get_db),
-    start_date: date = Query(None),
-    end_date: date = Query(None)
 ):
-    query = db.query(
-        Sales.employee_id,
-        Employee.name.label("employee_name"),
-        db.func.sum(Sales.amount).label("total_sales")
-    ).join(Employee, Sales.employee_id == Employee.id).group_by(SalesRecordCreate.employee_id)
-    
-    if start_date:
-        query = query.filter(Sales.date >= start_date)
-    if end_date:
-        query = query.filter(Sales.date <= end_date)
-    
-    employee_sales = query.all()
-    return [
-        {
-            "employee_id": sale.employee_id,
-            "employee_name": sale.employee_name,
-            "total_sales": sale.total_sales
-        }
-        for sale in employee_sales
-    ]
+    Model = get_sales_model(year)
 
-
-# -----------------------------------------------------------------------------
-# 12. 기간별 전체 매출 조회 (일자별)
-# -----------------------------------------------------------------------------
-@router.get("/sales/total", response_model=List[dict])
-def get_total_sales(
-    db: Session = Depends(get_db),
-    start_date: date = Query(None),
-    end_date: date = Query(None)
-):
-    from sqlalchemy import func
-
-    query = db.query(
-        Sales.date,  # 날짜 기준 그룹핑
-        func.sum(Sales.amount).label("total_sales")  # ✅ amount == total_amount 라면 OK
+    rows = (
+        db.query(
+            extract("day", Model.sale_datetime).label("d"),
+            Model.client_id,
+            Client.client_name,
+            func.sum(Model.quantity).label("boxes"),
+            func.sum(Model.total_amount).label("sales"),
+        )
+        .join(Client, Model.client_id == Client.id)
+        .filter(Model.employee_id == employee_id)
+        .filter(extract("month", Model.sale_datetime) == month)
+        .group_by(Model.client_id, Client.client_name, "d")
+        .all()
     )
 
-    if start_date:
-        query = query.filter(Sales.date >= start_date)
-    if end_date:
-        query = query.filter(Sales.date <= end_date)
+    aggregated = {}
+    for r in rows:
+        cid, d = r.client_id, str(r.d)
+        if cid not in aggregated:
+            aggregated[cid] = {
+                "client_id": cid,
+                "client_name": r.client_name,
+                "total_boxes": 0,
+                "total_sales": 0,
+            }
+        ag = aggregated[cid]
+        ag[d] = float(r.sales or 0)
+        ag["total_boxes"] += int(r.boxes or 0)
+        ag["total_sales"] += float(r.sales or 0)
 
-    query = query.group_by(Sales.date).order_by(Sales.date)
+    return JSONResponse(
+        content=json.loads(
+            json.dumps(list(aggregated.values()), ensure_ascii=False, default=decimal_to_float)
+        )
+    )
 
-    total_sales = query.all()
+# ------------------------------------------------------------
+# 11. 기간별 직원별 총 매출 (연‑도跨 범위 지원)
+# ------------------------------------------------------------
+@router.get("/sales/employees", response_model=list[dict])
+def get_employee_sales(
+    db: Session = Depends(get_db),
+    start_date: date | None = Query(None),
+    end_date:   date | None = Query(None),
+):
+    # 기본값: 오늘 하루
+    start_date = start_date or date.today()
+    end_date   = end_date   or date.today()
 
-    return [
-        {
-            "date": row.date.strftime("%Y-%m-%d"),
-            "total_sales": float(row.total_sales or 0)
-        }
-        for row in total_sales
-    ]
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
 
+    # 결과 누적용 dict {emp_id: {"name": str, "total": Decimal}}
+    agg: dict[int, dict] = {}
+
+    for yr in range(start_date.year, end_date.year + 1):
+        Model = get_sales_model(yr)
+
+        q = (
+            db.query(
+                Model.employee_id,
+                Employee.name.label("employee_name"),
+                func.sum(Model.total_amount).label("tot"),
+            )
+            .join(Employee, Model.employee_id == Employee.id)
+            .group_by(Model.employee_id, Employee.name)
+        )
+
+        # 연도 내부에서만 날짜 필터
+        year_start = max(start_date, date(yr, 1, 1))
+        year_end   = min(end_date,   date(yr, 12, 31))
+        q = q.filter(cast(Model.sale_datetime, Date) >= year_start)
+        q = q.filter(cast(Model.sale_datetime, Date) <= year_end)
+
+        for row in q.all():
+            rec = agg.setdefault(
+                row.employee_id, {"employee_id": row.employee_id, "employee_name": row.employee_name, "total_sales": 0}
+            )
+            rec["total_sales"] += float(row.tot or 0)
+
+    return list(agg.values())
+
+# ------------------------------------------------------------
+# 12. 기간별 전체 매출 (일자별)
+# ------------------------------------------------------------
+@router.get("/sales/total", response_model=list[dict])
+def get_total_sales(
+    db: Session = Depends(get_db),
+    start_date: date | None = Query(None),
+    end_date:   date | None = Query(None),
+):
+    start_date = start_date or date.today()
+    end_date   = end_date   or date.today()
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    daily_tot: dict[date, float] = {}
+
+    for yr in range(start_date.year, end_date.year + 1):
+        Model = get_sales_model(yr)
+
+        year_start = max(start_date, date(yr, 1, 1))
+        year_end   = min(end_date,   date(yr, 12, 31))
+
+        rows = (
+            db.query(
+                cast(Model.sale_datetime, Date).label("d"),
+                func.sum(Model.total_amount).label("tot"),
+            )
+            .filter(cast(Model.sale_datetime, Date).between(year_start, year_end))
+            .group_by("d")
+            .all()
+        )
+        for r in rows:
+            d = r.d
+            daily_tot[d] = daily_tot.get(d, 0) + float(r.tot or 0)
+
+    return [{"date": d.strftime("%Y-%m-%d"), "total_sales": v} for d, v in sorted(daily_tot.items())]
 
 from fastapi.exceptions import RequestValidationError
 # -----------------------------------------------------------------------------
@@ -562,6 +622,8 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
 
         # ✅ KST 시간 변환
         sale_datetime_kst = convert_utc_to_kst(sale_data.sale_datetime)
+        Model = get_sales_model(sale_datetime_kst.year)  # ← 핵심!
+
 
         # ✅ 방문 기록 처리
         existing_visit = (
@@ -597,15 +659,15 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
             print(f"✅ 새로운 방문 기록 추가")
 
         # ✅ 매출 저장 (total_amount 포함)
-        new_sale = SalesRecord(
-            employee_id=sale_data.employee_id,
-            client_id=sale_data.client_id,
-            product_id=sale_data.product_id,
-            quantity=sale_data.quantity,
-            total_amount=total_amount,  # ✅ 총 매출 금액 저장
-            sale_datetime=sale_datetime_kst,
-            return_amount=sale_data.return_amount,
-            subsidy_amount=0.0
+        new_sale = Model(
+            employee_id   = sale_data.employee_id,
+            client_id     = sale_data.client_id,
+            product_id    = sale_data.product_id,
+            quantity      = sale_data.quantity,
+            total_amount  = total_amount,
+            sale_datetime = sale_datetime_kst,
+            return_amount = sale_data.return_amount,
+            subsidy_amount= 0.0,
         )
         db.add(new_sale)
         db.flush()
@@ -685,466 +747,547 @@ def update_outstanding(
 # -----------------------------------------------------------------------------
 # 15. 여러 상품 매출 집계 등록
 # -----------------------------------------------------------------------------
-@router.post("/sales/aggregate")
-def create_aggregate_sales(payload: SalesAggregateCreate, db: Session = Depends(get_db)):
-    # 1) 요청받은 items에서 product_id별 상품 정보 조회
-    product_ids = [item.product_id for item in payload.items]
-    products_map = (
+# ----------------------------------------------------------------------------- 
+# 여러 상품을 한 번에 등록 (items 배열 전체) – SalesRecord에 직접 적재
+# ----------------------------------------------------------------------------- 
+@router.post("/sales/bulk", response_model=list[SalesRecordOut])
+def create_bulk_sales(payload: SalesAggregateCreate, db: Session = Depends(get_db)):
+    """
+    * payload.items : [{product_id, quantity}, …]
+    * 각 상품별로 SalesRecord를 INSERT
+    """
+    # 1) 상품 정보 한꺼번에 조회
+    product_ids = [it.product_id for it in payload.items]
+    products = (
         db.query(Product)
           .filter(Product.id.in_(product_ids))
           .all()
     )
-    product_dict = {}
-    for p in products_map:
-        product_dict[p.id] = {
-            "category": p.category or "기타",
-            "price": float(p.default_price),
-        }
-    
-    # 2) 카테고리별 집계
-    category_summary = {}
-    for item in payload.items:
-        if item.product_id not in product_dict:
-            raise HTTPException(status_code=404, detail=f"상품ID={item.product_id} 없음")
-        cat  = product_dict[item.product_id]["category"]
-        unit = product_dict[item.product_id]["price"]
-        subtotal = unit * item.quantity
-        if cat not in category_summary:
-            category_summary[cat] = {"qty": 0, "amount": 0.0}
-        category_summary[cat]["qty"]    += item.quantity
-        category_summary[cat]["amount"] += subtotal
-    
-    # 3) sale_datetime 처리
+    product_map = {p.id: p for p in products}
+
+    # 2) 등록
     sale_dt = payload.sale_datetime or datetime.utcnow()
-    
-    # 4) 카테고리별 Sales 테이블에 insert
-    results = []
-    for cat, vals in category_summary.items():
-        new_sales = Sales(
-            employee_id     = payload.employee_id,
-            client_id       = payload.client_id,
-            category        = cat,
-            total_quantity  = vals["qty"],
-            total_amount    = vals["amount"],
-            sale_datetime   = sale_dt,
+    created: list[SalesRecord] = []
+
+    for it in payload.items:
+        product = product_map.get(it.product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail=f"상품 {it.product_id} 없음")
+
+        unit_price   = float(product.default_price)
+        total_amount = unit_price * it.quantity
+
+        rec = SalesRecord(
+            employee_id  = payload.employee_id,
+            client_id    = payload.client_id,
+            product_id   = it.product_id,
+            quantity     = it.quantity,
+            total_amount = total_amount,
+            sale_datetime= sale_dt,
+            return_amount= 0.0,
+            subsidy_amount=0.0,
         )
-        db.add(new_sales)
-        results.append(new_sales)
-    
+        db.add(rec)
+        created.append(rec)
+
+        # 재고 차감
+        subtract_inventory_on_sale(
+            employee_id = payload.employee_id,
+            product_id  = it.product_id,
+            sold_qty    = it.quantity,
+            db=db,
+        )
+
     db.commit()
-    for r in results:
+    for r in created:
         db.refresh(r)
-    
-    return {
-        "detail": "카테고리별 집계 판매 등록 완료",
-        "data": [
-            {
-                "category": r.category,
-                "total_quantity": r.total_quantity,
-                "total_amount": r.total_amount,
-                "sale_datetime": r.sale_datetime,
-            }
-            for r in results
-        ]
-    }
 
+    return created
 
-# -----------------------------------------------------------------------------
-# 16. 특정 거래처 기준, 해당 연도의 월별 매출 합계 반환
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------
+# 16. 특정 거래처 월별 매출
+# ------------------------------------------------------------
 @router.get("/monthly_sales_client/{client_id}/{year}")
 def get_monthly_sales_by_client(client_id: int, year: int, db: Session = Depends(get_db)):
-    """
-    특정 거래처의 연도별 월간 매출 합계 (total_amount 기준)
-    """
-    results = (
+    Model = get_sales_model(year)
+
+    rows = (
         db.query(
-            extract('month', SalesRecord.sale_datetime).label('sale_month'),
-            func.sum(SalesRecord.total_amount).label('sum_sales')
+            extract("month", Model.sale_datetime).label("m"),
+            func.sum(Model.total_amount).label("tot"),
         )
-        .filter(SalesRecord.client_id == client_id)
-        .filter(extract('year', SalesRecord.sale_datetime) == year)
-        .group_by('sale_month')
+        .filter(Model.client_id == client_id)
+        .group_by("m")
         .all()
     )
 
-    monthly_data = [0.0] * 12
-    for row in results:
-        m = int(row.sale_month) - 1
-        monthly_data[m] = float(row.sum_sales or 0)
-
-    return monthly_data
-
-
-# -----------------------------------------------------------------------------
-# 17. 특정 거래처 기준, 해당 연도의 일자별 매출 합계 반환
-# -----------------------------------------------------------------------------
+    data = [0.0] * 12
+    for r in rows:
+        data[int(r.m) - 1] = float(r.tot or 0)
+    return data
+# -----------------------------------------------------------------------------  
+# 17. 특정 거래처 – 해당 연·월의 일자별 매출 합계 (SalesRecord.total_amount 기준)  
+# -----------------------------------------------------------------------------  
 @router.get("/daily_sales_client/{client_id}/{year}/{month}")
-def get_daily_sales_by_client(client_id: int, year: int, month: int, db: Session = Depends(get_db)):
+def get_daily_sales_by_client(
+    client_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+):
     """
-    특정 거래처의 해당 연/월 일별 매출 합계 (total_amount 기준)
+    특정 거래처(client_id)의 연·월별 일자 합계 리스트를 [0..30] 길이로 반환
     """
     from sqlalchemy import extract, func
     from app.models.sales_records import SalesRecord
 
-    daily_data = [0.0] * 31
+    daily_data: list[float] = [0.0] * 31
 
-    results = (
+    rows = (
         db.query(
-            extract('day', SalesRecord.sale_datetime).label('sale_day'),
-            func.sum(SalesRecord.total_amount).label('sum_sales')
+            extract("day", SalesRecord.sale_datetime).label("sale_day"),
+            func.sum(SalesRecord.total_amount).label("sum_sales"),
         )
         .filter(SalesRecord.client_id == client_id)
-        .filter(extract('year', SalesRecord.sale_datetime) == year)
-        .filter(extract('month', SalesRecord.sale_datetime) == month)
-        .group_by('sale_day')
+        .filter(extract("year",  SalesRecord.sale_datetime) == year)
+        .filter(extract("month", SalesRecord.sale_datetime) == month)
+        .group_by("sale_day")
         .all()
     )
 
-    for row in results:
-        d = int(row.sale_day) - 1
-        daily_data[d] = float(row.sum_sales or 0)
+    for sale_day, sum_sales in rows:
+        daily_data[int(sale_day) - 1] = float(sum_sales or 0)
 
     return daily_data
 
-# -----------------------------------------------------------------------------
-# 18. '오늘' 날짜 기준, 특정 거래처의 상품 카테고리별 집계 반환
-# -----------------------------------------------------------------------------
-@router.get("/today_categories_client/{client_id}")
-def get_today_categories_for_client(client_id: int, db: Session = Depends(get_db)):
-    """
-    '오늘' 날짜 기준, 특정 거래처의 상품 카테고리별 집계 반환
-    """
-    today_kst = get_kst_today()
-    start_of_day = datetime.combine(today_kst, datetime.min.time())
-    end_of_day = datetime.combine(today_kst, datetime.max.time())
 
-    results = (
+# -----------------------------------------------------------------------------  
+# 18. 오늘 날짜 기준 – 특정 거래처의 카테고리별 합계 + 담당사원  
+# -----------------------------------------------------------------------------  
+@router.get("/today_categories_client/{client_id}")
+def get_today_categories_for_client(
+    client_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    오늘(KST) 하루 동안의 카테고리별 매출·수량·담당사원
+    """
+    from sqlalchemy import func
+    from app.models.sales_records import SalesRecord
+
+    today_kst = get_kst_today()
+    start_dt  = datetime.combine(today_kst, datetime.min.time())
+    end_dt    = datetime.combine(today_kst, datetime.max.time())
+
+    rows = (
         db.query(
-            Product.category.label('category'),
-            func.sum(SalesRecord.total_amount).label('total_amount'),
-            func.sum(SalesRecord.quantity).label('total_qty'),
-            Employee.name.label('employee_name')
+            Product.category.label("category"),
+            func.sum(SalesRecord.total_amount).label("total_amount"),
+            func.sum(SalesRecord.quantity).label("total_qty"),
+            Employee.name.label("employee_name"),
         )
         .join(SalesRecord, SalesRecord.product_id == Product.id)
         .join(Employee, SalesRecord.employee_id == Employee.id, isouter=True)
         .filter(SalesRecord.client_id == client_id)
-        .filter(SalesRecord.sale_datetime.between(start_of_day, end_of_day))
+        .filter(SalesRecord.sale_datetime.between(start_dt, end_dt))
         .group_by(Product.category, Employee.name)
         .all()
     )
 
-    data = []
-    for row in results:
-        data.append({
-            "category": row.category or "기타",
-            "total_amount": float(row.total_amount or 0),
-            "total_qty": int(row.total_qty or 0),
-            "employee_name": row.employee_name or "",
-        })
+    data = [
+        {
+            "category":       row.category or "기타",
+            "total_amount":   float(row.total_amount or 0),
+            "total_qty":      int(row.total_qty or 0),
+            "employee_name":  row.employee_name or "",
+        }
+        for row in rows
+    ]
 
-    print(f"📌 오늘 카테고리별 판매 데이터: {data}")
+    print("📌 오늘 카테고리별 판매 데이터:", data)
     return data
 
 
-# -----------------------------------------------------------------------------
-# 19. 기간별 직원별 매출 조회 (SalesRecord 기준)
-# -----------------------------------------------------------------------------
-@router.get("/employees_records", response_model=List[dict])
+# -----------------------------------------------------------------------------  
+# 19. 기간별 직원 매출 합계 (SalesRecord 기준)  
+# -----------------------------------------------------------------------------  
+@router.get("/employees_records", response_model=list[dict])
 def get_employee_sales_records(
     db: Session = Depends(get_db),
     start_date: date = Query(None),
-    end_date: date = Query(None)
+    end_date:   date = Query(None),
 ):
     from sqlalchemy import func
-    query = (
+    from app.models.sales_records import SalesRecord
+
+    q = (
         db.query(
             SalesRecord.employee_id,
             Employee.name.label("employee_name"),
-            func.sum(SalesRecord.total_amount).label("total_sales")  # ✅ 핵심 수정
+            func.sum(SalesRecord.total_amount).label("total_sales"),
         )
         .join(Employee, SalesRecord.employee_id == Employee.id, isouter=True)
     )
 
     if start_date:
-        query = query.filter(SalesRecord.sale_datetime >= start_date)
+        q = q.filter(SalesRecord.sale_datetime >= start_date)
     if end_date:
-        query = query.filter(SalesRecord.sale_datetime <= end_date)
+        q = q.filter(SalesRecord.sale_datetime <= end_date)
 
-    query = query.group_by(SalesRecord.employee_id, Employee.name)
+    rows = (
+        q.group_by(SalesRecord.employee_id, Employee.name)
+         .all()
+    )
 
-    rows = query.all()
-    output = []
-    for row in rows:
-        emp_id, emp_name, total_sales = row
-        output.append({
-            "employee_id": emp_id or 0,
-            "employee_name": emp_name or "미배정",
-            "total_sales": float(total_sales or 0)
-        })
-
-    return output
+    return [
+        {
+            "employee_id":  r.employee_id or 0,
+            "employee_name": r.employee_name or "미배정",
+            "total_sales":  float(r.total_sales or 0),
+        }
+        for r in rows
+    ]
 
 
-
-# -----------------------------------------------------------------------------
-# 20. 기간별 전체 매출 조회 (일자별)
-# -----------------------------------------------------------------------------
-@router.get("/total_records", response_model=List[dict])
+# -----------------------------------------------------------------------------  
+# 20. 기간별 전체 매출 합계 – 일자 단위 (SalesRecord)  
+# -----------------------------------------------------------------------------  
+@router.get("/total_records", response_model=list[dict])
 def get_total_sales_records(
     db: Session = Depends(get_db),
     start_date: date = Query(None),
-    end_date: date = Query(None)
+    end_date:   date = Query(None),
 ):
-    from sqlalchemy import func
-    query = (
+    from sqlalchemy import func, cast, Date
+    from app.models.sales_records import SalesRecord
+
+    q = (
         db.query(
-            SalesRecord.sale_datetime,
-            func.sum(SalesRecord.total_amount).label("total_sales")  # ✅ 핵심 수정
+            cast(SalesRecord.sale_datetime, Date).label("sale_date"),
+            func.sum(SalesRecord.total_amount).label("total_sales"),
         )
     )
 
     if start_date:
-        query = query.filter(SalesRecord.sale_datetime >= start_date)
+        q = q.filter(SalesRecord.sale_datetime >= start_date)
     if end_date:
-        query = query.filter(SalesRecord.sale_datetime <= end_date)
+        q = q.filter(SalesRecord.sale_datetime <= end_date)
 
-    query = query.group_by(SalesRecord.sale_datetime).order_by(SalesRecord.sale_datetime)
+    rows = (
+        q.group_by("sale_date")
+         .order_by("sale_date")
+         .all()
+    )
 
-    rows = query.all()
-    output = []
-    for row in rows:
-        sale_dt, total_amt = row
-        output.append({
-            "date": sale_dt.strftime("%Y-%m-%d"),
-            "total_sales": float(total_amt or 0)
-        })
-
-    return output
+    return [
+        {
+            "date":        row.sale_date.strftime("%Y-%m-%d"),
+            "total_sales": float(row.total_sales or 0),
+        }
+        for row in rows
+    ]
 
 
-# -----------------------------------------------------------------------------
-# 21. 기간별 거래처 매출 조회 (거래처별 합계)
-# -----------------------------------------------------------------------------
-@router.get("/by_client_range", response_model=List[dict])
+# -----------------------------------------------------------------------------  
+# 21. 기간별 거래처 매출 합계 (SalesRecord)  
+# -----------------------------------------------------------------------------  
+@router.get("/by_client_range", response_model=list[dict])
 def get_sales_by_client_range(
     db: Session = Depends(get_db),
     start_date: date = Query(...),
-    end_date: date = Query(...),
+    end_date:   date = Query(...),
 ):
     from sqlalchemy import func
+    from app.models.sales_records import SalesRecord
 
-    query = (
+    q = (
         db.query(
             SalesRecord.client_id,
             Client.client_name,
-            func.sum(SalesRecord.total_amount).label("total_sales")  # ✅ 핵심 수정
+            func.sum(SalesRecord.total_amount).label("total_sales"),
         )
         .join(Client, SalesRecord.client_id == Client.id)
+        .filter(SalesRecord.sale_datetime >= start_date)
+        .filter(SalesRecord.sale_datetime <= end_date)
+        .group_by(SalesRecord.client_id, Client.client_name)
     )
 
-    if start_date:
-        query = query.filter(SalesRecord.sale_datetime >= start_date)
-    if end_date:
-        query = query.filter(SalesRecord.sale_datetime <= end_date)
+    rows = q.all()
 
-    query = query.group_by(SalesRecord.client_id, Client.client_name)
+    return [
+        {
+            "client_id":   r.client_id,
+            "client_name": r.client_name,
+            "total_sales": float(r.total_sales or 0),
+        }
+        for r in rows
+    ]
 
-    results = query.all()
-    output = []
-    for c_id, c_name, sum_amt in results:
-        output.append({
-            "client_id": c_id,
-            "client_name": c_name,
-            "total_sales": float(sum_amt or 0)
-        })
-
-    return output
-
-
-
-# -----------------------------------------------------------------------------
-# 22. 특정 연도/월의 세금계산서(매출) 목록 반환
-# -----------------------------------------------------------------------------
+# =============================================================================
+# 22. 특정 연‑월 거래처별 세금계산서(매출) 집계
+# =============================================================================
 @router.get("/clients/{year}/{month}")
-def get_clients_invoices(year: int, month: int, db: Session = Depends(get_db)):
+def get_clients_invoices(
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+):
+    """
+    지정 연・월에 대한 거래처별 매출 총액·VAT(10%) 목록 반환
+    """
     import calendar
     from datetime import date
     from sqlalchemy import func
     from app.models.sales_records import SalesRecord
     from app.models.clients import Client
 
-    # 날짜 범위 계산
+    # ▶ 날짜 범위: 그 달 1일 ~ 마지막 날
     start_date = date(year, month, 1)
-    last_day = calendar.monthrange(year, month)[1]
-    end_date = date(year, month, last_day)
+    end_date   = date(year, month, calendar.monthrange(year, month)[1])
 
-    # 쿼리: total_amount 사용
-    query = (
+    rows = (
         db.query(
             SalesRecord.client_id,
             Client.client_name,
             Client.representative_name.label("client_ceo"),
             Client.business_number,
-            func.sum(SalesRecord.total_amount).label("total_sales")  # ✅ 핵심 수정
+            func.sum(SalesRecord.total_amount).label("total_sales"),
         )
         .join(Client, SalesRecord.client_id == Client.id)
-        .filter(SalesRecord.sale_datetime >= start_date)
-        .filter(SalesRecord.sale_datetime <= end_date)
-        .group_by(SalesRecord.client_id, Client.client_name, Client.address)
+        .filter(SalesRecord.sale_datetime.between(start_date, end_date))
+        .group_by(
+            SalesRecord.client_id,
+            Client.client_name,
+            Client.representative_name,
+            Client.business_number,
+        )
+        .all()
     )
 
-    results = query.all()
+    invoices: list[dict] = []
+    for r in rows:
+        total = float(r.total_sales or 0)
+        vat   = round(total * 0.1, 2)
+        invoices.append(
+            {
+                "supplier_id":    "",          # 필요 시 채워넣으세요
+                "supplier_name":  "",
+                "supplier_ceo":   "",
+                "client_id":      str(r.client_id),
+                "client_name":    r.client_name,
+                "client_ceo":     r.client_ceo,
+                "business_number": r.business_number,
+                "total_sales":    total,
+                "tax_amount":     vat,
+            }
+        )
 
-    # 반환 형태: 세금계산서 스타일
-    data = []
-    for row in results:
-        total = float(row.total_sales or 0)
-        vat = round(total * 0.1, 2)  # ✅ VAT 계산도 정밀하게
-        data.append({
-            "supplier_id": "",
-            "supplier_name": "",
-            "supplier_ceo": "",
-            "client_id": str(row.client_id),
-            "client_name": row.client_name,
-            "client_ceo": row.client_ceo,
-            "business_number": row.business_number,
-            "total_sales": total,
-            "tax_amount": vat
-        })
-
-    return data
+    return invoices
 
 
+# =============================================================================
+# 23. 직원 기준 월/전월/전년동월 매출 + 방문주기
+# =============================================================================
 @router.get("/employee_sales/{employee_id}/{year}/{month}")
-def get_employee_sales_data(employee_id: int, year: int, month: int, db: Session = Depends(get_db)):
+def get_employee_sales_data(
+    employee_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+):
     """
-    직원 기준 해당 월의 거래처 매출 데이터 조회 (MariaDB 호환)
+    직원이 담당하는 거래처들의
+      · 전월 매출
+      · 전년동월 매출
+      · 이번 달 매출
+      · 평균 방문 주기(일 단위)
     """
-    # 🔹 해당 직원이 담당하는 거래처 목록 가져오기
-    client_ids = [c[0] for c in db.query(EmployeeClient.client_id)
-                  .filter(EmployeeClient.employee_id == employee_id).all()]
+    from sqlalchemy import extract, func
+    from app.models.sales_records import SalesRecord
+
+    # 담당 거래처 ID 목록
+    client_ids = [
+        cid for (cid,) in db.query(EmployeeClient.client_id)
+                           .filter(EmployeeClient.employee_id == employee_id)
+                           .all()
+    ]
     if not client_ids:
         return []
 
-    # 🔹 현재 월 매출 조회
-    current_month_sales = db.query(SalesRecord.client_id, func.sum(SalesRecord.quantity * Product.default_price).label("total_sales"))\
-        .join(Product, SalesRecord.product_id == Product.id)\
-        .filter(SalesRecord.client_id.in_(client_ids),
-                extract('year', SalesRecord.sale_datetime) == year,
-                extract('month', SalesRecord.sale_datetime) == month)\
-        .group_by(SalesRecord.client_id)\
-        .all()
-
-    # 🔹 전월 매출 조회
-    prev_month = month - 1 if month > 1 else 12
-    prev_year = year if month > 1 else year - 1
-    prev_month_sales = db.query(SalesRecord.client_id, func.sum(SalesRecord.quantity * Product.default_price).label("total_sales"))\
-        .join(Product, SalesRecord.product_id == Product.id)\
-        .filter(SalesRecord.client_id.in_(client_ids),
-                extract('year', SalesRecord.sale_datetime) == prev_year,
-                extract('month', SalesRecord.sale_datetime) == prev_month)\
-        .group_by(SalesRecord.client_id)\
-        .all()
-
-    # 🔹 전년도 같은 달 매출 조회
-    last_year_sales = db.query(SalesRecord.client_id, func.sum(SalesRecord.quantity * Product.default_price).label("total_sales"))\
-        .join(Product, SalesRecord.product_id == Product.id)\
-        .filter(SalesRecord.client_id.in_(client_ids),
-                extract('year', SalesRecord.sale_datetime) == year - 1,
-                extract('month', SalesRecord.sale_datetime) == month)\
-        .group_by(SalesRecord.client_id)\
-        .all()
-
-    # 🔹 방문 주기 평균 계산 (Python에서 직접 계산)
-    visit_frequencies = {}
-    for client_id in client_ids:
-        visits = db.query(ClientVisit.visit_datetime)\
-            .filter(ClientVisit.client_id == client_id)\
-            .order_by(ClientVisit.visit_datetime)\
+    # 공통 쿼리 빌더
+    def month_sum(target_year: int, target_month: int):
+        return (
+            db.query(
+                SalesRecord.client_id,
+                func.sum(SalesRecord.total_amount).label("total_sales"),
+            )
+            .filter(SalesRecord.client_id.in_(client_ids))
+            .filter(extract("year",  SalesRecord.sale_datetime) == target_year)
+            .filter(extract("month", SalesRecord.sale_datetime) == target_month)
+            .group_by(SalesRecord.client_id)
             .all()
+        )
 
+    # ▷ 이번 달 / 전월 / 전년동월
+    current   = month_sum(year, month)
+    prev_year, prev_month = (year, month - 1) if month > 1 else (year - 1, 12)
+    prev      = month_sum(prev_year, prev_month)
+    last_year = month_sum(year - 1, month)
+
+    # 매출 dict化 {client_id: total}
+    def to_map(rows): return {cid: float(t or 0) for cid, t in rows}
+    map_current   = to_map(current)
+    map_prev      = to_map(prev)
+    map_last_year = to_map(last_year)
+
+    # 방문 주기(일)
+    visit_freq: dict[int, float] = {}
+    for cid in client_ids:
+        visits = (
+            db.query(ClientVisit.visit_datetime)
+              .filter(ClientVisit.client_id == cid)
+              .order_by(ClientVisit.visit_datetime)
+              .all()
+        )
         if len(visits) > 1:
-            intervals = [(visits[i].visit_datetime - visits[i - 1].visit_datetime).days for i in range(1, len(visits))]
-            avg_visit_frequency = sum(intervals) / len(intervals)
+            gaps = [
+                (visits[i].visit_datetime - visits[i - 1].visit_datetime).days
+                for i in range(1, len(visits))
+            ]
+            visit_freq[cid] = sum(gaps) / len(gaps)
         else:
-            avg_visit_frequency = 0  # 방문이 1회 이하라면 0 처리
+            visit_freq[cid] = 0.0
 
-        visit_frequencies[client_id] = avg_visit_frequency
-
-    # 🔹 결과 데이터 정리
-    results = []
-    for client_id in client_ids:
-        results.append({
-            "client_id": client_id,
-            "client_name": db.query(Client.client_name).filter(Client.id == client_id).scalar(),
-            "prev_month_sales": next((s[1] for s in prev_month_sales if s[0] == client_id), 0),
-            "last_year_sales": next((s[1] for s in last_year_sales if s[0] == client_id), 0),
-            "current_month_sales": next((s[1] for s in current_month_sales if s[0] == client_id), 0),
-            "visit_frequency": visit_frequencies.get(client_id, 0)
-        })
-    
+    # 최종 결과
+    results: list[dict] = []
+    for cid in client_ids:
+        results.append(
+            {
+                "client_id":            cid,
+                "client_name":          db.query(Client.client_name)
+                                          .filter(Client.id == cid)
+                                          .scalar(),
+                "prev_month_sales":     map_prev.get(cid, 0),
+                "last_year_sales":      map_last_year.get(cid, 0),
+                "current_month_sales":  map_current.get(cid, 0),
+                "visit_frequency":      visit_freq.get(cid, 0),
+            }
+        )
     return results
 
+
+# =============================================================================
+# 24. 모든 직원의 ‘이번 달’ 매출 합계
+# =============================================================================
 @router.get("/monthly_sales")
 def fetch_monthly_sales(db: Session = Depends(get_db)):
     """
-    모든 직원의 이번 달 판매 총합 조회
+    (KST) 현재 월의 직원별 매출 총합
     """
+    from sqlalchemy import extract, func
+    from app.models.sales_records import SalesRecord
+
     today = get_kst_today()
-    current_year = today.year
-    current_month = today.month
+    year, month = today.year, today.month
 
-    print(f"📌 [FastAPI] 매출 데이터 요청 - {current_year}년 {current_month}월")
-
-    # 🔹 직원별 매출 합계 계산
-    results = (
+    rows = (
         db.query(
             SalesRecord.employee_id,
             Employee.name.label("employee_name"),
-            func.sum(Product.default_price * SalesRecord.quantity).label("total_sales")
+            func.sum(SalesRecord.total_amount).label("total_sales"),
         )
         .join(Employee, SalesRecord.employee_id == Employee.id)
-        .join(Product, SalesRecord.product_id == Product.id)
-        .filter(extract('year', SalesRecord.sale_datetime) == current_year)
-        .filter(extract('month', SalesRecord.sale_datetime) == current_month)
+        .filter(extract("year",  SalesRecord.sale_datetime) == year)
+        .filter(extract("month", SalesRecord.sale_datetime) == month)
         .group_by(SalesRecord.employee_id, Employee.name)
         .all()
     )
 
-    if not results:
-        print("⚠️ [FastAPI] 이번 달 매출 데이터가 없습니다.")
-
-    # 🔹 결과 데이터 변환
-    sales_data = [
+    return [
         {
-            "employee_id": row.employee_id,
-            "employee_name": row.employee_name,
-            "total_sales": float(row.total_sales or 0)
+            "employee_id":  r.employee_id,
+            "employee_name": r.employee_name,
+            "total_sales":  float(r.total_sales or 0),
         }
-        for row in results
+        for r in rows
     ]
 
-    print(f"📊 [FastAPI] 매출 데이터 반환: {sales_data}")
 
-    return sales_data
+# =============================================================================
+# 25. 직원이 담당하는 거래처별 해당 월 매출 합계
+# =============================================================================
+@router.get("/employee_clients_sales/{employee_id}/{year}/{month}")
+def employee_clients_month_sales(
+    employee_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+):
+    """
+    직원(employee_id)의 거래처별 월 매출 합계
+    """
+    from sqlalchemy import extract, func
+    from app.models.sales_records import SalesRecord
 
+    # 담당 거래처
+    client_ids = [
+        cid for (cid,) in db.query(EmployeeClient.client_id)
+                           .filter(EmployeeClient.employee_id == employee_id)
+                           .all()
+    ]
+    if not client_ids:
+        return []
 
-@router.get("/outstanding/{employee_id}")
-def get_outstanding_balances(employee_id: int, db: Session = Depends(get_db)):
-    results = (
-        db.query(Client.client_name, Client.outstanding_amount)
-        .join(EmployeeClient, EmployeeClient.client_id == Client.id)
-        .filter(EmployeeClient.employee_id == employee_id)
+    rows = (
+        db.query(
+            SalesRecord.client_id,
+            Client.client_name,
+            func.sum(SalesRecord.total_amount).label("total_sales"),
+        )
+        .join(Client, SalesRecord.client_id == Client.id)
+        .filter(SalesRecord.client_id.in_(client_ids))
+        .filter(extract("year",  SalesRecord.sale_datetime) == year)
+        .filter(extract("month", SalesRecord.sale_datetime) == month)
+        .group_by(SalesRecord.client_id, Client.client_name)
         .all()
     )
 
-    response_data = [
-        {"client_name": r.client_name.strip(), "outstanding": float(r.outstanding_amount)}
-        for r in results
+    return [
+        {
+            "client_id":   r.client_id,
+            "client_name": r.client_name,
+            "total_sales": float(r.total_sales or 0),
+        }
+        for r in rows
     ]
 
-    return JSONResponse(content=response_data, media_type="application/json; charset=utf-8")
+
+# =============================================================================
+# 26. (참고) 직원별 미수금 현황 – 기존 로직 그대로
+# =============================================================================
+@router.get("/outstanding/{employee_id}")
+def get_outstanding_balances(
+    employee_id: int,
+    db: Session = Depends(get_db),
+):
+    results = (
+        db.query(Client.client_name, Client.outstanding_amount)
+          .join(EmployeeClient, EmployeeClient.client_id == Client.id)
+          .filter(EmployeeClient.employee_id == employee_id)
+          .all()
+    )
+
+    return JSONResponse(
+        content=[
+            {
+                "client_name": r.client_name.strip(),
+                "outstanding": float(r.outstanding_amount or 0),
+            }
+            for r in results
+        ],
+        media_type="application/json; charset=utf-8",
+    )
+
 
 @router.get("/employee_clients_sales")
 def get_client_sales(
@@ -1221,35 +1364,33 @@ def get_client_sales(
     }
 
 
-# sales.py (예: 이 파일 제일 아래쪽 등에 추가)
+# -------------------------------------------------------------------------
+# 24‑BIS. 특정 거래처의 월 매출 총합 (total_amount 기준으로 교체)
+# -------------------------------------------------------------------------
 @router.get("/client_monthly_sales")
 def get_client_monthly_sales(
     client_id: int = Query(...),
-    year: int = Query(...),
-    month: int = Query(...),
-    db: Session = Depends(get_db)
+    year: int   = Query(...),
+    month: int  = Query(...),
+    db: Session = Depends(get_db),
 ):
     """
-    특정 거래처(client_id)의 year년도 month월 매출 합계를 반환.
-    반환 예시: { "total_sales": 12345.0 }
+    지정 거래처(client_id)의 year‑month 매출 총액을 반환
+    ▶ 반환 예시: { "total_sales": 12345.0 }
     """
-
     from sqlalchemy import extract, func
     from app.models.sales_records import SalesRecord
-    from app.models.products import Product
 
-    # 1) 기본 가격 * 수량 = 매출
-    sum_val = db.query(
-        func.sum(Product.default_price * SalesRecord.quantity)
-    )\
-    .join(Product, Product.id == SalesRecord.product_id)\
-    .filter(SalesRecord.client_id == client_id)\
-    .filter(extract('year', SalesRecord.sale_datetime) == year)\
-    .filter(extract('month', SalesRecord.sale_datetime) == month)\
-    .scalar()
+    sum_val = (
+        db.query(func.sum(SalesRecord.total_amount))
+          .filter(SalesRecord.client_id == client_id)
+          .filter(extract("year",  SalesRecord.sale_datetime) == year)
+          .filter(extract("month", SalesRecord.sale_datetime) == month)
+          .scalar()
+    )
 
-    total_sales = float(sum_val or 0.0)
-    return { "total_sales": total_sales }
+    return {"total_sales": float(sum_val or 0.0)}
+
 
 @router.get("/monthly_box_count_client/{client_id}/{year}")
 def get_monthly_box_count(client_id: int, year: int, db: Session = Depends(get_db)):
