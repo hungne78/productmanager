@@ -1113,6 +1113,7 @@ class MainApp(QMainWindow):
             ("월급여", "payments", self.show_payments_tab),
             ("세금계산서", "invoices", self.show_invoices_tab),
             ("차량재고", "inventory", self.show_inventory_tab),
+            ("거래처지도", "clients_map", self.show_clients_map_tab),
             ("log","log",self.show_log_tab),
         ]
 
@@ -1316,6 +1317,7 @@ class MainApp(QMainWindow):
         from employee_sales_ui import EmployeeSalesTab
         from employee_vehicle_inventory_tab import EmployeeVehicleInventoryTab
         from log_ui import LogTabWidget
+        from client_map_widget import ClientMapWidget
         self.tabs = {
             "employees": EmployeesTab(),
             "clients": ClientsTab(),
@@ -1328,6 +1330,7 @@ class MainApp(QMainWindow):
             "payments": PaymentsTab(),
             "invoices": InvoicesTab(),
             "inventory": EmployeeVehicleInventoryTab(),
+            "clients_map": ClientMapWidget(global_token),
             "log":LogTabWidget()
         }
 
@@ -1675,6 +1678,11 @@ class MainApp(QMainWindow):
         self.stacked.setCurrentWidget(self.tabs["log"])
         self.update_search_placeholder("log")
         self.update_custom_button("log")
+    
+    def show_clients_map_tab(self):
+        self.stacked.setCurrentWidget(self.tabs["clients_map"])
+        self.update_search_placeholder("clients_map")
+        self.update_custom_button("clients_map")
         
     def on_search_clicked(self):
         """
@@ -1704,6 +1712,7 @@ class MainApp(QMainWindow):
             "payments": "직원이름 검색",
             "invoices": "거래처명 검색",
             "inventory": "직원이름 검색",
+            "clients_map" : "거래처 검색",
             "log":"log 검색",
         }
         self.search_edit.setPlaceholderText(placeholders.get(tab_name, "검색"))

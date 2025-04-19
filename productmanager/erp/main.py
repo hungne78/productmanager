@@ -16,6 +16,7 @@ def global_exception_handler(exctype, value, tb):
         pass
     sys.exit(1)
 
+
 # 📌 종료 직전 자동 로그 저장
 def save_log_on_exit():
     try:

@@ -13,8 +13,6 @@ from PyQt5.QtGui import QFont
 from config import BASE_URL
 # 현재 파일의 상위 폴더(프로젝트 루트)를 경로에 추가
 
-
-
 from services.api_services import api_fetch_employees_, api_create_employee, api_update_employee, api_delete_employee, \
     api_fetch_vehicle, get_auth_headers, api_create_vehicle, api_fetch_employee_vehicle_info
 from baselefttabwidget import BaseLeftTableWidget
@@ -554,7 +552,7 @@ class EmployeeLeftWidget(BaseLeftTableWidget):
         year = now.year
         month = now.month
 
-        url = f"{BASE_URL}/sales/employee_clients_sales"
+        url = f"{BASE_URL}/sales/"
         headers = {"Authorization": f"Bearer {global_token}"}
         params = {"employee_id": emp_id, "year": year, "month": month}
 

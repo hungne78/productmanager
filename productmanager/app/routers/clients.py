@@ -11,6 +11,40 @@ from starlette.responses import JSONResponse, StreamingResponse
 import json
 from typing import List
 from passlib.hash import bcrypt
+from geopy.geocoders import Nominatim  # 또는 Kakao / Google / Naver 등
+from geopy.extra.rate_limiter import RateLimiter
+from app.models.employees import Employee
+import requests
+KAKAO_REST_API_KEY = "35cb475df605091f2b811aa7185bc6bf"
+geolocator = Nominatim(user_agent="icemanager3/(hungne@naver.com)")   # 서비스에 맞춰 변경
+geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
+
+def geocode_address(address: str) -> tuple[float | None, float | None]:
+    url = "https://dapi.kakao.com/v2/local/search/address.json"
+    headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+    params = {"query": address}
+
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=5)
+        resp.raise_for_status()
+        documents = resp.json().get("documents", [])
+
+        if documents:
+            first = documents[0]
+            lat = float(first.get("y", 0))
+            lon = float(first.get("x", 0))
+
+            # 유효 좌표 범위 검사
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                return lat, lon
+
+            print(f"⚠️ 좌표 범위 이상: lat={lat}, lon={lon}")
+    except Exception as e:
+        print(f"❌ Kakao 지오코딩 실패: {e}")
+
+    return None, None
+
+
 router = APIRouter()
 
 @router.get("/by_employee")
@@ -52,6 +86,7 @@ def get_clients_grouped_by_employee(db: Session = Depends(get_db)):
 def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
     """ 새로운 거래처 등록 (KST로 저장) """
     password_hash = bcrypt.hash("1234")
+    lat, lng = geocode_address(payload.address)
     new_client = Client(
         client_name=payload.client_name,
         representative_name=payload.representative_name,
@@ -62,7 +97,9 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
         fixed_price=payload.fixed_price,
         business_number=payload.business_number,
         email=payload.email,
-        password_hash=password_hash
+        password_hash=password_hash,
+        latitude = lat,
+        longitude = lng,
     )
     db.add(new_client)
     db.commit()
@@ -105,7 +142,12 @@ def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(g
     # ✅ 비밀번호 변경 시
     if payload.password:
         db_client.password_hash = bcrypt.hash(payload.password)
+    if payload.address != db_client.address:
+        lat, lng = geocode_address(payload.address)
+        db_client.latitude  = lat
+        db_client.longitude = lng
 
+    db_client.address = payload.address
     db.commit()
     db.refresh(db_client)
     return db_client
@@ -306,3 +348,35 @@ def get_monthly_box_count(client_id: int, year: int, db: Session = Depends(get_d
         monthly[r.sale_datetime.month - 1] += r.quantity or 0
 
     return monthly
+
+@router.get("/map/clients", response_model=list[dict])
+def clients_for_map(db: Session = Depends(get_db)):
+    """
+    좌표‧담당직원 정보를 포함한 거래처 목록
+    """
+    data = (
+        db.query(
+            Client.id.label("client_id"),
+            Client.client_name,
+            Client.latitude.label("lat"),
+            Client.longitude.label("lon"),
+            Employee.id.label("employee_id"),
+            Employee.name.label("employee_name")
+        )
+        .join(EmployeeClient, EmployeeClient.client_id == Client.id)
+        .join(Employee, Employee.id == EmployeeClient.employee_id)
+        .filter(Client.latitude.isnot(None), Client.longitude.isnot(None))  # ⬅️ 좌표 없는 거래처 제외
+        .all()
+    )
+
+    return [
+        {
+            "client_id": c.client_id,
+            "client_name": c.client_name,
+            "lat": c.lat,
+            "lon": c.lon,
+            "employee_id": c.employee_id,
+            "employee_name": c.employee_name
+        }
+        for c in data
+    ]

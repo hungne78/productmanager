@@ -4,7 +4,7 @@ from PyQt5.QtGui import QTextCursor
 import os
 import sys
 from PyQt5.QtCore import QObject, pyqtSignal
-
+MAX_LOG_LINES = 500  # 💡 로그 최대 줄 수
 class EmittingStream(QObject):
     text_written = pyqtSignal(str)
 
@@ -58,17 +58,36 @@ class LogTabWidget(QWidget):
         self.log_output.moveCursor(QTextCursor.End)
         self.log_output.insertPlainText(text)
 
+        # ✅ 로그 줄 수 초과 시 삭제
+        current_text = self.log_output.toPlainText()
+        lines = current_text.split("\n")
+        if len(lines) > MAX_LOG_LINES:
+            trimmed = "\n".join(lines[-MAX_LOG_LINES:])
+            self.log_output.setPlainText(trimmed)
+            self.log_output.moveCursor(QTextCursor.End)
+
+
     def append_log(self, message: str, level="INFO"):
         timestamp = QDateTime.currentDateTime().toString("yyyy-MM-dd hh:mm:ss")
         line = f"[{timestamp}] [{level}] {message}"
         self.log_output.append(line)
         self.log_output.moveCursor(QTextCursor.End)
+
+        # ✅ 로그 파일에도 저장
         try:
             with open(self.log_file_path, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
         except Exception as e:
             self.log_output.append(f"[ERROR] 로그 파일 저장 실패: {e}")
 
+        # ✅ 로그 줄 수 초과 시 삭제
+        current_text = self.log_output.toPlainText()
+        lines = current_text.split("\n")
+        if len(lines) > MAX_LOG_LINES:
+            trimmed = "\n".join(lines[-MAX_LOG_LINES:])
+            self.log_output.setPlainText(trimmed)
+            self.log_output.moveCursor(QTextCursor.End)
+            
     def copy_to_clipboard(self):
         clipboard = self.clipboard() if hasattr(self, 'clipboard') else QApplication.clipboard()
         clipboard.setText(self.log_output.toPlainText())

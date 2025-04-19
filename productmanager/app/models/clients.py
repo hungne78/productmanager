@@ -32,7 +32,8 @@ class Client(Base):
     # ✅ KST 기준으로 생성/수정 시간 저장
     created_at = Column(DateTime, default=get_kst_now)
     updated_at = Column(DateTime, default=get_kst_now, onupdate=get_kst_now)
-
+    latitude  = Column(Float, nullable=True)   # 위도
+    longitude = Column(Float, nullable=True)   # 경도
     # 관계 설정
     employee_clients = relationship("EmployeeClient", back_populates="client")
     # orders = relationship("Order", back_populates="client")

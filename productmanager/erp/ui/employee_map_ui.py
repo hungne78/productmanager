@@ -1,187 +1,166 @@
-# employee_map_ui.py
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-import io
-import requests
-import folium
-import pytz
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
-    QMessageBox, QListWidget, QListWidgetItem
-)
+import sys, os, json, colorsys, requests
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QMessageBox
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from datetime import datetime
+from PyQt5.QtCore import Qt, QTimer
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from config import BASE_URL
-# 타임존 및 기본 설정
-KST = pytz.timezone("Asia/Seoul")
 
-GOOGLE_MAPS_API_KEY = "AIzaSyD0d6_wU5vPID4djhY3qZKp0e0XSJITg_w"  # 유효한 API 키로 교체
+KAKAO_JS_KEY = "c56b498bb536bd492cd6a5a0bb85062c"
+DEFAULT_CENTER_LAT = 37.5665  # 서울시청
+DEFAULT_CENTER_LON = 126.9780
 
 class EmployeeMapTab(QWidget):
-    """
-    좌우 분할 UI:
-      - left_panel: 직원 검색 영역 (검색 필드, 검색 버튼, 직원 목록)
-      - right_panel: 지도 영역 (Folium 지도 표시)
-    Main UI에서는 각각 .left_panel, .right_panel 속성을 통해 접근합니다.
-    """
-    def __init__(self, base_url: str = None):
+    def __init__(self):
         super().__init__()
-        if base_url is None:
-            base_url = BASE_URL
-        self.base_url = base_url
-        self.init_ui()
-
-    def init_ui(self):
-        # 전체를 좌우로 배치하는 레이아웃 생성
-        main_layout = QHBoxLayout()
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
-        self.setLayout(main_layout)
-
-        # --- 왼쪽 패널: 직원 검색 및 선택 영역 ---
-        self.left_panel = QWidget()
-        left_layout = QVBoxLayout(self.left_panel)
-        left_layout.setContentsMargins(10, 10, 10, 10)
-        left_layout.setSpacing(10)
-
-        # 검색 필드와 버튼
-        self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("직원이름을 입력하세요 (예: 홍길동)")
-        self.search_button = QPushButton("검색")
-        self.search_button.clicked.connect(self.do_search)
-        left_layout.addWidget(self.search_edit)
-        left_layout.addWidget(self.search_button)
-
-        # 직원 목록 (검색 결과)
-        self.employee_list = QListWidget()
-        self.employee_list.itemClicked.connect(self.on_employee_selected)
-        left_layout.addWidget(self.employee_list)
-
-        main_layout.addWidget(self.left_panel, 1)  # 왼쪽 패널 (비율 1)
-
-        # --- 오른쪽 패널: 지도 영역 ---
-        self.right_panel = QWidget()
-        right_layout = QVBoxLayout(self.right_panel)
-        right_layout.setContentsMargins(10, 10, 10, 10)
-        right_layout.setSpacing(10)
-
-        self.map_view = QWebEngineView()
-        right_layout.addWidget(self.map_view)
-
-        main_layout.addWidget(self.right_panel, 3)  # 오른쪽 패널 (비율 3)
-
-        # 초기 지도 로드
+        self.employees = []  # 전체 직원 목록
+        self.color_map = {}
+        self._build_ui()
         self.load_default_map()
+        QTimer.singleShot(200, self._load_all_employees)
 
-    def load_default_map(self):
-        """프로그램 시작 시 서울 기본 지도를 로드합니다."""
-        map_obj = folium.Map(location=[37.5665, 126.9780], zoom_start=11)
-        self.display_map(map_obj)
+    def _build_ui(self):
+        layout = QHBoxLayout()
+        self.setLayout(layout)
 
-    def do_search(self):
-        """
-        직원 이름으로 방문 기록을 조회하여 지도 업데이트.
-        API 호출 후 결과가 여러 직원이면 왼쪽 목록에 이름을 채워 넣습니다.
-        """
-        name = self.search_edit.text().strip()
-        if not name:
-            QMessageBox.warning(self, "경고", "직원이름을 입력하세요.")
-            return
+        # 왼쪽: 버튼 패널
+        self.left_panel = QVBoxLayout()
+        self.left_panel.setAlignment(Qt.AlignTop)
+        left_widget = QWidget()
+        left_widget.setLayout(self.left_panel)
+        left_widget.setFixedWidth(160)
+        layout.addWidget(left_widget)
 
+        self.map = QWebEngineView()
+        layout.addWidget(self.map)
+
+    def _load_all_employees(self):
         try:
-            url = f"{self.base_url}/employee_map/daily_visits"
-            params = {"employee_name": name}
-            resp = requests.get(url, params=params, timeout=5)
-            if resp.status_code == 404:
-                QMessageBox.warning(self, "오류", f"직원 '{name}'을 찾을 수 없습니다.")
+            resp = requests.get(f"{BASE_URL}/employees/", timeout=5)
+            resp.raise_for_status()
+            self.employees = resp.json()
+            if not self.employees:
+                QMessageBox.information(self, "직원 없음", "등록된 직원이 없습니다.")
                 return
-            if resp.status_code != 200:
-                QMessageBox.critical(self, "오류", f"서버 에러: {resp.text}")
-                return
+            self.color_map = self._make_color_table(self.employees)
+            self._build_employee_buttons()
+        except Exception as e:
+            QMessageBox.critical(self, "에러", f"직원 목록 불러오기 실패:\n{e}")
 
-            data = resp.json()  # 방문 기록 리스트
+    def _build_employee_buttons(self):
+        # 기존 버튼 제거
+        while self.left_panel.count():
+            item = self.left_panel.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # 새로고침 버튼
+        refresh_btn = QPushButton("🔄 새로고침")
+        refresh_btn.clicked.connect(self._load_all_employees)
+        self.left_panel.addWidget(refresh_btn)
+
+        self.left_panel.addSpacing(10)
+
+        # 직원 버튼
+        for emp in sorted(self.employees, key=lambda x: x["name"]):
+            emp_id = emp["id"]
+            emp_name = emp["name"]
+            color = self.color_map.get(emp_id, "#888")
+            btn = QPushButton(emp_name)
+            btn.setStyleSheet(f"background-color: {color}; color: white;")
+            btn.clicked.connect(lambda _, name=emp_name: self._load_employee_visits(name))
+            self.left_panel.addWidget(btn)
+
+        self.left_panel.addStretch()
+
+    def _load_employee_visits(self, emp_name):
+        try:
+            url = f"{BASE_URL}/employee_map/daily_visits"
+            params = {"employee_name": emp_name}
+            resp = requests.get(url, params=params, timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
             if not data:
-                QMessageBox.information(self, "알림", f"직원 '{name}'의 방문 기록이 없습니다.")
+                QMessageBox.information(self, "방문 없음", f"{emp_name}의 방문 기록이 없습니다.")
                 self.load_default_map()
                 return
+            self._render_map(data, self.color_map)
+        except Exception as e:
+            QMessageBox.critical(self, "에러", f"방문 기록 요청 실패:\n{e}")
 
-            # 여러 직원 이름이 포함될 경우, 왼쪽 목록에 추가
-            self.employee_list.clear()
-            employee_names = set(record["employee_name"] for record in data)
-            for ename in employee_names:
-                item = QListWidgetItem(ename)
-                self.employee_list.addItem(item)
-            # 단일 직원이면 바로 지도 업데이트
-            if len(employee_names) == 1:
-                self.update_map(data)
-        except requests.exceptions.RequestException as e:
-            QMessageBox.critical(self, "에러", f"서버 요청 실패: {e}")
+    def load_default_map(self):
+        html = self._generate_map_html(DEFAULT_CENTER_LAT, DEFAULT_CENTER_LON, [])
+        self.map.setHtml(html)
 
-    def on_employee_selected(self, item):
-        """
-        왼쪽 목록에서 직원 선택 시 해당 직원 이름을 검색 필드에 채우고,
-        다시 검색하여 지도를 업데이트합니다.
-        """
-        selected_name = item.text()
-        self.search_edit.setText(selected_name)
-        self.do_search()
-
-    def geocode_address(self, address):
-        """주소를 위도, 경도로 변환 (Google Geocoding API 사용)"""
-        try:
-            url = "https://maps.googleapis.com/maps/api/geocode/json"
-            params = {"address": address, "key": GOOGLE_MAPS_API_KEY}
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            results = response.json().get("results", [])
-            if not results:
-                return None, None
-            location = results[0]["geometry"]["location"]
-            return location["lat"], location["lng"]
-        except requests.exceptions.RequestException as e:
-            print(f"지오코딩 실패: {e}")
-            return None, None
-
-    def update_map(self, visits_data):
-        """
-        방문 기록 데이터(리스트)를 바탕으로 Folium 지도에 마커를 추가하고 업데이트합니다.
-        """
-        if not visits_data:
+    def _render_map(self, dataset: list[dict], color_map: dict):
+        if not dataset:
             self.load_default_map()
             return
 
-        first_address = visits_data[0]["address"]
-        first_lat, first_lng = self.geocode_address(first_address)
-        if first_lat is None or first_lng is None:
-            first_lat, first_lng = 37.5665, 126.9780
+        center_lat = dataset[0].get("lat", DEFAULT_CENTER_LAT)
+        center_lon = dataset[0].get("lon", DEFAULT_CENTER_LON)
 
-        map_obj = folium.Map(location=[first_lat, first_lng], zoom_start=12)
-        for item in visits_data:
-            address = item["address"]
-            lat, lng = self.geocode_address(address)
-            if lat is None or lng is None:
+        markers = []
+        for d in dataset:
+            lat, lon = d.get("lat"), d.get("lon")
+            if lat is None or lon is None:
                 continue
-            c_name = item["client_name"]
-            v_time = item["visit_datetime"]
-            sales = item["today_sales"]
-            visit_count = item.get("visit_count", 1)
-            popup_html = f"""
-            <b>거래처명:</b> {c_name}<br>
-            <b>방문시간:</b> {v_time}<br>
-            <b>방문횟수:</b> {visit_count}<br>
-            <b>당일매출:</b> {int(sales)}원
-            """
-            folium.Marker(
-                location=[lat, lng],
-                popup=popup_html,
-                icon=folium.Icon(color="blue", icon="info-sign")
-            ).add_to(map_obj)
-        self.display_map(map_obj)
+            emp_id = d.get("employee_id")
+            color = color_map.get(emp_id, "#007BFF")
+            label = f"{d['client_name']}<br>방문: {d['visit_datetime']}<br>매출: {int(d['today_sales'])}원"
+            markers.append({
+                "lat": lat,
+                "lon": lon,
+                "color": color,
+                "label": label
+            })
 
-    def display_map(self, map_obj: folium.Map):
-        """Folium Map 객체를 HTML로 변환하여 QWebEngineView에 로드합니다."""
-        data = io.BytesIO()
-        map_obj.save(data, close_file=False)
-        self.map_view.setHtml(data.getvalue().decode())
+        html = self._generate_map_html(center_lat, center_lon, markers)
+        self.map.setHtml(html)
 
+    def _make_color_table(self, employees):
+        hue_step = 1.0 / max(len(employees), 1)
+        colors = {}
+        for idx, emp in enumerate(sorted(employees, key=lambda x: x["id"])):
+            h = (idx * hue_step) % 1.0
+            r, g, b = colorsys.hls_to_rgb(h, 0.5, 0.65)
+            colors[emp["id"]] = "#{:02X}{:02X}{:02X}".format(int(r * 255), int(g * 255), int(b * 255))
+        return colors
+
+    def _generate_map_html(self, center_lat, center_lon, markers):
+        markers_json = json.dumps(markers, ensure_ascii=False)
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>직원 방문 지도</title>
+            <style>html, body, #map {{width:100%;height:100%;margin:0;padding:0;}}</style>
+            <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={KAKAO_JS_KEY}"></script>
+        </head>
+        <body>
+        <div id="map"></div>
+        <script>
+            var mapContainer = document.getElementById('map');
+            var mapOption = {{
+                center: new kakao.maps.LatLng({center_lat}, {center_lon}),
+                level: 9
+            }};
+            var map = new kakao.maps.Map(mapContainer, mapOption);
+            var markers = {markers_json};
+
+            markers.forEach(function(item) {{
+                var marker = new kakao.maps.Marker({{
+                    position: new kakao.maps.LatLng(item.lat, item.lon),
+                    map: map
+                }});
+                var label = new kakao.maps.CustomOverlay({{
+                    position: new kakao.maps.LatLng(item.lat, item.lon),
+                    content: '<div style="padding:4px;background:' + item.color + ';color:white;border-radius:4px;font-size:12px;">' + item.label + '</div>',
+                    yAnchor: 1
+                }});
+                label.setMap(map);
+            }});
+        </script>
+        </body>
+        </html>
+        """

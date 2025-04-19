@@ -1,0 +1,214 @@
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 101, in handle_login
+    self.open_main_app()
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 108, in open_main_app
+    self.main_app = MainApp()  # 메인 앱 실행
+                    ^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1333, in __init__
+    "client_map": ClientMapWidget(),
+                  ^^^^^^^^^^^^^^^^^
+TypeError: ClientMapWidget.__init__() missing 1 required positional argument: 'token'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 101, in handle_login
+    self.open_main_app()
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 108, in open_main_app
+    self.main_app = MainApp()  # 메인 앱 실행
+                    ^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1333, in __init__
+    "client_map": ClientMapWidget(global_token),
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\client_map_widget.py", line 19, in __init__
+    self._load_data()   # 최초 전체‑지도
+    ^^^^^^^^^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\client_map_widget.py", line 40, in _load_data
+    resp.raise_for_status()
+  File "C:\Python312\Lib\site-packages\requests\models.py", line 1024, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 404 Client Error: Not Found for url: http://192.168.50.221:8000/map/clients
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 101, in handle_login
+    self.open_main_app()
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 108, in open_main_app
+    self.main_app = MainApp()  # 메인 앱 실행
+                    ^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1333, in __init__
+    "client_map": ClientMapWidget(global_token),
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\client_map_widget.py", line 19, in __init__
+    self._load_data()   # 최초 전체‑지도
+    ^^^^^^^^^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\client_map_widget.py", line 40, in _load_data
+    resp.raise_for_status()
+  File "C:\Python312\Lib\site-packages\requests\models.py", line 1024, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 500 Server Error: Internal Server Error for url: http://192.168.50.221:8000/clients/map/clients
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 101, in handle_login
+    self.open_main_app()
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 108, in open_main_app
+    self.main_app = MainApp()  # 메인 앱 실행
+                    ^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1333, in __init__
+    "client_map": ClientMapWidget(global_token),
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\client_map_widget.py", line 19, in __init__
+    self._load_data()   # 최초 전체‑지도
+    ^^^^^^^^^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\client_map_widget.py", line 40, in _load_data
+    resp.raise_for_status()
+  File "C:\Python312\Lib\site-packages\requests\models.py", line 1024, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 500 Server Error: Internal Server Error for url: http://192.168.50.221:8000/clients/map/clients
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1683, in show_clients_map_tab
+    self.stacked.setCurrentWidget(self.tabs["clients_map"])
+                                  ~~~~~~~~~^^^^^^^^^^^^^^^
+KeyError: 'clients_map'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1683, in show_clients_map_tab
+    self.stacked.setCurrentWidget(self.tabs["clients_map"])
+                                  ~~~~~~~~~^^^^^^^^^^^^^^^
+KeyError: 'clients_map'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1683, in show_clients_map_tab
+    self.stacked.setCurrentWidget(self.tabs["clients_map"])
+                                  ~~~~~~~~~^^^^^^^^^^^^^^^
+KeyError: 'clients_map'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1683, in show_clients_map_tab
+    self.stacked.setCurrentWidget(self.tabs["clients_map"])
+                                  ~~~~~~~~~^^^^^^^^^^^^^^^
+KeyError: 'clients_map'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1683, in show_clients_map_tab
+    self.stacked.setCurrentWidget(self.tabs["clients_map"])
+                                  ~~~~~~~~~^^^^^^^^^^^^^^^
+KeyError: 'clients_map'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\clients_ui.py", line 1482, in do_custom_action
+    self.show_all_clients()
+  File "c:\venv\productmanager\productmanager\erp\ui\clients_ui.py", line 1520, in show_all_clients
+    self.client_id = selected_client["id"]
+                     ^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'selected_client' where it is not associated with a value
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\clients_ui.py", line 1482, in do_custom_action
+    self.show_all_clients()
+  File "c:\venv\productmanager\productmanager\erp\ui\clients_ui.py", line 1520, in show_all_clients
+    self.client_id = selected_client["id"]
+                     ^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'selected_client' where it is not associated with a value
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1554, in update_datetime
+    def update_datetime(self):
+    
+KeyboardInterrupt
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\client_map_widget.py", line 81, in <lambda>
+    btn.clicked.connect(lambda _, eid=emp_id: self._render_map(
+                                              ^^^^^^^^^^^^^^^^^
+TypeError: ClientMapWidget._render_map() missing 1 required positional argument: 'color_map'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\client_map_widget.py", line 66, in <lambda>
+    all_btn.clicked.connect(lambda: self._render_map(self.raw))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: ClientMapWidget._render_map() missing 1 required positional argument: 'color_map'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 101, in handle_login
+    self.open_main_app()
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 108, in open_main_app
+    self.main_app = MainApp()  # 메인 앱 실행
+                    ^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1327, in __init__
+    "employee_map": EmployeeMapTab(),
+                    ^^^^^^^^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\employee_map_ui.py", line 33, in __init__
+    self.init_ui()
+  File "c:\venv\productmanager\productmanager\erp\ui\employee_map_ui.py", line 75, in init_ui
+    self.load_default_map()
+  File "c:\venv\productmanager\productmanager\erp\ui\employee_map_ui.py", line 78, in load_default_map
+    html = self.generate_kakao_map_html(37.5665, 126.9780, [])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\employee_map_ui.py", line 213, in generate_kakao_map_html
+    markers_json = json.dumps(markers, ensure_ascii=False)
+                   ^^^^
+NameError: name 'json' is not defined. Did you forget to import 'json'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 101, in handle_login
+    self.open_main_app()
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 108, in open_main_app
+    self.main_app = MainApp()  # 메인 앱 실행
+                    ^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1327, in __init__
+    "employee_map": EmployeeMapTab(),
+                    ^^^^^^^^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\employee_map_ui.py", line 27, in __init__
+    self.load_default_map()
+  File "c:\venv\productmanager\productmanager\erp\ui\employee_map_ui.py", line 138, in load_default_map
+    self.map.setHtml(html)
+    ^^^^^^^^
+AttributeError: 'EmployeeMapTab' object has no attribute 'map'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 101, in handle_login
+    self.open_main_app()
+  File "c:\venv\productmanager\productmanager\erp\ui\login_ui.py", line 108, in open_main_app
+    self.main_app = MainApp()  # 메인 앱 실행
+                    ^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1327, in __init__
+    "employee_map": EmployeeMapTab(),
+                    ^^^^^^^^^^^^^^^^
+  File "c:\venv\productmanager\productmanager\erp\ui\employee_map_ui.py", line 29, in __init__
+    QTimer.singleShot(100, self._load_all_data)  # UI 완성 후 데이터 로딩
+    ^^^^^^
+NameError: name 'QTimer' is not defined
+
