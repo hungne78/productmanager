@@ -332,6 +332,7 @@ class ClientDialog(QDialog):
         self.fixed_price_edit = QLineEdit("70")
         self.business_edit = QLineEdit()
         self.email_edit = QLineEdit()
+        self.virtual_account_edit = QLineEdit()
         self.password_edit = QLineEdit()
         self.password_edit.setPlaceholderText("입력 안하면 변경 없음")
         self.password_edit.setEchoMode(QLineEdit.Password)
@@ -345,8 +346,9 @@ class ClientDialog(QDialog):
         form_layout.addRow("고정가단단가:", self.fixed_price_edit)
         form_layout.addRow("사업자번호:", self.business_edit)
         form_layout.addRow("이메일:", self.email_edit)
+        form_layout.addRow("가상계좌번호:", self.virtual_account_edit)
         form_layout.addRow("비밀번호:", self.password_edit)
-
+        
         layout.addLayout(form_layout)
         
         btn_layout = QHBoxLayout()
@@ -373,7 +375,7 @@ class ClientDialog(QDialog):
 
             self.business_edit.setText(client.get("business_number", ""))
             self.email_edit.setText(client.get("email", ""))
-
+            self.virtual_account_edit.setText(client.get("virtual_account", ""))  # ✅ 추가
             self.password_edit.setText("")  # 항상 비워둠 (입력 시에만 변경)
 
             print("🧪 클라이언트 dict 구조 확인:")
@@ -431,6 +433,7 @@ class ClientLeftPanel(BaseLeftTableWidget):
             "고정가단가",
             "사업자번호",  # 6
             "메일주소",     # 7
+            "가상계좌번호",
             "비밀번호",
         ]
         

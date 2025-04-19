@@ -26,6 +26,7 @@ class ClientOut(BaseModel):
     fixed_price: Optional[float] = None
     business_number: Optional[str] = None
     email: Optional[str] = None
+    virtual_account: Optional[str] = None  # ✅ 추가됨
     password_hash: Optional[str] = None
     created_at: datetime
     updated_at: datetime

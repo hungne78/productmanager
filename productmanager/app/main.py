@@ -65,8 +65,11 @@ from app.models.purchase_archive import PurchaseArchive
 from app.models.sales_record_archive import SalesRecordArchive
 from app.models.sales import Sales
 from app.routers.admin_auth  import router as admin_auth_router 
+from app.utils.archive_utils import migrate_last_year_sales
+from app.utils.archive_utils import archive_orders_for_year_if_not_archived
 # 기존 scheduler 초기화 이후에 추가
-
+from sqlalchemy import text
+from datetime import datetime
 
 def run_monthly_aggregation():
     from app.db.database import SessionLocal
@@ -114,10 +117,112 @@ def cleanup_unused_products_task():
         print(f"❌ 자동삭제 오류: {e}")
     finally:
         db.close()
+def migrate_task():
+    db = SessionLocal()
+    try:
+        migrate_last_year_sales(db)
+    finally:
+        db.close()
+
+def run_yearly_order_archive():
+    from datetime import datetime
+    yr = datetime.now().year - 1
+    with SessionLocal() as db:
+        archive_orders_for_year_if_not_archived(yr, db)
+
+def archive_purchase_data():
+    """
+    전년도 매입 데이터를 purchases_YYYY 테이블로 이관 후 본 테이블 정리
+    """
+    prev_year = datetime.now().year - 1
+    table_name = f"purchases_{prev_year}"
+    with engine.begin() as conn:
+        print(f"📦 [Scheduler] {prev_year}년 매입 테이블 생성 및 이관 시작")
+
+        # 1️⃣ 테이블 복제 (없으면 생성)
+        conn.execute(text(f"CREATE TABLE IF NOT EXISTS {table_name} LIKE purchases"))
+
+        # 2️⃣ 데이터 이관
+        conn.execute(text(f"""
+            INSERT INTO {table_name}
+            SELECT * FROM purchases
+            WHERE YEAR(purchase_date) = :year
+        """), {"year": prev_year})
+
+        # 3️⃣ 원본 테이블 삭제
+        conn.execute(text("DELETE FROM purchases WHERE YEAR(purchase_date) = :year"), {"year": prev_year})
+
+        print(f"✅ [Scheduler] {prev_year}년 매입 이관 완료")
+def archive_client_visits():
+    prev_year = datetime.now().year - 1
+    table_name = f"client_visits_{prev_year}"
+
+    with engine.begin() as conn:
+        print(f"📌 [Scheduler] {prev_year}년 client_visits 테이블 생성 및 이관 시작")
+
+        conn.execute(text(f"CREATE TABLE IF NOT EXISTS {table_name} LIKE client_visits"))
+        conn.execute(text(f"""
+            INSERT INTO {table_name}
+            SELECT * FROM client_visits WHERE YEAR(visit_date) = :year
+        """), {"year": prev_year})
+        conn.execute(text("DELETE FROM client_visits WHERE YEAR(visit_date) = :year"), {"year": prev_year})
+
+        print(f"✅ [Scheduler] {prev_year}년 client_visits 이관 완료")
+def archive_franchise_orders():
+    prev_year = datetime.now().year - 1
+
+    order_table = f"franchise_orders_{prev_year}"
+    item_table  = f"franchise_order_items_{prev_year}"
+
+    with engine.begin() as conn:
+        print(f"📦 [Scheduler] {prev_year}년 프랜차이즈 주문 이관 시작")
+
+        conn.execute(text(f"CREATE TABLE IF NOT EXISTS {order_table} LIKE franchise_orders"))
+        conn.execute(text(f"CREATE TABLE IF NOT EXISTS {item_table} LIKE franchise_order_items"))
+
+        conn.execute(text(f"""
+            INSERT INTO {order_table}
+            SELECT * FROM franchise_orders
+            WHERE YEAR(order_date) = :year
+        """), {"year": prev_year})
+
+        conn.execute(text(f"""
+            INSERT INTO {item_table}
+            SELECT i.*
+            FROM franchise_order_items i
+            JOIN franchise_orders o ON i.order_id = o.id
+            WHERE YEAR(o.order_date) = :year
+        """), {"year": prev_year})
+
+        conn.execute(text("""
+            DELETE FROM franchise_order_items
+            WHERE order_id IN (
+                SELECT id FROM franchise_orders WHERE YEAR(order_date) = :year
+            )
+        """), {"year": prev_year})
+
+        conn.execute(text("DELETE FROM franchise_orders WHERE YEAR(order_date) = :year"), {"year": prev_year})
+
+        print(f"✅ [Scheduler] {prev_year}년 프랜차이즈 주문 이관 완료")
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(run_monthly_aggregation, "cron", day=1, hour=3, minute=10)  # 매월 1일 03:10
+scheduler.add_job(migrate_task,
+                  trigger="cron",
+                  month=1, day=1, hour=2, minute=0,
+                  id="migrate_sales_last_year")
 
+scheduler.add_job(
+    run_yearly_order_archive,
+    trigger="cron",           # 매년 1‑1 03:00
+    month=1, day=1, hour=3, minute=0
+)
+
+
+
+scheduler.add_job(archive_purchase_data, 'cron', month=1, day=1, hour=0, minute=0, id="archive_purchase_data")
+scheduler.add_job(archive_client_visits, 'cron', month=1, day=1, hour=1, minute=0, id="archive_client_visits")
+scheduler.add_job(archive_franchise_orders, 'cron', month=1, day=1, hour=4, minute=0, id="archive_franchise_orders")
 logging.basicConfig(level=logging.DEBUG)  # DEBUG 레벨로 설정하여 모든 로그 출력
 logger = logging.getLogger(__name__)
 
