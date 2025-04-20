@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 pydantic
+pydantic-settings
 passlib[bcrypt]
 python-jose[cryptography]
 python-multipart
@@ -9,3 +10,6 @@ requests
 python-dateutil
 pytz
 redis
+firebase-admin
+apscheduler
+geopy

@@ -15,6 +15,7 @@ from geopy.geocoders import Nominatim  # 또는 Kakao / Google / Naver 등
 from geopy.extra.rate_limiter import RateLimiter
 from app.models.employees import Employee
 import requests
+from app.utils.sales_table_utils import get_sales_model
 KAKAO_REST_API_KEY = "35cb475df605091f2b811aa7185bc6bf"
 geolocator = Nominatim(user_agent="icemanager3/(hungne@naver.com)")   # 서비스에 맞춰 변경
 geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
@@ -139,7 +140,9 @@ def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(g
     db_client.business_number = payload.business_number
     db_client.email = payload.email
 
-    # ✅ 비밀번호 변경 시
+    
+    if payload.virtual_account:
+        db_client.virtual_account = payload.virtual_account
     if payload.password:
         db_client.password_hash = bcrypt.hash(payload.password)
     if payload.address != db_client.address:
@@ -283,16 +286,18 @@ def get_client_detail(client_id: int, db: Session = Depends(get_db)):
         "outstanding": int(client.outstanding_amount or 0),
         "employees": employees,
         "recent_sales": sales_data,
-        "visits": visit_data
+        "visits": visit_data,
+        "virtual_account": client.virtual_account,
     }
 from decimal import Decimal
 
 @router.get("/monthly_sales_client/{client_id}/{year}")
 def get_monthly_sales(client_id: int, year: int, db: Session = Depends(get_db)):
-    from app.models.sales_records import SalesRecord
+    
     from app.models.products import Product
     from sqlalchemy import extract
 
+    SalesRecord = get_sales_model(year)
     monthly = [0.0] * 12
 
     records = (
@@ -310,11 +315,14 @@ def get_monthly_sales(client_id: int, year: int, db: Session = Depends(get_db)):
         monthly[month_idx] += price * quantity
 
     return [round(m, 2) for m in monthly]
+
+
 @router.get("/monthly_visits_client/{client_id}/{year}")
 def get_monthly_visits(client_id: int, year: int, db: Session = Depends(get_db)):
-    from app.models.sales_records import SalesRecord
+    
     from sqlalchemy import func, extract
 
+    SalesRecord = get_sales_model(year)
     monthly_visits = [0] * 12
 
     visit_data = (
@@ -325,16 +333,19 @@ def get_monthly_visits(client_id: int, year: int, db: Session = Depends(get_db))
         .all()
     )
 
-    for (visit_date_str,) in visit_data:
-        visit_date = datetime.strptime(visit_date_str, "%Y-%m-%d")
+    for (visit_date,) in visit_data:
+        if isinstance(visit_date, str):
+            visit_date = datetime.strptime(visit_date, "%Y-%m-%d")
         monthly_visits[visit_date.month - 1] += 1
 
     return monthly_visits
+
 @router.get("/monthly_box_count_client/{client_id}/{year}")
 def get_monthly_box_count(client_id: int, year: int, db: Session = Depends(get_db)):
-    from app.models.sales_records import SalesRecord
+    
     from sqlalchemy import extract
 
+    SalesRecord = get_sales_model(year)
     monthly = [0] * 12
 
     records = (
@@ -348,6 +359,7 @@ def get_monthly_box_count(client_id: int, year: int, db: Session = Depends(get_d
         monthly[r.sale_datetime.month - 1] += r.quantity or 0
 
     return monthly
+
 
 @router.get("/map/clients", response_model=list[dict])
 def clients_for_map(db: Session = Depends(get_db)):

@@ -19,7 +19,7 @@ from sqlalchemy.orm import joinedload
 from app.models.employee_vehicle import EmployeeVehicle
 from app.core.config import settings
 from datetime import datetime
-
+from app.utils.sales_table_utils import get_sales_model
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/employees/login") 
 
 def get_current_user(
@@ -244,13 +244,13 @@ def get_employee_profile(employee_id: int, db: Session = Depends(get_db)):
     
 @router.get("/admin/employees/{employee_id}/stats/daily")
 def get_employee_daily_stats(employee_id: int, db: Session = Depends(get_db)):
-    from app.models.sales_records import SalesRecord
+    from app.utils.sales_utils import get_sales_model
     from app.models.products import Product
     from sqlalchemy import func
 
     today = datetime.now().date()
+    SalesRecord = get_sales_model(today.year)
 
-    # 🔸 조인하여 가격 * 수량 계산
     sales_sum = (
         db.query(func.sum(Product.default_price * SalesRecord.quantity))
         .select_from(SalesRecord)
@@ -276,14 +276,13 @@ def get_employee_daily_stats(employee_id: int, db: Session = Depends(get_db)):
         "visits": client_visits,
     }
 
-
-
 @router.get("/admin/employees/{employee_id}/stats/monthly")
 def get_employee_monthly_stats(employee_id: int, db: Session = Depends(get_db)):
     from app.models.sales_records import SalesRecord
     from app.models.products import Product
     from sqlalchemy import func
-
+    today = datetime.now().date()
+    SalesRecord = get_sales_model(today.year)
     now = datetime.now()
     first_day = datetime(now.year, now.month, 1)
     last_moment_today = datetime.combine(now.date(), datetime.max.time())  # 23:59:59.999999
@@ -322,7 +321,8 @@ def get_employee_yearly_stats(employee_id: int, db: Session = Depends(get_db)):
     from app.models.sales_records import SalesRecord
     from app.models.products import Product
     from sqlalchemy import func
-
+    today = datetime.now().date()
+    SalesRecord = get_sales_model(today.year)
     now = datetime.now()
     first_day_of_year = datetime(now.year, 1, 1)
     end_of_today = datetime.combine(now.date(), datetime.max.time())
@@ -362,9 +362,10 @@ def get_employee_client_stats(employee_id: int, db: Session = Depends(get_db)):
     from app.models.employee_clients import EmployeeClient
     from app.models.products import Product
     from sqlalchemy import func
-
+    today = datetime.now().date()
+    SalesRecord = get_sales_model(today.year)
     now = datetime.now()
-    today = now.date()
+    
     end_of_today = datetime.combine(today, datetime.max.time())  # 오늘의 23:59:59.999999
     first_day_of_month = datetime(now.year, now.month, 1)
     first_day_of_year = datetime(now.year, 1, 1)

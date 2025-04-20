@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from sqlalchemy.ext.declarative import declarative_base
 
-DATABASE_URL = settings.SQLALCHEMY_DATABASE_URI  # ✅ 설정값을 직접 사용
+DATABASE_URL = settings.DATABASE_URL  # ✅ 설정값을 직접 사용
 
 connect_args = {}
 if "sqlite" in DATABASE_URL:

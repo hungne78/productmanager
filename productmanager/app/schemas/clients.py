@@ -44,4 +44,5 @@ class ClientUpdate(BaseModel):
     fixed_price: Optional[float] = None
     business_number: Optional[str] = None
     email: Optional[str] = None
+    virtual_account: Optional[str] = None  # ✅ 추가됨
     password: Optional[str] = None  # ✅ 추가
