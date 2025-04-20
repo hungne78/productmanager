@@ -9,7 +9,13 @@ connect_args = {}
 if "sqlite" in DATABASE_URL:
     connect_args = {"check_same_thread": False}
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)  # ✅ 문제 해결
+engine = create_engine(DATABASE_URL, connect_args=connect_args)  # ✅ 마리아DB
+
+# engine = create_engine(
+#     settings.DATABASE_URL,
+#     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+#     echo=False
+# )  #sqlite
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
