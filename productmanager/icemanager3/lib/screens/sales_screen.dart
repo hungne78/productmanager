@@ -30,7 +30,11 @@ import '../services/location_service.dart'; // 새로 만든 파일 임포트
 import 'package:geolocator/geolocator.dart'; // 위치 권한 확인용
 import 'package:geocoding/geocoding.dart';   // 주소 → 좌표 변환용
 import '../services/sound_manager.dart';
-const knownPrinterAddress = "74:F0:7D:E5:2F:A1";
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+import 'package:share_plus/share_plus.dart';
+
+
 AndroidDeviceInfo? androidInfo;
 
 class SalesScreen extends StatefulWidget {
@@ -382,95 +386,63 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     print("🔚 탐색 완료");
   }
 
+  // BLE 스캐너 자동 탐색 (UUID 자동)
   Future<void> autoDetectScanner(BLE.BluetoothDevice device) async {
-    print("🔍 [Kerykei1] 하드코딩 스캐너 탐색 시작");
-
+    print("🔍 [autoDetectScanner] BLE 스캐너 자동 탐색 시작: ${device.name}");
+    // 이미 연결되었다면 중복 connect 에러가 안 나도록 예외처리
     if (device.state != BLE.BluetoothDeviceState.connected) {
       await device.connect(autoConnect: false);
-      print("🔗 연결 완료");
     }
-
-    // 스캐너 내부가 깨어날 시간 확보
-    await Future.delayed(Duration(seconds: 1));
 
     final services = await device.discoverServices();
-    BLE.BluetoothCharacteristic? writeChar;
-    BLE.BluetoothCharacteristic? notifyChar;
 
+    bool foundScanner = false;
+
+    // notify Characteristic 찾아 시도
     for (var service in services) {
-      for (var c in service.characteristics) {
-        if (c.uuid.toString().toLowerCase() == "2aa2") {
-          writeChar = c;
-        }
-        if (c.uuid.toString().toLowerCase() == "2aa1" && c.properties.notify) {
-          notifyChar = c;
-        }
-      }
-    }
+      for (var characteristic in service.characteristics) {
+        if (characteristic.properties.notify) {
+          print("✅ 후보 Notify Characteristic: ${characteristic.uuid}");
 
-    if (writeChar == null || notifyChar == null) {
-      print("❌ 2aa1 또는 2aa2 characteristic을 찾을 수 없음");
-      return;
-    }
+          // notify 활성화
+          await characteristic.setNotifyValue(true);
 
-    await notifyChar.setNotifyValue(true);
-    print("🔔 notify set 완료");
+          bool gotBarcode = false;
+          StreamSubscription? subscription;
 
-    // ✅ stream 중복 방지를 위해 subscription 저장 & 재등록 전 cancel 추천
-    await _scannerSubscription?.cancel();
-    _scannerSubscription = notifyChar.value.listen((value) {
-      print("📥 notify 도착!");
-      print("📦 Raw Bytes: ${value.map((b) => b.toRadixString(16)).join(' ')}");
-      try {
-        final data = utf8.decode(value).trim();
-        print("📦 바코드(UTF-8): $data");
-        if (data.isNotEmpty) _handleBarcode(data);
-      } catch (e) {
-        final asciiData = value.map((b) => String.fromCharCode(b)).join().trim();
-        print("📦 바코드(ASCII): $asciiData");
-        if (asciiData.isNotEmpty) _handleBarcode(asciiData);
-      }
-    });
-
-    try {
-      print("✍️ 2aa2에 [SCAN] write 시도");
-      await writeChar.write(utf8.encode("SCAN"), withoutResponse: true);
-      await Future.delayed(Duration(milliseconds: 300));
-      await writeChar.write([0x01], withoutResponse: true);
-      await Future.delayed(Duration(milliseconds: 300));
-      await writeChar.write([0x0D], withoutResponse: true);
-      print("✅ 명령 전송 완료");
-    } catch (e) {
-      print("❌ write 에러: $e");
-    }
-
-    if (!_connectionListenerAttached) {
-      _connectionListenerAttached = true;
-
-      device.connectionState.listen((state) {
-        print("🔄 BLE 연결 상태 변화: $state");
-
-        if (state == BLE.BluetoothConnectionState.disconnected) {
-          print("⚠️ BLE 연결 끊김 감지 → 재연결 시도 예약");
-
-          Future.delayed(Duration(seconds: 1), () async {
+          subscription = characteristic.value.listen((value) {
             try {
-              print("🔁 BLE 스캐너 재연결 시도");
-              await autoDetectScanner(device); // ✅ 여기서만 재설정 허용
+              final data = utf8.decode(value);
+              print("📦 스캐너 UTF-8 데이터: $data");
             } catch (e) {
-              print("❌ 재연결 실패: $e");
+              final asciiData =
+              value.map((b) => String.fromCharCode(b)).join();
+              print("⚠️ UTF-8 실패, ASCII로 해석: $asciiData");
             }
           });
+          // 3초 대기 -> 바코드 들어오면 성공 처리
+          await Future.delayed(const Duration(seconds: 3));
+
+          // Notify 해제
+          await characteristic.setNotifyValue(false);
+          await subscription?.cancel();
+
+          if (gotBarcode) {
+            print("🎉 유효 스캐너 UUID 감지: ${characteristic.uuid}");
+            // 필요 시 SharedPreferences 등에 저장 가능
+            break;
+          }
         }
-      });
+
+        if (foundScanner) break; // 스캐너 찾으면 반복 중단
+      }
+      if (foundScanner) break;
     }
 
-
-    setState(() {
-      _isScannerConnected = true;
-    });
+    if (!foundScanner) {
+      print("❌ 스캐너로 쓸 만한 Notify Characteristic을 찾지 못했습니다.");
+    }
   }
-
   void _startAutoReconnectScanner() {
     BLE.FlutterBluePlus.startScan(timeout: Duration(seconds: 10));
 
@@ -601,44 +573,25 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   // BLE 프린터 자동 탐색 예시
   // 수정된(또는 새로 추가된) 부분
   Future<BLE.BluetoothCharacteristic?> autoDetectPrinter(BLE.BluetoothDevice device) async {
-    print("🔍 [autoDetectPrinter] BLE 프린터 탐색: ${device.name}");
+    print("🔍 [autoDetectPrinter] BLE 프린터 자동 탐색 시작: ${device.name}");
     if (device.state != BLE.BluetoothDeviceState.connected) {
       await device.connect();
     }
-    BLE.FlutterBluePlus.scanResults.listen((results) async {
-      for (var r in results) {
-        final device = r.device;
 
-        // ✅ 주소로 정확히 비교 (대소문자 구분 없이)
-        if (device.id.toString().toUpperCase() == knownPrinterAddress) {
-          print("🎯 R210 프린터 탐지됨: ${device.name} (${device.id})");
-
-          await BLE.FlutterBluePlus.stopScan();
-
-          // ✅ 여기서 바로 연결 시도
-          await autoDetectPrinter(device); // ← 너가 만든 프린터 연결 함수로!
-          break;
-        }
-      }
-    });
-    BLE.FlutterBluePlus.scanResults.listen((results) {
-      for (var r in results) {
-        print("🔎 발견된 BLE 기기: ${r.device.name} / ${r.device.id}");
-      }
-    });
     final services = await device.discoverServices();
     BLE.BluetoothCharacteristic? foundWriteChar;
 
     for (var s in services) {
       for (var c in s.characteristics) {
         if (c.properties.write) {
-          print("✅ 후보 WRITE 특성: ${c.uuid}");
+          print("✅ 후보 WRITE Characteristic: ${c.uuid}");
 
+          // [테스트] "Hello Printer" 데이터를 써보고 에러 없으면 성공으로 간주
           try {
-            // 프린터에게 테스트 문자열 전송
             // await c.write(utf8.encode("Hello Printer Test\n"));
-            print("🎉 프린터 쓰기 성공 → This is the WRITE Characteristic!");
+            print("🎉 프린터 WRITE 성공 -> Characteristic: ${c.uuid}");
             foundWriteChar = c;
+            // 여기서 SharedPreferences 등에 c.uuid 저장 가능
             break;
           } catch (e) {
             print("⚠️ 쓰기 실패: $e");
@@ -649,12 +602,10 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     }
 
     if (foundWriteChar == null) {
-      print("❌ 프린터로 쓸 만한 WRITE 특성을 찾지 못했습니다.");
+      print("❌ 프린터로 쓸 만한 WRITE Characteristic을 찾지 못함");
     }
     return foundWriteChar;
   }
-
-
   // SPP 초기화 함수 제거
   // void _initializeSPP() async { ... } // 삭제
 
@@ -1116,24 +1067,37 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     });
   }
 
+  /// 한글 = 2칸, 그 밖 = 1칸으로 폭을 계산
+  int _charWidth(String ch) => RegExp(r'[가-힣]').hasMatch(ch) ? 2 : 1;
+
+  /// targetWidth(‘칸’)에 딱 맞게 잘라 내고, 남으면 공백으로 채움
   String padToPrintWidth(String text, int targetWidth) {
-    int width = getPrintWidth(text);
-    if (width >= targetWidth) {
-      // 잘라서 맞춤
-      int current = 0;
-      final buffer = StringBuffer();
-      for (final rune in text.runes) {
-        final c = String.fromCharCode(rune);
-        final w = RegExp(r'[가-힣]').hasMatch(c) ? 2 : 1;
-        if (current + w > targetWidth) break;
-        buffer.write(c);
-        current += w;
-      }
-      return buffer.toString().padRight(targetWidth);
-    } else {
-      return text + ' ' * (targetWidth - width);
+    final buffer = StringBuffer();
+    int cur = 0;
+    for (final rune in text.runes) {
+      final ch = String.fromCharCode(rune);
+      final w = _charWidth(ch);
+      if (cur + w > targetWidth) break;
+      buffer.write(ch);
+      cur += w;
     }
+    while (cur < targetWidth) {
+      buffer.write(' ');
+      cur += 1;
+    }
+    return buffer.toString();
   }
+
+  /// 숫자(→ 우측 정렬)용 보조 함수
+  String padLeftPrintWidth(String text, int targetWidth) {
+    int cur = 0;
+    for (final rune in text.runes) {
+      cur += _charWidth(String.fromCharCode(rune));
+    }
+    return ' ' * (targetWidth - cur) + text;
+  }
+
+
 
   String formatRow({
     required String name,
@@ -1141,12 +1105,27 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     required String unitPrice,
     required String total,
   }) {
-    return
-      padToPrintWidth(name, 14) + // 상품명 출력 폭 기준 14칸
-          padToPrintWidth(boxCount, 4) +
-          padToPrintWidth(unitPrice, 7) +
-          padToPrintWidth(total, 9);
+    const int nameWidth = 14;
+    const int boxStartColumn = 16; // 상품명 다음 +2칸부터 박스수 시작
+
+    // 상품명 잘라서 고정 폭 만들기
+    StringBuffer row = StringBuffer();
+    String trimmedName = padToPrintWidth(name, nameWidth);
+    row.write(trimmedName);
+
+    // 박스수 시작 전까지 공백 추가
+    int spaceToBox = boxStartColumn - getPrintWidth(trimmedName);
+    row.write(' ' * spaceToBox);
+
+    row.write(padLeftPrintWidth(boxCount, 4));
+    row.write(padLeftPrintWidth(unitPrice, 8));
+    row.write(padLeftPrintWidth(total, 10));
+
+    return row.toString();
   }
+
+
+
 
   Future<void> _printReceiptImageFlexible(
       Map<String, dynamic> companyInfo, {
@@ -1247,6 +1226,7 @@ $line
         color: Colors.black,
         fontSize: canvasWidth == 384 ? 20 : 28,
         fontFamily: 'Courier',
+        height: 1.2,
       ),
     );
 
@@ -2013,52 +1993,69 @@ $line
 
 
   Future<void> _showPaymentDialog() async {
-    double outstandingAmount =
-        widget.client['outstanding_amount']?.toDouble() ?? 0;
+    double outstandingAmount = widget.client['outstanding_amount']?.toDouble() ?? 0;
     final TextEditingController paymentController = TextEditingController();
+    bool _sendPngViaMessage = false;
 
     showDialog(
       context: context,
       builder: (BuildContext ctx) {
-        return AlertDialog(
-          title: const Text("입금 처리"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text("현재 미수금: ${formatter.format(outstandingAmount)} 원"),
-              const SizedBox(height: 10),
-              TextField(
-                controller: paymentController,
-                focusNode: paymentFocusNode,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: "입금 금액 입력",
-                  border: OutlineInputBorder(),
-                ),
+        return StatefulBuilder( // ✅ 체크박스를 위해 StatefulBuilder 사용
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text("입금 처리"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text("현재 미수금: ${formatter.format(outstandingAmount)} 원"),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: paymentController,
+                    focusNode: paymentFocusNode,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: "입금 금액 입력",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  CheckboxListTile(
+                    value: _sendPngViaMessage,
+                    onChanged: (value) {
+                      setState(() {
+                        _sendPngViaMessage = value ?? false;
+                      });
+                    },
+                    title: const Text("영수증 PNG 생성 및 메시지 전송"),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ],
               ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text("취소"),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                double paymentAmount =
-                    double.tryParse(paymentController.text.trim()) ?? 0;
-                Navigator.of(ctx).pop();
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text("취소"),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    double paymentAmount = double.tryParse(paymentController.text.trim()) ?? 0;
+                    Navigator.of(ctx).pop();
 
-                _processPayment(paymentAmount);
+                    // ✅ 체크박스 상태 전달
+                    await _processPayment(paymentAmount, sendPng: _sendPngViaMessage);
+                  },
+                  child: const Text("입금"),
+                ),
 
-              },
-              child: const Text("입금"),
-            ),
-          ],
+              ],
+            );
+          },
         );
       },
     );
   }
+
   Future<Map<String, dynamic>?> _fetchCompanyInfo() async {
     final data = await ApiService.fetchCompanyInfo(widget.token);
     if (data == null) {
@@ -2067,7 +2064,8 @@ $line
     return data;
   }
 
-  void _processPayment(double paymentAmount) async {
+  Future<void> _processPayment(double paymentAmount, {bool sendPng = false}) async {
+
     final int clientId = widget.client['id'];
     final String nowStr = DateTime.now().toIso8601String();
     final auth = context.read<AuthProvider>();
@@ -2146,29 +2144,29 @@ $line
         await prefs.remove('saved_order'); // 주문 성공 후
         final companyInfo = await _fetchCompanyInfo(); // ✅ 회사 정보 가져오기
         if (companyInfo != null) {
+          // ✅ 기존 인쇄 로직
           if (_printerLanguage == 'non-korean') {
             if (_printerPaperSize == '55mm') {
-              final int safePaymentAmount = paymentAmount.toInt(); // double → int
-              _printReceiptImageFlexible(
-                  companyInfo,
-                  todayPayment: safePaymentAmount,canvasWidth: 384
-              );
+              _printReceiptImageFlexible(companyInfo, todayPayment: paymentAmount.toInt(), canvasWidth: 384);
             } else {
-
-              final int safePaymentAmount = paymentAmount.toInt(); // double → int
-              await _printReceiptImageFlexible(
-                companyInfo,
-                todayPayment: safePaymentAmount
-              );
+              await _printReceiptImageFlexible(companyInfo, todayPayment: paymentAmount.toInt());
             }
           } else {
             if (_printerPaperSize == '55mm') {
-              _printKoreanText_55mm(companyInfo); //  55mm 한글지원
+              _printKoreanText_55mm(companyInfo);
             } else {
-              _printKoreanText_80mm(companyInfo); //  80mm 한글지원
+              _printKoreanText_80mm(companyInfo);
             }
           }
+
+          // ✅ PNG 메시지 전송 로직 (체크된 경우만)
+          if (sendPng) {
+            final pngBytes = await _generateReceiptImageFlexible(companyInfo, todayPayment: paymentAmount.toInt());
+            await _sendReceiptViaSms(pngBytes);
+
+          }
         }
+
         setState(() {
           _scannedItems = List.from([]); // ✅ 스캔한 상품 목록 초기화
           _returnedItems.clear();
@@ -2184,7 +2182,135 @@ $line
     }
   }
 
+  Future<Uint8List> _generateReceiptImageFlexible(
+      Map<String, dynamic> companyInfo, {
+        required int todayPayment,
+        double canvasWidth = 576, // 기본 80mm
+      }) async {
+    final textPainter = TextPainter(
+      textDirection: widgets.TextDirection.ltr,
+      maxLines: null,
+    );
 
+    final now = DateFormat("yyyy-MM-dd HH:mm:ss").format(DateTime.now());
+    int totalBoxes = 0;
+    int totalAmount = 0;
+
+    String _line(double width) => '━' * 25;
+    String line = _line(canvasWidth);
+
+    String text = '''
+[영수증]
+$line
+날짜: $now
+${companyInfo['company_name']}  대표: ${companyInfo['ceo_name']}
+${companyInfo['address']}
+Tel: ${companyInfo['phone']}
+사업자번호: ${companyInfo['business_number']}
+$line
+거래처: ${widget.client['client_name']}
+주소: ${widget.client['address']}
+사업자번호: ${widget.client['business_number']}
+$line
+상품명    박스수   단 가     합 계
+$line
+''';
+
+    for (var item in _scannedItems) {
+      int boxes = item['box_count'];
+      int quantityPerBox = item['box_quantity'];
+      double basePrice = (item['default_price'] ?? 0).toDouble();
+      double clientRate = (item['client_price'] ?? 100).toDouble();
+      int unitPrice = (basePrice * clientRate * 0.01 * quantityPerBox).round();
+      int total = boxes * unitPrice;
+
+      totalBoxes += boxes;
+      totalAmount += total;
+
+      text += formatRow(
+        name: item['name'],
+        boxCount: boxes.toString(),
+        unitPrice: unitPrice.toString(),
+        total: '${formatter.format(total)}원',
+      ) + '\n';
+    }
+
+    for (var item in _returnedItems) {
+      int boxes = item['box_count'];
+      double basePrice = (item['default_price'] ?? 0).toDouble();
+      double clientRate = (item['client_price'] ?? 100).toDouble();
+      int unitPrice = (basePrice * clientRate * 0.01).round();
+      int total = (item['box_quantity'] * boxes * unitPrice * -1);
+
+      totalBoxes += boxes;
+      totalAmount += total;
+
+      text += formatRow(
+        name: item['name'],
+        boxCount: boxes.toString(),
+        unitPrice: unitPrice.toString(),
+        total: '${formatter.format(total)}원',
+      ) + '\n';
+    }
+
+    final double rawOutstanding = widget.client['outstanding_amount']?.toDouble() ?? 0.0;
+    final double finalOutstanding = rawOutstanding - todayPayment;
+
+    text += '''
+$line
+박스수: $totalBoxes     
+총금액: ${formatter.format(totalAmount)} 원
+전잔액: ${formatter.format(rawOutstanding)} 원
+입 금: ${formatter.format(todayPayment)} 원
+미수금: ${formatter.format(finalOutstanding.round())} 원
+$line
+담당자: ${context.read<AuthProvider>().user?.name ?? ''}   H.P: ${context.read<AuthProvider>().user?.phone ?? ''}
+입금계좌: ${companyInfo['bank_account']}
+''';
+
+    textPainter.text = TextSpan(
+      text: text,
+      style: TextStyle(
+        color: Colors.black,
+        fontSize: canvasWidth == 384 ? 20 : 28,
+        fontFamily: 'Courier',
+      ),
+    );
+
+    textPainter.layout(maxWidth: canvasWidth - 20);
+    final double textHeight = textPainter.height + 20;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final bgPaint = Paint()..color = Colors.white;
+    canvas.drawRect(Rect.fromLTWH(0, 0, canvasWidth, textHeight), bgPaint);
+
+    textPainter.paint(canvas, const Offset(10, 10));
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(canvasWidth.toInt(), textHeight.toInt());
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+
+    return byteData!.buffer.asUint8List();
+  }
+
+  Future<void> _sendReceiptViaSms(Uint8List imageBytes) async {
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/receipt.png';
+    final file = File(path)..writeAsBytesSync(imageBytes);
+
+    final phone = widget.client['phone'];
+    if (phone == null || phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("거래처 전화번호가 없습니다.")));
+      return;
+    }
+
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      text: "${widget.client['client_name']}님, 오늘의 영수증입니다.",
+      subject: "영수증 전송",
+    );
+  }
 
   void _printKoreanText_80mm(Map<String, dynamic> companyInfo) async {
     final buffer = StringBuffer();
