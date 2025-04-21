@@ -70,6 +70,8 @@ from app.utils.archive_utils import archive_orders_for_year_if_not_archived
 # 기존 scheduler 초기화 이후에 추가
 from sqlalchemy import text
 from datetime import datetime
+# main.py
+import app.utils.purchase_table_utils  # 🔥 강제 로딩
 
 def run_monthly_aggregation():
     from app.db.database import SessionLocal

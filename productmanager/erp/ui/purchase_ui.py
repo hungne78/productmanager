@@ -526,3 +526,6 @@ QHeaderView::section {
         if start_date and end_date:
             purchases = [p for p in purchases if start_date <= p["purchase_date"] <= end_date]
         self.right_panel.update_purchase_history(purchases)
+        if not global_token:
+            print("❌ 토큰이 없음: 로그인 필요")
+            return

@@ -5,9 +5,9 @@ from app.models.purchases import Purchase
 from app.models.products import Product
 from app.schemas.purchases import PurchaseOut
 from typing import List
-from datetime import date
+from datetime import date, datetime
 from pydantic import BaseModel
-
+from app.utils.purchase_table_utils import get_purchase_model
 router = APIRouter()
 
 class PurchaseCreate(BaseModel):

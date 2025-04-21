@@ -212,3 +212,19 @@ Traceback (most recent call last):
     ^^^^^^
 NameError: name 'QTimer' is not defined
 
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1554, in update_datetime
+    def update_datetime(self):
+    
+KeyboardInterrupt
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\main_ui.py", line 1554, in update_datetime
+    def update_datetime(self):
+    
+KeyboardInterrupt
+

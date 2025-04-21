@@ -4,17 +4,15 @@ from sqlalchemy import Table
 from app.db.base import Base, engine
 from sqlalchemy.schema import MetaData
 from datetime import datetime
+from sqlalchemy.exc import NoSuchTableError
+from fastapi import HTTPException
 
 metadata = Base.metadata
 
 @lru_cache(maxsize=None)
 def get_purchase_model(year: int):
-    """
-    현재 연도면 기존 Purchase 모델을 반환하고,
-    과거 연도면 purchases_YYYY 테이블을 리플렉션해서 동적 모델 생성
-    """
-    from app.models.purchases import Purchase  # 순환 import 방지
-
+    from app.models.purchases import Purchase
+    print(f"🔍 get_purchase_model() 호출됨 with year={year}")
     current_year = datetime.now().year
     if year == current_year:
         return Purchase
@@ -24,7 +22,10 @@ def get_purchase_model(year: int):
     if table_name in Base.registry._class_registry:
         return Base.registry._class_registry[table_name]
 
-    tbl = Table(table_name, metadata, autoload_with=engine)
+    try:
+        tbl = Table(table_name, metadata, autoload_with=engine)
+    except NoSuchTableError:
+        raise HTTPException(status_code=404, detail=f"테이블 {table_name}이 존재하지 않습니다.")
 
     model = type(
         f"Purchase{year}",
