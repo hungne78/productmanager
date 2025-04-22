@@ -1061,11 +1061,14 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
 
 
   int getPrintWidth(String text) {
-    return text.runes.fold(0, (prev, rune) {
-      final c = String.fromCharCode(rune);
-      return prev + (RegExp(r'[가-힣]').hasMatch(c) ? 2 : 1);
-    });
+    int width = 0;
+    for (final rune in text.runes) {
+      final ch = String.fromCharCode(rune);
+      width += RegExp(r'[가-힣]').hasMatch(ch) ? 2 : 1;
+    }
+    return width;
   }
+
 
   /// 한글 = 2칸, 그 밖 = 1칸으로 폭을 계산
   int _charWidth(String ch) => RegExp(r'[가-힣]').hasMatch(ch) ? 2 : 1;
@@ -1090,42 +1093,23 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
 
   /// 숫자(→ 우측 정렬)용 보조 함수
   String padLeftPrintWidth(String text, int targetWidth) {
-    int cur = 0;
-    for (final rune in text.runes) {
-      cur += _charWidth(String.fromCharCode(rune));
-    }
-    return ' ' * (targetWidth - cur) + text;
+    int width = getPrintWidth(text);
+    return ' ' * (targetWidth - width) + text;
   }
 
 
 
-  String formatRow({
-    required String name,
+
+  String formatNumberRow({
     required String boxCount,
     required String unitPrice,
     required String total,
   }) {
-    const int nameWidth = 14;
-    const int boxStartColumn = 16; // 상품명 다음 +2칸부터 박스수 시작
-
-    // 상품명 잘라서 고정 폭 만들기
-    StringBuffer row = StringBuffer();
-    String trimmedName = padToPrintWidth(name, nameWidth);
-    row.write(trimmedName);
-
-    // 박스수 시작 전까지 공백 추가
-    int spaceToBox = boxStartColumn - getPrintWidth(trimmedName);
-    row.write(' ' * spaceToBox);
-
-    row.write(padLeftPrintWidth(boxCount, 4));
-    row.write(padLeftPrintWidth(unitPrice, 8));
-    row.write(padLeftPrintWidth(total, 10));
-
-    return row.toString();
+    return
+      padLeftPrintWidth(boxCount, 6) +    // 박스수 위치 맞춤
+          padLeftPrintWidth(unitPrice, 8) +   // 단가
+          padLeftPrintWidth(total, 10) + '원'; // 합계 + "원"
   }
-
-
-
 
   Future<void> _printReceiptImageFlexible(
       Map<String, dynamic> companyInfo, {
@@ -1162,48 +1146,53 @@ $line
 ''';
 
     for (var item in _scannedItems) {
-      int boxes = item['box_count'];
-      int quantityPerBox = item['box_quantity'];
-      double basePrice = (item['default_price'] ?? 0).toDouble();
-      double clientRate = (item['client_price'] ?? 100).toDouble();
-      String priceType = item['price_type'] ?? '일반가';
+      final name = item['name'];
+      final int boxes = (item['box_count'] ?? 0).toInt();
+      final quantityPerBox = item['box_quantity'];
+      final basePrice = (item['default_price'] ?? 0).toDouble();
+      final clientRate = (item['client_price'] ?? 100).toDouble();
 
-      int unitPrice = (basePrice * clientRate * 0.01 * quantityPerBox).round();
-      int total = boxes * unitPrice;
+      final unitPrice = (basePrice * clientRate * 0.01 * quantityPerBox).round();
+      final total = boxes * unitPrice;
+      final totalStr = formatter.format(total);
 
-      totalBoxes += boxes;
-      totalAmount += total;
-
-      text += formatRow(
-        name: item['name'],
+      // ✅ 상품명 줄 + 숫자 줄 조합
+      text += '$name\n';
+      text += formatNumberRow(
         boxCount: boxes.toString(),
         unitPrice: unitPrice.toString(),
-        total: '${formatter.format(total)}원',
+        total: totalStr,
       ) + '\n';
 
+      totalBoxes += boxes.toInt();
+      totalAmount += total.toInt();
     }
+
 
     for (var item in _returnedItems) {
-      int boxes = item['box_count'];
-      double basePrice = (item['default_price'] ?? 0).toDouble();
-      double clientRate = (item['client_price'] ?? 100).toDouble();
-      String priceType = item['price_type'] ?? '일반가';
+      final String name = item['name'];
+      final int boxes = (item['box_count'] ?? 0).toInt();
+      final int quantityPerBox = (item['box_quantity'] ?? 0).toInt();
+      final double basePrice = (item['default_price'] ?? 0).toDouble();
+      final double clientRate = (item['client_price'] ?? 100).toDouble();
 
-      int unitPrice = (basePrice * clientRate * 0.01).round();
-      int total = (item['box_quantity'] * boxes * unitPrice * -1);
+      final int unitPrice = (basePrice * clientRate * 0.01).round();
+      final int total = (quantityPerBox * boxes * unitPrice * -1).toInt(); // 음수 반품
+
+      final String totalStr = formatter.format(total);
+
+      // ✅ 상품명 줄 + 숫자 줄
+      text += '$name (반품)\n';
+      text += formatNumberRow(
+        boxCount: boxes.toString(),
+        unitPrice: unitPrice.toString(),
+        total: totalStr,
+      ) + '\n';
 
       totalBoxes += boxes;
       totalAmount += total;
-
-      text += formatRow(
-        name: item['name'],
-        boxCount: boxes.toString(),
-        unitPrice: unitPrice.toString(),
-        total: '${formatter.format(total)}원',
-      ) + '\n';
-
-
     }
+
 
     final double rawOutstanding = widget.client['outstanding_amount']?.toDouble() ?? 0.0;
     final double finalOutstanding = rawOutstanding - todayPayment;
@@ -2217,41 +2206,54 @@ $line
 ''';
 
     for (var item in _scannedItems) {
-      int boxes = item['box_count'];
-      int quantityPerBox = item['box_quantity'];
-      double basePrice = (item['default_price'] ?? 0).toDouble();
-      double clientRate = (item['client_price'] ?? 100).toDouble();
-      int unitPrice = (basePrice * clientRate * 0.01 * quantityPerBox).round();
-      int total = boxes * unitPrice;
+      final name = item['name'];
+      final int boxes = (item['box_count'] ?? 0).toInt();
+      final quantityPerBox = item['box_quantity'];
+      final basePrice = (item['default_price'] ?? 0).toDouble();
+      final clientRate = (item['client_price'] ?? 100).toDouble();
 
-      totalBoxes += boxes;
-      totalAmount += total;
+      final unitPrice = (basePrice * clientRate * 0.01 * quantityPerBox).round();
+      final total = boxes * unitPrice;
+      final totalStr = formatter.format(total);
 
-      text += formatRow(
-        name: item['name'],
+      // ✅ 상품명 줄 + 숫자 줄 조합
+      text += '$name\n';
+      text += formatNumberRow(
         boxCount: boxes.toString(),
         unitPrice: unitPrice.toString(),
-        total: '${formatter.format(total)}원',
+        total: totalStr,
       ) + '\n';
+
+      totalBoxes += boxes.toInt();
+      totalAmount += total.toInt();
+
     }
+
 
     for (var item in _returnedItems) {
-      int boxes = item['box_count'];
-      double basePrice = (item['default_price'] ?? 0).toDouble();
-      double clientRate = (item['client_price'] ?? 100).toDouble();
-      int unitPrice = (basePrice * clientRate * 0.01).round();
-      int total = (item['box_quantity'] * boxes * unitPrice * -1);
+      final String name = item['name'];
+      final int boxes = (item['box_count'] ?? 0).toInt();
+      final int quantityPerBox = (item['box_quantity'] ?? 0).toInt();
+      final double basePrice = (item['default_price'] ?? 0).toDouble();
+      final double clientRate = (item['client_price'] ?? 100).toDouble();
+
+      final int unitPrice = (basePrice * clientRate * 0.01).round();
+      final int total = (quantityPerBox * boxes * unitPrice * -1).toInt(); // 음수 반품
+
+      final String totalStr = formatter.format(total);
+
+      // ✅ 상품명 줄 + 숫자 줄
+      text += '$name (반품)\n';
+      text += formatNumberRow(
+        boxCount: boxes.toString(),
+        unitPrice: unitPrice.toString(),
+        total: totalStr,
+      ) + '\n';
 
       totalBoxes += boxes;
       totalAmount += total;
-
-      text += formatRow(
-        name: item['name'],
-        boxCount: boxes.toString(),
-        unitPrice: unitPrice.toString(),
-        total: '${formatter.format(total)}원',
-      ) + '\n';
     }
+
 
     final double rawOutstanding = widget.client['outstanding_amount']?.toDouble() ?? 0.0;
     final double finalOutstanding = rawOutstanding - todayPayment;

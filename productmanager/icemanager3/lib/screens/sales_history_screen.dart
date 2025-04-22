@@ -23,11 +23,13 @@ import 'package:shared_preferences/shared_preferences.dart'; // 설정 저장
 /// * 하단 프린터 버튼으로 55 / 80 mm 영수증 인쇄
 class SalesHistoryScreen extends StatefulWidget {
   final String token;
+  final int clientId;
   final DateTime selectedDate;
 
   const SalesHistoryScreen({
     Key? key,
     required this.token,
+    required this.clientId,                // 🔨 신규
     required this.selectedDate,
   }) : super(key: key);
 
@@ -60,36 +62,35 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   /// -------------------------------------------------------------------------
   Future<void> _fetchSales() async {
     try {
-      final auth = context.read<AuthProvider>();
-      final int employeeId = auth.user?.id ?? 0;
-      final String dateStr = widget.selectedDate.toIso8601String().substring(0, 10);
-
-      // ✅ 수정된 API 호출
-      final resp = await ApiService.fetchSalesDetailsByDate(
+      // 🔨 신규: clientId 기반 API 호출
+      final resp = await ApiService.fetchSalesDetailsByClientDate(
         widget.token,
-        employeeId,
-        dateStr,
-      ); // FastAPI /sales/details/{employee_id}/{date}
+        widget.clientId,
+        widget.selectedDate,
+      );
 
-      if (resp.statusCode != 200) {
-        throw ('${resp.statusCode} / ${resp.body}');
-      }
-
-      final List<dynamic> data = jsonDecode(resp.body);
+      // ✅ 수정: Map<String, dynamic> 형태로 파싱
+      final Map<String, dynamic> data = resp;
 
       setState(() {
-        _sales
-          ..clear()
-          ..addAll(data.cast<Map<String, dynamic>>());
+        // 🔨 신규: 'products' 리스트를 직접 _sales에 저장
+        _sales.clear();
+        _sales.addAll(
+          (data['products'] as List<dynamic>)
+              .cast<Map<String, dynamic>>()
+              .map((e) {
+            return {
+              'product_name': e['product_name'],
+              'quantity': (e['quantity'] as num).toInt(),
+              'unit_price': (e['unit_price'] as num).toInt(),
+              'total_price': ((e['quantity'] as num) * (e['unit_price'] as num)).toInt(),
+            };
+          }),
+        );
 
-        // ✅ 총 박스수 & 총 금액은 상품 단위로 직접 계산
-        _totalBoxes = _sales.fold<int>(0, (sum, e) {
-          return sum + ((e['total_boxes'] ?? 0) as num).toInt();
-        });
-
-        _totalAmount = _sales.fold<int>(0, (sum, e) {
-          return sum + ((e['total_sales'] ?? 0) as num).toInt();
-        });
+        // ✅ 수정: API에서 내려준 합계 사용
+        _totalBoxes = (data['total_boxes'] as num).toInt();
+        _totalAmount = (data['total_sales'] as num).toInt();
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -108,7 +109,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       appBar: AppBar(
         backgroundColor: Colors.indigo,
         title: Text(
-          '판매 내역 (${widget.selectedDate.toLocal().toString().split(' ')[0]})',
+          '판매 내역 (${DateFormat('yyyy-MM-dd').format(widget.selectedDate)})',
         ),
         leading: IconButton(
           icon: const Icon(Icons.home),
@@ -121,9 +122,11 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.print),
-            onPressed: _isPrinterConnected ? _printReceiptImageFlexible : null,
+            tooltip: '영수증 인쇄',
+            onPressed: _printReceiptImageFlexible, // ✅ 인쇄 함수 연결
           ),
         ],
+
       ),
       body: Column(
         children: [
@@ -133,7 +136,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       ),
     );
   }
-
   /// -------------------------------------------------------------------------
   /// 2‑1. 판매 목록을 Table → ListView.builder 로 변경
   /// -------------------------------------------------------------------------
@@ -147,7 +149,6 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       color: Colors.grey.shade700,
     );
 
-    // 헤더 + 목록을 하나의 Column 으로 묶고, 목록은 Expanded 된 ListView.builder 로 스크롤 처리
     return Column(
       children: [
         // 헤더
@@ -156,9 +157,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
           child: Row(
             children: [
-              _headerCell('거래처', flex: 3, style: headerStyle),
-              _headerCell('박스', flex: 2, style: headerStyle, align: TextAlign.center),
-              _headerCell('금액', flex: 3, style: headerStyle, align: TextAlign.right),
+              _headerCell('품명', flex: 4, style: headerStyle),
+              _headerCell('수량', flex: 1, style: headerStyle, align: TextAlign.center),
+              _headerCell('단가', flex: 2, style: headerStyle, align: TextAlign.right),
+              _headerCell('합계', flex: 2, style: headerStyle, align: TextAlign.right),
             ],
           ),
         ),
@@ -167,22 +169,15 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
             itemCount: _sales.length,
             itemBuilder: (context, index) {
               final e = _sales[index];
-              final client = e['client_name'] ?? '';
-              final isReturn = e['is_return'] == true;
-
-              final totalBoxes = (e['total_boxes'] ?? 0).abs();
-              final totalSales = (e['total_sales'] ?? 0).abs();
-
-              final bgColor = isReturn ? Colors.red.shade50 : Colors.white;
-
               return Container(
-                color: bgColor,
+                color: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
                 child: Row(
                   children: [
-                    _dataCell(client + (isReturn ? ' (반품)' : ''), flex: 3),
-                    _dataCell(totalBoxes.toString(), flex: 2, align: TextAlign.center),
-                    _dataCell('${formatter.format(totalSales)}원', flex: 3, align: TextAlign.right),
+                    _dataCell(e['product_name'], flex: 4),
+                    _dataCell(e['quantity'].toString(), flex: 1, align: TextAlign.center),
+                    _dataCell('${formatter.format(e['unit_price'])}원', flex: 2, align: TextAlign.right),
+                    _dataCell('${formatter.format(e['total_price'])}원', flex: 2, align: TextAlign.right),
                   ],
                 ),
               );
@@ -193,20 +188,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     );
   }
 
-  /// Cell helpers -----------------------------------------------------------
-  Widget _headerCell(String text, {required int flex, required TextStyle style, TextAlign align = TextAlign.left}) {
-    return Expanded(
-      flex: flex,
-      child: Text(text, style: style, textAlign: align),
-    );
-  }
+  Widget _headerCell(String text,
+      {required int flex, required TextStyle style, TextAlign align = TextAlign.left}) =>
+      Expanded(flex: flex, child: Text(text, style: style, textAlign: align));
 
-  Widget _dataCell(String text, {required int flex, TextAlign align = TextAlign.left}) {
-    return Expanded(
-      flex: flex,
-      child: Text(text, textAlign: align),
-    );
-  }
+  Widget _dataCell(String text,
+      {required int flex, TextAlign align = TextAlign.left}) =>
+      Expanded(flex: flex, child: Text(text, textAlign: align));
 
   /// -------------------------------------------------------------------------
   /// 2‑2. Summary bar
@@ -222,8 +210,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _sumCell('총 박스', formatter.format(_totalBoxes)),
-          _sumCell('총 금액', '${formatter.format(_totalAmount)}원'),
+          _sumCell('총 수량', formatter.format(_totalBoxes)),
+          _sumCell('총 합계', '${formatter.format(_totalAmount)}원'),
         ],
       ),
     );

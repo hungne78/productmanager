@@ -876,68 +876,54 @@ class _HomeScreenState extends State<HomeScreen> {
               leading: Icon(Icons.receipt_long),
               title: Text("판매 내역 조회"),
               onTap: () async {
-                Navigator.pop(modalContext); // 바텀시트 닫기
+                Navigator.pop(modalContext);
 
-                // 날짜 선택
+                // 1) 날짜 선택
                 final pickedDate = await showDatePicker(
                   context: outerContext,
                   initialDate: DateTime.now(),
                   firstDate: DateTime(2023),
                   lastDate: DateTime.now(),
-                  helpText: '조회할 날짜 선택',
-                  cancelText: '취소',
-                  confirmText: '확인',
                   locale: const Locale('ko', 'KR'),
                 );
-
                 if (pickedDate == null) return;
 
-                // 거래처 목록 불러오기
+                // 2) 거래처 목록 불러오기
                 final auth = outerContext.read<AuthProvider>();
                 final employeeId = auth.user?.id ?? 0;
-
-                final result =
-                await ApiService.fetchEmployeeClients(token, employeeId);
+                final result = await ApiService.fetchEmployeeClients(token, employeeId);
                 final clients = List<Map<String, dynamic>>.from(result);
 
-                // 거래처 선택 다이얼로그
-                Map<String, dynamic>? selectedClient = await showDialog(
+                // 3) 거래처 선택
+                final Map<String, dynamic>? selectedClient = await showDialog(
                   context: outerContext,
-                  builder: (context) {
-                    Map<String, dynamic>? tempSelected;
-                    return AlertDialog(
-                      title: const Text("거래처 선택"),
-                      content: SizedBox(
-                        width: double.maxFinite,
-                        child: ListView.builder(
-                          itemCount: clients.length,
-                          itemBuilder: (_, i) {
-                            final c = clients[i];
-                            return ListTile(
-                              title: Text(c['client_name']),
-                              onTap: () {
-                                tempSelected = c;
-                                Navigator.pop(context, c);
-                              },
-                            );
-                          },
+                  builder: (ctx) => AlertDialog(
+                    title: Text("거래처 선택"),
+                    content: SizedBox(
+                      width: double.maxFinite,
+                      child: ListView.builder(
+                        itemCount: clients.length,
+                        itemBuilder: (_, i) => ListTile(
+                          title: Text(clients[i]['client_name']),
+                          onTap: () => Navigator.pop(ctx, clients[i]),
                         ),
                       ),
-                    );
-                  },
-                );
-
-                if (selectedClient != null) {
-                  Navigator.pushNamed(
-                    outerContext,
-                    '/sales_history',
-                    arguments: SalesHistoryArgs(
-                      token: token,
-                      client: selectedClient!,
-                      date: pickedDate,
                     ),
-                  );
-                }
+                  ),
+                );
+                if (selectedClient == null) return;
+
+                // ✅ 수정: Named route 대신 MaterialPageRoute 로 직접 푸시
+                Navigator.push(
+                  outerContext,
+                  MaterialPageRoute(
+                    builder: (_) => SalesHistoryScreen(
+                      token: token,
+                      clientId: selectedClient['id'],      // 🔨 clientId 만 전달
+                      selectedDate: pickedDate,
+                    ),
+                  ),
+                );
               },
             ),
 

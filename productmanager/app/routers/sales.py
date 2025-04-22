@@ -124,7 +124,7 @@ def get_sales_details_by_client_and_date(client_id: int, date: str, db: Session 
 
     for r in records:
         is_fixed = r.product.is_fixed_price
-        price_type = r.price_type or ("고정가" if is_fixed else "일반가")
+        price_type = "고정가" if is_fixed else "일반가"
 
         # 단가 계산
         if is_fixed:
