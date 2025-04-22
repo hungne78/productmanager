@@ -1,6 +1,7 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:intl/intl.dart';
 import '../config.dart';
 
 final String baseUrl = BASE_URL;
@@ -80,6 +81,23 @@ class ApiService {
       throw Exception("메시지 삭제 실패");
     }
   }
+  static Future<Map<String, dynamic>> fetchSalesDetailsByClientDate(
+      String token,
+      int clientId,
+      DateTime date,
+      ) async {
+    final ymd = DateFormat('yyyy-MM-dd').format(date); // ✅ 날짜 문자열로 변환
+    final url = Uri.parse('$baseUrl/sales/details/$clientId/$ymd');
+
+    final resp = await http.get(url, headers: _headers(token)); // ✅ 헤더 적용
+    if (resp.statusCode != 200) throw Exception('판매내역 조회 실패');
+    return jsonDecode(resp.body);
+  }
+
+  static Map<String, String> _headers(String token) => {
+    'Authorization': 'Bearer $token',
+    'Content-Type': 'application/json',
+  };
 
 
   static Future<Map<String, dynamic>> login(int id, String password) async {

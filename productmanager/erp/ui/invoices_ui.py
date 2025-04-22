@@ -56,17 +56,17 @@ class InvoicesLeftPanel(QWidget):
         date_group.setLayout(date_layout)
         main_layout.addWidget(date_group)
 
-        # ✅ [2] 세금계산서 유형 선택 (그룹박스로 감싸기)
-        type_group = QGroupBox("📑 세금계산서 유형")
-        type_layout = QVBoxLayout()
-        self.invoice_type_selector = QComboBox()
-        self.invoice_type_selector.addItem("01 (일반)")
-        self.invoice_type_selector.addItem("02 (영세율)")
-        self.invoice_type_selector.setMinimumSize(QSize(140, 30))
+        # ✅ [2] 구분 선택 (매출 / 반품)
+        mode_group = QGroupBox("🧾 구분 선택")
+        mode_layout = QHBoxLayout()
+        self.mode_selector = QComboBox()
+        self.mode_selector.addItems(["매출", "반품"])  # 👈 여기서 선택
+        self.mode_selector.setMinimumSize(QSize(140, 30))
+        self.mode_selector.currentTextChanged.connect(self.fetch_invoices)
+        mode_layout.addWidget(self.mode_selector)
+        mode_group.setLayout(mode_layout)
+        main_layout.addWidget(mode_group)
 
-        type_layout.addWidget(self.invoice_type_selector)
-        type_group.setLayout(type_layout)
-        main_layout.addWidget(type_group)
 
         # ✅ [3] 거래처 검색 필터
         search_group = QGroupBox("🔍 거래처 검색")
@@ -133,12 +133,19 @@ class InvoicesLeftPanel(QWidget):
 
     def fetch_invoices(self):
         """
-        세금계산서 조회
+        세금계산서 조회 (매출 or 반품 구분)
         """
         if self.parent_widget:
             selected_year = self.year_selector.currentText()
             selected_month = self.month_selector.currentText()
-            self.parent_widget.load_invoices(selected_year, selected_month)
+            mode = self.mode_selector.currentText()
+
+            if mode == "매출":
+                self.parent_widget.load_invoices(selected_year, selected_month)
+            else:  # 👈 반품 선택 시
+                self.parent_widget.load_refund_invoices(selected_year, selected_month)
+
+    
 
     def filter_clients(self):
         """
@@ -593,6 +600,39 @@ QHeaderView::section {
 
         except Exception as e:
             print(f"❌ 회사 정보 조회 실패: {e}")
+    def load_refund_invoices(self, year: str, month: str):
+        """
+        전체 거래처 대상으로 반품 내역을 세금계산서 형식으로 출력
+        """
+        
+        try:
+            url = f"{BASE_URL}/sales/clients/{year}/{month}"  # ✅ 기존 매출 조회 API 재사용
+            headers = {"Authorization": f"Bearer {global_token}"}
+            resp = requests.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+
+            refund_clients = []
+            for row in data:
+                refund = float(row.get("total_refunds", 0))
+                if refund > 0:
+                    refund_clients.append({
+                        "client_id": row.get("client_id", ""),
+                        "client_name": row["client_name"],
+                        "client_ceo": row.get("client_ceo", ""),
+                        "business_number": row.get("business_number", ""),
+                        "total_sales": round(refund * 0.9),
+                        "tax_amount": round(refund * 0.1),
+                    })
+                print("📦 반품 데이터 응답:", row)
+            self.all_invoices = refund_clients
+            self.right_panel.update_invoice_data(self.all_invoices)
+
+        except Exception as e:
+            print(f"❌ 반품 세금계산서 조회 실패: {e}")
+            self.all_invoices = []
+            self.right_panel.update_invoice_data([])
+
 
     def load_invoices(self, year, month):
         """ 거래처별 월 매출 데이터 로드 """

@@ -12,7 +12,7 @@ import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'bluetooth_printer_provider.dart';
 import 'firebase_options.dart';
-
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(); // 🔹 백그라운드 알림 수신 시 필수
@@ -61,6 +61,16 @@ class MyApp extends StatelessWidget {
       home: authProvider.user == null
           ? const LoginScreen()
           : HomeScreen(token: authProvider.user!.token),
+      // ✅ 아래 필수
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('ko', 'KR'), // 한국어
+        Locale('en', 'US'),
+      ],
     );
   }
 }

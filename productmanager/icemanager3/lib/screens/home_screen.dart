@@ -22,6 +22,7 @@ import '../screens/settings_screen.dart';
 import '../screens/printer.dart';
 import 'package:badges/badges.dart' as badges;
 import 'package:firebase_messaging/firebase_messaging.dart';
+import '../screens/sales_history_screen.dart';
 bool _hasLoadedProducts = false;
 
 class WeatherService {
@@ -760,9 +761,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       onPressed: () => _showDateSelectionDialog(context, widget.token),
                     ),
                     _buildHomeButton(
-                      icon: Icons.history,
-                      label: "주문 조회",
-                      onPressed: () => _showOrderDateSelectionDialog(context, widget.token),
+                      icon: Icons.search, // 아이콘도 검색 느낌으로 바꿈
+                      label: "조 회",
+                      onPressed: () => _showLookupDialog(context, widget.token),
                     ),
                     _buildHomeButton(
                       icon: Icons.business,
@@ -853,6 +854,98 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showLookupDialog(BuildContext outerContext, String token) {
+    showModalBottomSheet(
+      context: outerContext,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (modalContext) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.history),
+              title: Text("주문 내역 조회"),
+              onTap: () {
+                Navigator.pop(modalContext); // 바텀시트 닫기
+                _showOrderDateSelectionDialog(outerContext, token); // ✅ 바깥 context 사용
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.receipt_long),
+              title: Text("판매 내역 조회"),
+              onTap: () async {
+                Navigator.pop(modalContext); // 바텀시트 닫기
+
+                // 날짜 선택
+                final pickedDate = await showDatePicker(
+                  context: outerContext,
+                  initialDate: DateTime.now(),
+                  firstDate: DateTime(2023),
+                  lastDate: DateTime.now(),
+                  helpText: '조회할 날짜 선택',
+                  cancelText: '취소',
+                  confirmText: '확인',
+                  locale: const Locale('ko', 'KR'),
+                );
+
+                if (pickedDate == null) return;
+
+                // 거래처 목록 불러오기
+                final auth = outerContext.read<AuthProvider>();
+                final employeeId = auth.user?.id ?? 0;
+
+                final result =
+                await ApiService.fetchEmployeeClients(token, employeeId);
+                final clients = List<Map<String, dynamic>>.from(result);
+
+                // 거래처 선택 다이얼로그
+                Map<String, dynamic>? selectedClient = await showDialog(
+                  context: outerContext,
+                  builder: (context) {
+                    Map<String, dynamic>? tempSelected;
+                    return AlertDialog(
+                      title: const Text("거래처 선택"),
+                      content: SizedBox(
+                        width: double.maxFinite,
+                        child: ListView.builder(
+                          itemCount: clients.length,
+                          itemBuilder: (_, i) {
+                            final c = clients[i];
+                            return ListTile(
+                              title: Text(c['client_name']),
+                              onTap: () {
+                                tempSelected = c;
+                                Navigator.pop(context, c);
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                );
+
+                if (selectedClient != null) {
+                  Navigator.pushNamed(
+                    outerContext,
+                    '/sales_history',
+                    arguments: SalesHistoryArgs(
+                      token: token,
+                      client: selectedClient!,
+                      date: pickedDate,
+                    ),
+                  );
+                }
+              },
+            ),
+
+          ],
+        );
+      },
+    );
+  }
 
   Widget _buildWeatherInfo() {
     if (_weatherData.isEmpty) {

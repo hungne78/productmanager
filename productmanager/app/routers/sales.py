@@ -99,6 +99,63 @@ async def get_sales_aggregates(
 
     return [{"date": r.date, "sum_sales": r.sum_sales} for r in rows]
 
+@router.get("/sales/details/{client_id}/{date}")
+def get_sales_details_by_client_and_date(client_id: int, date: str, db: Session = Depends(get_db)):
+    """
+    특정 거래처의 특정 날짜 판매/반품 내역 조회 (박스수 기준으로 반품 구분)
+    """
+    parsed_date = datetime.strptime(date, "%Y-%m-%d").date()
+    year = parsed_date.year
+    SalesModel = get_sales_model(year)
+
+    records = (
+        db.query(SalesModel)
+        .join(Client, SalesModel.client_id == Client.id)
+        .join(Product, SalesModel.product_id == Product.id)
+        .filter(
+            SalesModel.client_id == client_id,
+            func.date(SalesModel.sale_datetime) == parsed_date
+        )
+        .all()
+    )
+
+    sales = []
+    returns = []
+
+    for r in records:
+        is_fixed = r.product.is_fixed_price
+        price_type = r.price_type or ("고정가" if is_fixed else "일반가")
+
+        # 단가 계산
+        if is_fixed:
+            client_price = r.client.fixed_price
+        else:
+            client_price = r.client.regular_price
+
+        box_count = abs(r.quantity) // max(r.product.box_quantity or 1, 1)
+        total = r.product.default_price * client_price * 0.01 * box_count * r.product.box_quantity
+
+        item = {
+            "product_name": r.product.product_name,
+            "box_quantity": r.product.box_quantity,
+            "box_count": box_count,
+            "default_price": float(r.product.default_price),
+            "client_price": float(client_price),
+            "price_type": price_type,
+            "total": round(total),
+        }
+
+        if r.quantity < 0:
+            returns.append(item)
+        else:
+            sales.append(item)
+
+    return {
+        "sales": sales,
+        "returns": returns
+    }
+
+
 @router.get("/detail/{sale_id}")
 async def get_sale_detail(
     sale_id: int,
@@ -622,6 +679,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
 
         # ✅ KST 시간 변환
         sale_datetime_kst = convert_utc_to_kst(sale_data.sale_datetime)
+        sale_datetime = sale_data.sale_datetime
         Model = get_sales_model(sale_datetime_kst.year)  # ← 핵심!
 
 
@@ -665,7 +723,7 @@ def create_sale(sale_data: SalesRecordCreate, db: Session = Depends(get_db)):
             product_id    = sale_data.product_id,
             quantity      = sale_data.quantity,
             total_amount  = total_amount,
-            sale_datetime = sale_datetime_kst,
+            sale_datetime = sale_datetime,
             return_amount = sale_data.return_amount,
             subsidy_amount= 0.0,
         )
@@ -1032,18 +1090,14 @@ def get_clients_invoices(
     month: int,
     db: Session = Depends(get_db),
 ):
-    """
-    지정 연・월에 대한 거래처별 매출 총액·VAT(10%) 목록 반환
-    """
     import calendar
     from datetime import date
     from sqlalchemy import func
     from app.models.sales_records import SalesRecord
     from app.models.clients import Client
 
-    # ▶ 날짜 범위: 그 달 1일 ~ 마지막 날
     start_date = date(year, month, 1)
-    end_date   = date(year, month, calendar.monthrange(year, month)[1])
+    end_date = date(year, month, calendar.monthrange(year, month)[1])
 
     rows = (
         db.query(
@@ -1052,6 +1106,7 @@ def get_clients_invoices(
             Client.representative_name.label("client_ceo"),
             Client.business_number,
             func.sum(SalesRecord.total_amount).label("total_sales"),
+            func.sum(SalesRecord.return_amount).label("total_refunds"),  # ✅ 반품 금액 추가
         )
         .join(Client, SalesRecord.client_id == Client.id)
         .filter(SalesRecord.sale_datetime.between(start_date, end_date))
@@ -1067,22 +1122,26 @@ def get_clients_invoices(
     invoices: list[dict] = []
     for r in rows:
         total = float(r.total_sales or 0)
-        vat   = round(total * 0.1, 2)
+        refunds = float(r.total_refunds or 0)
+        vat = round(total * 0.1, 2)
+
         invoices.append(
             {
-                "supplier_id":    "",          # 필요 시 채워넣으세요
-                "supplier_name":  "",
-                "supplier_ceo":   "",
-                "client_id":      str(r.client_id),
-                "client_name":    r.client_name,
-                "client_ceo":     r.client_ceo,
+                "supplier_id": "",
+                "supplier_name": "",
+                "supplier_ceo": "",
+                "client_id": str(r.client_id),
+                "client_name": r.client_name,
+                "client_ceo": r.client_ceo,
                 "business_number": r.business_number,
-                "total_sales":    total,
-                "tax_amount":     vat,
+                "total_sales": total,
+                "tax_amount": vat,
+                "total_refunds": refunds,  # ✅ 여기에 포함
             }
         )
 
     return invoices
+
 
 
 # =============================================================================

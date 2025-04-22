@@ -228,3 +228,19 @@ Traceback (most recent call last):
     
 KeyboardInterrupt
 
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\invoices_ui.py", line 146, in fetch_invoices
+    self.parent_widget.load_refund_invoices(selected_year, selected_month)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'InvoicesTab' object has no attribute 'load_refund_invoices'
+
+
+=== Unhandled Exception ===
+Traceback (most recent call last):
+  File "c:\venv\productmanager\productmanager\erp\ui\invoices_ui.py", line 146, in fetch_invoices
+    self.parent_widget.load_refund_invoices(selected_year, selected_month)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'InvoicesTab' object has no attribute 'load_refund_invoices'
+
