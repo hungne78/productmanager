@@ -36,3 +36,19 @@ android {
 flutter {
     source '../..'
 }
+afterEvaluate {
+    tasks.whenTaskAdded { task ->
+        if (task.name == 'assembleDebug') {
+            task.doLast {
+                def apkPath = "${buildDir}/outputs/apk/debug/app-debug.apk"
+                def targetPath = "${project.rootDir}/build/copied_app.apk"
+                copy {
+                    from apkPath
+                    into "${project.rootDir}/build/"
+                    rename { String fileName -> "copied_app.apk" }
+                }
+                println "APK copied to: $targetPath"
+            }
+        }
+    }
+}

@@ -21,25 +21,27 @@ class PoseEstimator {
   }
 
   List<Landmark> estimate(CameraImage img) {
-    // 1) YUV → imglib.Image
     final imglib.Image rgb = _yuvToRgb(img);
-
-    // 2) 리사이즈
     final imglib.Image resized = imglib.copyResize(rgb, width: _inputSize, height: _inputSize);
-
-    // 3) Float32List 버퍼 만들기 (정규화 포함)
     final input = _imageToFloat32List(resized);
 
-    // 4) 모델 실행
-    final List<List<List<double>>> output = List.generate(
+    final inputShape = _interpreter.getInputTensor(0).shape;
+    final inputType = _interpreter.getInputTensor(0).type;
+
+    _interpreter.resizeInputTensor(0, [_inputSize, _inputSize, 3]);
+    _interpreter.allocateTensors();
+
+
+    final output = List.generate(
       1,
           (_) => List.generate(17, (_) => List<double>.filled(3, 0.0)),
     );
+
     _interpreter.run(input, output);
 
-    // 5) 결과 파싱
     return _parseOutput(output);
   }
+
 
   imglib.Image _yuvToRgb(CameraImage img) {
     final w = img.width, h = img.height;

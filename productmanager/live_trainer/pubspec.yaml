@@ -32,7 +32,7 @@ dependencies:
     sdk: flutter
 
   camera: ^0.10.1
-  tflite_flutter: 0.10.0
+  tflite_flutter: 0.11.0
   # GitHub fork 버전 사용
 
 
@@ -73,6 +73,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/models/movenet_lightning.tflite
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

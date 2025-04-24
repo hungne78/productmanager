@@ -61,6 +61,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   late Map<String, dynamic> client; // ✅ 변경 가능하도록 설정
   late TextEditingController paymentController;
   late FocusNode paymentFocusNode;
+  bool _groupByPriceAndQty = false;  // 묶음 출력하기
 
   bool _isClientInfoExpanded = false;
 
@@ -1106,7 +1107,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     required String total,
   }) {
     return
-      padLeftPrintWidth(boxCount, 6) +    // 박스수 위치 맞춤
+      padLeftPrintWidth(boxCount, 10) +    // 박스수 위치 맞춤
           padLeftPrintWidth(unitPrice, 8) +   // 단가
           padLeftPrintWidth(total, 10) + '원'; // 합계 + "원"
   }
@@ -1145,57 +1146,127 @@ $line
 $line
 ''';
 
-    for (var item in _scannedItems) {
-      final name = item['name'];
-      final int boxes = (item['box_count'] ?? 0).toInt();
-      final quantityPerBox = item['box_quantity'];
-      final basePrice = (item['default_price'] ?? 0).toDouble();
-      final clientRate = (item['client_price'] ?? 100).toDouble();
+    if (_groupByPriceAndQty) {
+      // 1. 그룹핑
 
-      final unitPrice = (basePrice * clientRate * 0.01 * quantityPerBox).round();
-      final total = boxes * unitPrice;
-      final totalStr = formatter.format(total);
 
-      // ✅ 상품명 줄 + 숫자 줄 조합
-      text += '$name\n';
-      text += formatNumberRow(
-        boxCount: boxes.toString(),
-        unitPrice: unitPrice.toString(),
-        total: totalStr,
-      ) + '\n';
+      final Map<String, List<Map<String, dynamic>>> grouped = {};
+      for (final item in _scannedItems) {
+        final key = "${item['category']}(${item['default_price']}x${item['box_quantity']})";
+        grouped.putIfAbsent(key, () => []).add(item);
+      }
 
-      totalBoxes += boxes.toInt();
-      totalAmount += total.toInt();
+      for (final entry in grouped.entries) {
+        final groupName = entry.key;
+        final groupItems = entry.value;
+
+        final int quantity = groupItems.first['box_quantity'] ?? 0;
+        final double defaultPrice = (groupItems.first['default_price'] ?? 0).toDouble();
+        final double clientRate = (groupItems.first['client_price'] ?? 0).toDouble();
+
+        final int unitPrice = (defaultPrice * clientRate * 0.01 * quantity).round();
+        final int boxSum = groupItems.fold(0, (sum, item) => sum + (item['box_count'] as int? ?? 0));
+        final int groupTotal = unitPrice * boxSum;
+
+        text += '$groupName\n';
+        text += formatNumberRow(
+          boxCount: boxSum.toString(),
+          unitPrice: unitPrice.toString(),
+          total: formatter.format(groupTotal),
+        ) + '\n';
+
+        totalBoxes += boxSum;
+        totalAmount += groupTotal;
+      }
+
+
+  } else {
+      for (var item in _scannedItems) {
+        final name = item['name'];
+        final int boxes = (item['box_count'] ?? 0).toInt();
+        final quantityPerBox = item['box_quantity'];
+        final basePrice = (item['default_price'] ?? 0).toDouble();
+        final clientRate = (item['client_price'] ?? 100).toDouble();
+
+        final unitPrice = (basePrice * clientRate * 0.01 * quantityPerBox).round();
+        final total = boxes * unitPrice;
+        final totalStr = formatter.format(total);
+
+        text += '$name\n';
+        text += formatNumberRow(
+          boxCount: boxes.toString(),
+          unitPrice: unitPrice.toString(),
+          total: totalStr,
+        ) + '\n';
+
+        totalBoxes += boxes.toInt();
+        totalAmount += total.toInt();
+      }
     }
 
+    if (_groupByPriceAndQty) {
+      final Map<String, List<Map<String, dynamic>>> returnGrouped = {};
+      for (var item in _returnedItems) {
+        final key = "${item['category']}(${item['default_price']}x${item['box_quantity']})";
+        returnGrouped.putIfAbsent(key, () => []).add(item);
+      }
 
-    for (var item in _returnedItems) {
-      final String name = item['name'];
-      final int boxes = (item['box_count'] ?? 0).toInt();
-      final int quantityPerBox = (item['box_quantity'] ?? 0).toInt();
-      final double basePrice = (item['default_price'] ?? 0).toDouble();
-      final double clientRate = (item['client_price'] ?? 100).toDouble();
+      for (final entry in returnGrouped.entries) {
+        final groupName = entry.key + " (반품)";
+        final groupItems = entry.value;
 
-      final int unitPrice = (basePrice * clientRate * 0.01).round();
-      final int total = (quantityPerBox * boxes * unitPrice * -1).toInt(); // 음수 반품
+        final int qtyPerBox = groupItems.first['box_quantity'] ?? 0;
+        final double basePrice = (groupItems.first['default_price'] ?? 0).toDouble();
+        final double clientRate = (groupItems.first['client_price'] ?? 0).toDouble();
 
-      final String totalStr = formatter.format(total);
+        final int unitPrice = (basePrice * clientRate * 0.01).round();
+        final int totalQty = groupItems.fold(0, (sum, item) => sum + ((item['box_count'] ?? 0) as int) * qtyPerBox);
+        final int groupTotal = -unitPrice * totalQty;
 
-      // ✅ 상품명 줄 + 숫자 줄
-      text += '$name (반품)\n';
-      text += formatNumberRow(
-        boxCount: boxes.toString(),
-        unitPrice: unitPrice.toString(),
-        total: totalStr,
-      ) + '\n';
+        text += '$groupName\n';
+        text += formatNumberRow(
+          boxCount: totalQty.toString(), // 낱개 수량
+          unitPrice: unitPrice.toString(),
+          total: formatter.format(groupTotal),
+        ) + '\n';
 
-      totalBoxes += boxes;
-      totalAmount += total;
+        totalBoxes += totalQty;
+        totalAmount += groupTotal;
+      }
+
+
+  } else {
+      // 기존 반품 개별 출력 로직 그대로 유지
+
+
+      for (var item in _returnedItems) {
+        final String name = item['name'];
+        final int boxes = (item['box_count'] ?? 0).toInt();
+        final int quantityPerBox = (item['box_quantity'] ?? 0).toInt();
+        final double basePrice = (item['default_price'] ?? 0).toDouble();
+        final double clientRate = (item['client_price'] ?? 100).toDouble();
+
+        final int unitPrice = (basePrice * clientRate * 0.01).round();
+        final int total = (quantityPerBox * boxes * unitPrice * -1)
+            .toInt(); // 음수 반품
+
+        final String totalStr = formatter.format(total);
+
+        // ✅ 상품명 줄 + 숫자 줄
+        text += '$name (반품)\n';
+        text += formatNumberRow(
+          boxCount: boxes.toString(),
+          unitPrice: unitPrice.toString(),
+          total: totalStr,
+        ) + '\n';
+
+        totalBoxes += boxes;
+        totalAmount += total;
+      }
     }
-
-
-    final double rawOutstanding = widget.client['outstanding_amount']?.toDouble() ?? 0.0;
-    final double finalOutstanding = rawOutstanding - todayPayment;
+      final double rawOutstanding = widget.client['outstanding_amount']
+          ?.toDouble() ?? 0.0;
+      final double finalOutstanding = rawOutstanding - todayPayment;
 
     text += '''
 $line
@@ -2015,10 +2086,22 @@ $line
                         _sendPngViaMessage = value ?? false;
                       });
                     },
-                    title: const Text("영수증 PNG 생성 및 메시지 전송"),
+                    title: const Text("영수증 메시지 전송"),
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
                   ),
+                  CheckboxListTile(
+                    value: _groupByPriceAndQty,
+                    onChanged: (val) {
+                      setState(() {
+                        _groupByPriceAndQty = val ?? false;
+                      });
+                    },
+                    title: Text("묶음 출력"),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+
                 ],
               ),
               actions: [
@@ -2089,7 +2172,7 @@ $line
           "employee_id": auth.user?.id, // ✅ 직원 ID 포함
           "client_id": clientId,
           "product_id": item['product_id'],
-          "quantity": totalUnits,
+          "quantity": item['box_count'],
           "sale_datetime": nowStr,
           "return_amount": returnAmount,
           "subsidy_amount": 0.0,
@@ -2205,55 +2288,123 @@ $line
 $line
 ''';
 
-    for (var item in _scannedItems) {
-      final name = item['name'];
-      final int boxes = (item['box_count'] ?? 0).toInt();
-      final quantityPerBox = item['box_quantity'];
-      final basePrice = (item['default_price'] ?? 0).toDouble();
-      final clientRate = (item['client_price'] ?? 100).toDouble();
+    if (_groupByPriceAndQty) {
 
-      final unitPrice = (basePrice * clientRate * 0.01 * quantityPerBox).round();
-      final total = boxes * unitPrice;
-      final totalStr = formatter.format(total);
 
-      // ✅ 상품명 줄 + 숫자 줄 조합
-      text += '$name\n';
-      text += formatNumberRow(
-        boxCount: boxes.toString(),
-        unitPrice: unitPrice.toString(),
-        total: totalStr,
-      ) + '\n';
+      final Map<String, List<Map<String, dynamic>>> grouped = {};
+      for (final item in _scannedItems) {
+        final key = "${item['category']}(${item['default_price']}x${item['box_quantity']})";
+        grouped.putIfAbsent(key, () => []).add(item);
+      }
 
-      totalBoxes += boxes.toInt();
-      totalAmount += total.toInt();
+      for (final entry in grouped.entries) {
+        final groupName = entry.key;
+        final groupItems = entry.value;
 
+        final int quantity = groupItems.first['box_quantity'] ?? 0;
+        final double defaultPrice = (groupItems.first['default_price'] ?? 0).toDouble();
+        final double clientRate = (groupItems.first['client_price'] ?? 0).toDouble();
+
+        final int unitPrice = (defaultPrice * clientRate * 0.01 * quantity).round();
+        final int boxSum = groupItems.fold(0, (sum, item) => sum + (item['box_count'] as int? ?? 0));
+        final int groupTotal = unitPrice * boxSum;
+
+        text += '$groupName\n';
+        text += formatNumberRow(
+          boxCount: boxSum.toString(),
+          unitPrice: unitPrice.toString(),
+          total: formatter.format(groupTotal),
+        ) + '\n';
+
+        totalBoxes += boxSum;
+        totalAmount += groupTotal;
+      }
+
+
+  } else {
+      for (var item in _scannedItems) {
+        final name = item['name'];
+        final int boxes = (item['box_count'] ?? 0).toInt();
+        final quantityPerBox = item['box_quantity'];
+        final basePrice = (item['default_price'] ?? 0).toDouble();
+        final clientRate = (item['client_price'] ?? 100).toDouble();
+
+        final unitPrice = (basePrice * clientRate * 0.01 * quantityPerBox).round();
+        final total = boxes * unitPrice;
+        final totalStr = formatter.format(total);
+
+        text += '$name\n';
+        text += formatNumberRow(
+          boxCount: boxes.toString(),
+          unitPrice: unitPrice.toString(),
+          total: totalStr,
+        ) + '\n';
+
+        totalBoxes += boxes.toInt();
+        totalAmount += total.toInt();
+      }
     }
 
+    if (_groupByPriceAndQty) {
+      final Map<String, List<Map<String, dynamic>>> returnGrouped = {};
+      for (var item in _returnedItems) {
+        final key = "${item['category']}(${item['default_price']}x${item['box_quantity']})";
+        returnGrouped.putIfAbsent(key, () => []).add(item);
+      }
 
-    for (var item in _returnedItems) {
-      final String name = item['name'];
-      final int boxes = (item['box_count'] ?? 0).toInt();
-      final int quantityPerBox = (item['box_quantity'] ?? 0).toInt();
-      final double basePrice = (item['default_price'] ?? 0).toDouble();
-      final double clientRate = (item['client_price'] ?? 100).toDouble();
+      for (final entry in returnGrouped.entries) {
+        final groupName = entry.key + " (반품)";
+        final groupItems = entry.value;
 
-      final int unitPrice = (basePrice * clientRate * 0.01).round();
-      final int total = (quantityPerBox * boxes * unitPrice * -1).toInt(); // 음수 반품
+        final int qtyPerBox = groupItems.first['box_quantity'] ?? 0;
+        final double basePrice = (groupItems.first['default_price'] ?? 0).toDouble();
+        final double clientRate = (groupItems.first['client_price'] ?? 0).toDouble();
 
-      final String totalStr = formatter.format(total);
+        final int unitPrice = (basePrice * clientRate * 0.01).round();
+        final int totalQty = groupItems.fold(0, (sum, item) => sum + ((item['box_count'] ?? 0) as int) * qtyPerBox);
+        final int groupTotal = -unitPrice * totalQty;
 
-      // ✅ 상품명 줄 + 숫자 줄
-      text += '$name (반품)\n';
-      text += formatNumberRow(
-        boxCount: boxes.toString(),
-        unitPrice: unitPrice.toString(),
-        total: totalStr,
-      ) + '\n';
+        text += '$groupName\n';
+        text += formatNumberRow(
+          boxCount: totalQty.toString(), // 낱개 수량
+          unitPrice: unitPrice.toString(),
+          total: formatter.format(groupTotal),
+        ) + '\n';
 
-      totalBoxes += boxes;
-      totalAmount += total;
+        totalBoxes += totalQty;
+        totalAmount += groupTotal;
+      }
+
+
+  } else {
+      // 기존 반품 개별 출력 로직 그대로 유지
+
+
+      for (var item in _returnedItems) {
+        final String name = item['name'];
+        final int boxes = (item['box_count'] ?? 0).toInt();
+        final int quantityPerBox = (item['box_quantity'] ?? 0).toInt();
+        final double basePrice = (item['default_price'] ?? 0).toDouble();
+        final double clientRate = (item['client_price'] ?? 100).toDouble();
+
+        final int unitPrice = (basePrice * clientRate * 0.01).round();
+        final int total = (quantityPerBox * boxes * unitPrice * -1)
+            .toInt(); // 음수 반품
+
+        final String totalStr = formatter.format(total);
+
+        // ✅ 상품명 줄 + 숫자 줄
+        text += '$name (반품)\n';
+        text += formatNumberRow(
+          boxCount: boxes.toString(),
+          unitPrice: unitPrice.toString(),
+          total: totalStr,
+        ) + '\n';
+
+        totalBoxes += boxes;
+        totalAmount += total;
+      }
     }
-
 
     final double rawOutstanding = widget.client['outstanding_amount']?.toDouble() ?? 0.0;
     final double finalOutstanding = rawOutstanding - todayPayment;
