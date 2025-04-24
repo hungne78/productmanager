@@ -25,7 +25,7 @@ from decimal import Decimal  # ✅ Import Decimal
 from datetime import timedelta
 from typing import Optional
 from app.utils.sales_table_utils import get_sales_model
-
+from decimal import Decimal
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -99,7 +99,10 @@ async def get_sales_aggregates(
 
     return [{"date": r.date, "sum_sales": r.sum_sales} for r in rows]
 
-@router.get("/sales/details/{client_id}/{date}")
+from fastapi.responses import JSONResponse
+import json
+
+@router.get("/details/{client_id}/{date}")
 def get_sales_details_by_client_and_date(client_id: int, date: str, db: Session = Depends(get_db)):
     """
     특정 거래처의 특정 날짜 판매/반품 내역 조회 (박스수 기준으로 반품 구분)
@@ -126,23 +129,25 @@ def get_sales_details_by_client_and_date(client_id: int, date: str, db: Session 
         is_fixed = r.product.is_fixed_price
         price_type = "고정가" if is_fixed else "일반가"
 
-        # 단가 계산
         if is_fixed:
             client_price = r.client.fixed_price
         else:
             client_price = r.client.regular_price
 
         box_count = abs(r.quantity) // max(r.product.box_quantity or 1, 1)
-        total = r.product.default_price * client_price * 0.01 * box_count * r.product.box_quantity
+        total = (
+            r.product.default_price *
+            Decimal(str(client_price)) *
+            Decimal('0.01') *
+            Decimal(str(box_count)) *
+            Decimal(str(r.product.box_quantity))
+        )
 
         item = {
             "product_name": r.product.product_name,
-            "box_quantity": r.product.box_quantity,
-            "box_count": box_count,
-            "default_price": float(r.product.default_price),
-            "client_price": float(client_price),
-            "price_type": price_type,
-            "total": round(total),
+            "quantity": r.quantity,  # ✅ 박스가 아니라 개수 기준
+            "unit_price": round(r.total_amount / r.quantity) if r.quantity != 0 else 0,  # ✅ 단가 계산
+            "total_price": round(r.total_amount),  # ✅ 총합 그대로
         }
 
         if r.quantity < 0:
@@ -150,11 +155,14 @@ def get_sales_details_by_client_and_date(client_id: int, date: str, db: Session 
         else:
             sales.append(item)
 
-    return {
-        "sales": sales,
-        "returns": returns
-    }
-
+    # ✅ 한글 깨짐 방지: JSON 직렬화 시 ensure_ascii=False 적용
+    return JSONResponse(
+        content=json.loads(json.dumps({
+            "sales": sales,
+            "returns": returns
+        }, ensure_ascii=False)),
+        media_type="application/json; charset=utf-8"
+    )
 
 @router.get("/detail/{sale_id}")
 async def get_sale_detail(

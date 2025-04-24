@@ -915,15 +915,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 // ✅ 수정: Named route 대신 MaterialPageRoute 로 직접 푸시
                 Navigator.push(
-                  outerContext,
+                  context,
                   MaterialPageRoute(
                     builder: (_) => SalesHistoryScreen(
                       token: token,
-                      clientId: selectedClient['id'],      // 🔨 clientId 만 전달
+                      clientId: selectedClient['id'],
                       selectedDate: pickedDate,
                     ),
                   ),
                 );
+
               },
             ),
 

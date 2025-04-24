@@ -87,7 +87,7 @@ class ApiService {
       DateTime date,
       ) async {
     final ymd = DateFormat('yyyy-MM-dd').format(date); // ✅ 날짜 문자열로 변환
-    final url = Uri.parse('$baseUrl/sales/sales/details/$clientId/$ymd');
+    final url = Uri.parse('$baseUrl/sales/details/$clientId/$ymd');
 
     final resp = await http.get(url, headers: _headers(token)); // ✅ 헤더 적용
     if (resp.statusCode != 200) throw Exception('판매내역 조회 실패');

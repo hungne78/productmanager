@@ -62,41 +62,70 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   /// -------------------------------------------------------------------------
   Future<void> _fetchSales() async {
     try {
-      // 🔨 신규: clientId 기반 API 호출
       final resp = await ApiService.fetchSalesDetailsByClientDate(
         widget.token,
         widget.clientId,
         widget.selectedDate,
       );
 
-      // ✅ 수정: Map<String, dynamic> 형태로 파싱
       final Map<String, dynamic> data = resp;
 
-      setState(() {
-        // 🔨 신규: 'products' 리스트를 직접 _sales에 저장
-        _sales.clear();
-        _sales.addAll(
-          (data['products'] as List<dynamic>)
-              .cast<Map<String, dynamic>>()
-              .map((e) {
-            return {
-              'product_name': e['product_name'],
-              'quantity': (e['quantity'] as num).toInt(),
-              'unit_price': (e['unit_price'] as num).toInt(),
-              'total_price': ((e['quantity'] as num) * (e['unit_price'] as num)).toInt(),
-            };
-          }),
+      final products = data['sales']; // ✅ 서버에서는 'sales' 키로 보내고 있음!
+      if (products == null || products is! List) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('판매 내역이 없습니다.')),
         );
+        return;
+      }
 
-        // ✅ 수정: API에서 내려준 합계 사용
-        _totalBoxes = (data['total_boxes'] as num).toInt();
-        _totalAmount = (data['total_sales'] as num).toInt();
+      setState(() {
+        _sales.clear();
+        _sales.addAll(mergeSales(
+          products.cast<Map<String, dynamic>>().map((e) {
+            return {
+              'product_name': e['product_name'] ?? '',
+              'quantity': (e['quantity'] as num?)?.toInt() ?? 0,
+              'unit_price': (e['unit_price'] as num?)?.toInt() ?? 0,
+              'total_price': (e['total_price'] as num?)?.toInt() ?? 0,
+            };
+          }).toList(),
+        ));
+
+
+
+
+        // 서버에서 총합을 별도로 내려주지 않으므로 직접 계산
+        _totalBoxes = _sales.fold(0, (sum, item) => sum + (item['quantity'] as int));
+        _totalAmount = _sales.fold(0, (sum, item) => sum + (item['total_price'] as int));
+
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('판매 내역을 불러오지 못했습니다 → $e')),
       );
     }
+  }
+
+  List<Map<String, dynamic>> mergeSales(List<Map<String, dynamic>> original) {
+    final Map<String, Map<String, dynamic>> merged = {};
+
+    for (var item in original) {
+      final key = item['product_name'];
+
+      if (merged.containsKey(key)) {
+        merged[key]!['quantity'] += item['quantity'];
+        merged[key]!['total_price'] += item['total_price'];
+      } else {
+        merged[key] = {
+          'product_name': item['product_name'],
+          'quantity': item['quantity'],
+          'unit_price': item['unit_price'], // 첫 단가 기준 유지
+          'total_price': item['total_price'],
+        };
+      }
+    }
+
+    return merged.values.toList();
   }
 
   /// -------------------------------------------------------------------------
