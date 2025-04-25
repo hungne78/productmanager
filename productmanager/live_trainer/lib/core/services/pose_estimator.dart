@@ -15,7 +15,7 @@ class PoseEstimator {
 
   Future<void> init() async {
     _interpreter = await Interpreter.fromAsset(
-      'assets/models/movenet_lightning.tflite',
+      'assets/models/pose_landmark_full.tflite',
       options: InterpreterOptions()..addDelegate(GpuDelegateV2()),
     );
   }
@@ -32,10 +32,11 @@ class PoseEstimator {
     _interpreter.allocateTensors();
 
 
-    final output = List.generate(
+    final List<List<List<double>>> output = List.generate(
       1,
-          (_) => List.generate(17, (_) => List<double>.filled(3, 0.0)),
+          (_) => List.generate(33, (_) => List<double>.filled(5, 0.0)),  // (x, y, z, visibility, presence)
     );
+
 
     _interpreter.run(input, output);
 
@@ -77,14 +78,15 @@ class PoseEstimator {
 
   List<Landmark> _parseOutput(List<List<List<double>>> output) {
     final List<Landmark> lm = [];
-    for (var i = 0; i < 17; i++) {
-      final x = output[0][i][1];
-      final y = output[0][i][0];
-      final score = output[0][i][2];
+    for (var i = 0; i < 33; i++) {
+      final x = output[0][i][0];
+      final y = output[0][i][1];
+      final score = output[0][i][3]; // visibility 점수 사용
       lm.add(Landmark(x, y, score));
     }
     return lm;
   }
+
 
   void dispose() => _interpreter.close();
 }

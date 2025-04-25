@@ -7,11 +7,22 @@ class SkeletonPainter extends CustomPainter {
   final Size previewSize;
   SkeletonPainter(this.landmarks, this.previewSize);
 
-  // MoveNet 상 17 키포인트 연결 쌍
+
   static const _pairs = [
-    [0,1],[0,2],[1,3],[2,4],[5,6],[5,7],[7,9],[6,8],[8,10],
-    [5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]
+    [0,1],[1,2],[2,3],[3,7],
+    [0,4],[4,5],[5,6],[6,8],
+    [9,10],
+    [11,12],
+    [11,13],[13,15],
+    [12,14],[14,16],
+    [11,23],[12,24],
+    [23,24],
+    [23,25],[24,26],
+    [25,27],[26,28],
+    [27,29],[28,30],
+    [29,31],[30,32]
   ];
+
 
   @override
   void paint(Canvas canvas, Size size) {
