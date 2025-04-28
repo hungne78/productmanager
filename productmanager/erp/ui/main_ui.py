@@ -999,7 +999,7 @@ class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.memo_dict = {}
-        self.setWindowTitle("성심유통 관리 시스템")
+        self.setWindowTitle("관리 시스템")
         self.load_memos_from_file()
         # ◆ 프레임 없애서 커스텀 타이틀바 사용
         # self.setWindowFlags(Qt.FramelessWindowHint)  
@@ -1094,7 +1094,7 @@ class MainApp(QMainWindow):
         left_layout.setSpacing(10)
 
         # 좌측 상단 로고
-        title_label_left = QLabel("성심유통")
+        title_label_left = QLabel("히어로즈유통")
         title_label_left.setObjectName("LeftPanelLabel")  # QSS: #LeftPanelLabel
         title_label_left.setAlignment(Qt.AlignCenter)
         left_layout.addWidget(title_label_left)

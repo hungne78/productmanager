@@ -247,8 +247,8 @@ async def lifespan(app: FastAPI):
             hashed_pw = get_password_hash("admin123")
             admin = Employee(
                 password_hash=hashed_pw,
-                name="김두한",
-                phone="01036649876",
+                name="김영웅",
+                phone="01030862824",
                 role="admin"
             )
             db.add(admin)
@@ -257,13 +257,13 @@ async def lifespan(app: FastAPI):
             print("Default admin created")
         default_admins = [
             {
-                "email": "hcjang0528@naver.com",
-                "name": "장현철",
+                "email": "mlb05ahy@naver.com",
+                "name": "김영웅웅",
                 "password": "admin123"
             },
             {
-                "email": "kimdoohan@naver.com",
-                "name": "김두한",
+                "email": "kimwho@naver.com",
+                "name": "김아무개",
                 "password": "admin123"
             }
         ]
