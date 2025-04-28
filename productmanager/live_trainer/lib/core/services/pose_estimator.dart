@@ -9,7 +9,7 @@ import 'package:live_trainer/core/models/landmark.dart';
 
 class PoseEstimator {
   late Interpreter _interpreter;
-  final int _inputSize = 192;
+  int _inputSize = 192;
 
   PoseEstimator();
 
@@ -18,23 +18,26 @@ class PoseEstimator {
       'assets/models/pose_landmark_full.tflite',
       options: InterpreterOptions()..addDelegate(GpuDelegateV2()),
     );
-  }
-
-  List<Landmark> estimate(CameraImage img) {
-    final imglib.Image rgb = _yuvToRgb(img);
-    final imglib.Image resized = imglib.copyResize(rgb, width: _inputSize, height: _inputSize);
-    final input = _imageToFloat32List(resized);
 
     final inputShape = _interpreter.getInputTensor(0).shape;
-    final inputType = _interpreter.getInputTensor(0).type;
+    _inputSize = inputShape[1];  // (보통 256 또는 224 또는 192)
 
-    _interpreter.resizeInputTensor(0, [_inputSize, _inputSize, 3]);
-    _interpreter.allocateTensors();
+    print('✅ 모델 inputSize: $_inputSize');
+
+    // ❗ 여기서 resizeInputTensor(), allocateTensors() 절대 호출하지 마라
+  }
 
 
-    final List<List<List<double>>> output = List.generate(
+
+
+  List<Landmark> estimate(CameraImage img) {
+    final rgb = _yuvToRgb(img);
+    final resized = imglib.copyResize(rgb, width: _inputSize, height: _inputSize);
+    final input = _imageToFloat32List(resized);
+
+    final List<List<double>> output = List.generate(
       1,
-          (_) => List.generate(33, (_) => List<double>.filled(5, 0.0)),  // (x, y, z, visibility, presence)
+          (_) => List.filled(195, 0.0),
     );
 
 
@@ -42,6 +45,7 @@ class PoseEstimator {
 
     return _parseOutput(output);
   }
+
 
 
   imglib.Image _yuvToRgb(CameraImage img) {
@@ -62,30 +66,43 @@ class PoseEstimator {
     return image;
   }
 
-  Float32List _imageToFloat32List(imglib.Image img) {
-    final bytes = Float32List(_inputSize * _inputSize * 3);
-    int idx = 0;
-    for (var y = 0; y < _inputSize; y++) {
-      for (var x = 0; x < _inputSize; x++) {
-        final px = img.getPixel(x, y);
-        bytes[idx++] = ((imglib.getRed(px)) / 255.0);
-        bytes[idx++] = ((imglib.getGreen(px)) / 255.0);
-        bytes[idx++] = ((imglib.getBlue(px)) / 255.0);
+  Uint8List _imageToFloat32List(imglib.Image image) {
+    final Float32List input = Float32List(1 * _inputSize * _inputSize * 3);
+    final buffer = input.buffer.asFloat32List();
+
+    int pixelIndex = 0;
+    for (int y = 0; y < _inputSize; y++) {
+      for (int x = 0; x < _inputSize; x++) {
+        final pixel = image.getPixel(x, y);
+        buffer[pixelIndex++] = (imglib.getRed(pixel) / 255.0);
+        buffer[pixelIndex++] = (imglib.getGreen(pixel) / 255.0);
+        buffer[pixelIndex++] = (imglib.getBlue(pixel) / 255.0);
       }
     }
-    return bytes;
+    return input.buffer.asUint8List();
   }
 
-  List<Landmark> _parseOutput(List<List<List<double>>> output) {
-    final List<Landmark> lm = [];
-    for (var i = 0; i < 33; i++) {
-      final x = output[0][i][0];
-      final y = output[0][i][1];
-      final score = output[0][i][3]; // visibility 점수 사용
-      lm.add(Landmark(x, y, score));
+  List<Landmark> _parseOutput(List<List<double>> output) {
+    final List<Landmark> landmarks = [];
+
+    for (int i = 0; i < 33; i++) {
+      final offset = i * 5;
+      landmarks.add(
+        Landmark(
+          output[0][offset],
+          output[0][offset + 1],
+          output[0][offset + 2],
+          output[0][offset + 3],
+          output[0][offset + 4],
+        ),
+      );
     }
-    return lm;
+
+    return landmarks;
   }
+
+
+
 
 
   void dispose() => _interpreter.close();

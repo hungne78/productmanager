@@ -31,23 +31,20 @@ class SkeletonPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..color = Colors.greenAccent;
 
-    // 스케일링: 모델 좌표(0~1) → 화면 좌표
     Offset _transform(Landmark lm) {
       return Offset(lm.x * size.width, lm.y * size.height);
     }
 
-    // 뼈대 그리기
     for (var p in _pairs) {
       final a = landmarks[p[0]];
       final b = landmarks[p[1]];
-      if (a.score > 0.3 && b.score > 0.3) {
+      if (a.visibility > 0.3 && b.visibility > 0.3) {  // 🔥 visibility로 변경
         canvas.drawLine(_transform(a), _transform(b), paint);
       }
     }
 
-    // 관절 점 찍기
     for (var lm in landmarks) {
-      if (lm.score > 0.3) {
+      if (lm.visibility > 0.3) {  // 🔥 visibility로 변경
         canvas.drawCircle(_transform(lm), 4, paint..style = PaintingStyle.fill);
       }
     }
@@ -56,4 +53,5 @@ class SkeletonPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant SkeletonPainter old) =>
       old.landmarks != landmarks;
+
 }

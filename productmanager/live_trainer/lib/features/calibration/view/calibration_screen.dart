@@ -12,16 +12,34 @@ class CalibrationScreen extends StatefulWidget {
 
 class _CalibrationScreenState extends State<CalibrationScreen> {
   final GlobalKey<LiveCameraViewState> _cameraKey = GlobalKey<LiveCameraViewState>();
+  bool _cameraStarted = false;
   bool _measuring = false;
   String _result = "";
+  double _userHeight = 0.0;
+  final TextEditingController _heightController = TextEditingController();
 
   void _startMeasurement() {
-    _cameraKey.currentState?.startMeasurement();
+    final input = _heightController.text;
+    if (input.isEmpty || double.tryParse(input) == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("키(cm)를 정확히 입력해주세요.")),
+      );
+      return;
+    }
+
     setState(() {
+      _cameraStarted = true;   // 🔥 여기서 카메라 View를 등장시킴
       _measuring = true;
-      _result = "측정 중... 3초만 기다려주세요!";
+    });
+
+    // 카메라 시작 후 0.5초정도 뒤에 startStream 해도 되고
+    Future.delayed(const Duration(milliseconds: 500), () {
+      _cameraKey.currentState?.startStream();
+      _cameraKey.currentState?.startMeasurement();
     });
   }
+
+
 
   void _onMeasurementDone(Map<String, double> data) {
     setState(() {
@@ -40,33 +58,35 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
       appBar: AppBar(title: const Text('내 신체 사이즈 측정')),
       body: Stack(
         children: [
-          LiveCameraView(
-            key: _cameraKey,
-            mode: 'calibration',
-            onMeasured: _onMeasurementDone,
-          ),
-          if (!_measuring)
-            Positioned(
-              bottom: 30,
-              left: 30,
-              right: 30,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(200, 60),
-                  textStyle: const TextStyle(fontSize: 20),
-                ),
-                onPressed: _startMeasurement,
-                child: const Text("신체 사이즈 측정 시작"),
-              ),
+          if (_cameraStarted)  // 🔥 카메라 시작한 이후에만 보여준다!
+            LiveCameraView(
+              key: _cameraKey,
+              mode: 'calibration',
+              onMeasured: (data) {
+                // 결과 처리
+              },
             ),
-          if (_result.isNotEmpty)
-            Positioned(
-              top: 100,
-              left: 30,
-              right: 30,
-              child: Text(
-                _result,
-                style: const TextStyle(fontSize: 22, color: Colors.white, fontWeight: FontWeight.bold),
+          if (!_cameraStarted)  // 🔥 처음엔 이거만 보여
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextField(
+                    controller: _heightController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '당신의 키를 입력하세요 (cm)',
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: _startMeasurement,
+                    child: const Text("신체 사이즈 측정 시작"),
+                  ),
+                ],
               ),
             ),
         ],

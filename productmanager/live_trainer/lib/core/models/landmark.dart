@@ -3,7 +3,9 @@
 class Landmark {
   final double x;
   final double y;
-  final double score;
+  final double z;
+  final double visibility;
+  final double presence;
 
-  Landmark(this.x, this.y, this.score);
+  Landmark(this.x, this.y, this.z, this.visibility, this.presence);
 }

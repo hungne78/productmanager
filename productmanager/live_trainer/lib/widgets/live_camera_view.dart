@@ -23,10 +23,15 @@ class LiveCameraViewState extends State<LiveCameraView> {
   CameraController? _controller;
   List<CameraDescription>? _cameras;
   int _selectedCameraIdx = 0;
+  bool _cameraInitialized = false;
+  bool _cameraInitializing = false;
+  bool _poseReady = false;  // 🔥 추가: PoseEstimator 준비 여부
 
-  final _poseEstimator = PoseEstimator();
+  late PoseEstimator _poseEstimator;
+
   List<Landmark> _landmarks = [];
   bool _ready = false;
+  bool _streaming = false;
 
   bool _isMeasuring = false;
   final _shoulderDistances = <double>[];
@@ -40,11 +45,22 @@ class LiveCameraViewState extends State<LiveCameraView> {
   }
 
   Future<void> _setup() async {
-    WidgetsFlutterBinding.ensureInitialized();
-    _cameras = await availableCameras();
-    await _initCamera(_selectedCameraIdx);
-    await _poseEstimator.init();
+    try {
+      _cameras = await availableCameras();
+      await _initCamera(0);
+      _poseEstimator = PoseEstimator();
+      await _poseEstimator.init();
+      _poseReady = true;
+      print('✅ PoseEstimator initialized!');
+      setState(() {
+        _ready = true;
+      });
+    } catch (e) {
+      print('❌ Setup failed: $e');
+      _poseReady = false;
+    }
   }
+
 
   Future<void> _initCamera(int idx) async {
     _controller?.dispose();
@@ -54,24 +70,69 @@ class LiveCameraViewState extends State<LiveCameraView> {
       enableAudio: false,
     );
     await _controller!.initialize();
-    _controller!.startImageStream((img) {
-      final poses = _poseEstimator.estimate(img);
+    _cameraInitialized = true;
+    print('✅ CameraController 초기화 끝');
+  }
 
-      if (_isMeasuring) {
-        _collectMeasurement(poses);
+
+
+  void startStream() {
+    if (_controller == null || _streaming) return;
+    if (!_cameraInitialized || !_poseReady) {
+      print("Camera or Pose not ready yet, cannot start stream!");
+      return;
+    }
+
+    _controller!.startImageStream((img) {
+      if (!_poseReady) {
+        print('PoseEstimator not ready, skipping frame.');
+        return;
       }
 
-      setState(() => _landmarks = poses);
+      try {
+        final poses = _poseEstimator.estimate(img);
+        setState(() => _landmarks = poses);
+      } catch (e) {
+        print('PoseEstimator failed: $e');
+      }
     });
-    setState(() => _ready = true);
+    _streaming = true;
   }
+
+
+
+
 
   void switchCamera() async {
     if (_cameras == null || _cameras!.length < 2) return;
     setState(() => _ready = false);
+
+    try {
+      if (_controller != null && _controller!.value.isStreamingImages) {
+        await _controller!.stopImageStream();
+      }
+      await _controller?.dispose();
+      _poseEstimator.dispose();
+    } catch (e) {
+      print('Error stopping camera or pose estimator: $e');
+    }
+
     _selectedCameraIdx = (_selectedCameraIdx + 1) % _cameras!.length;
+
+    // 👉 1. 포즈 추정기 먼저 새로 만들어
+    final newPoseEstimator = PoseEstimator();
+    await newPoseEstimator.init();
+
+    // 👉 2. 새 PoseEstimator가 준비된 후
+    _poseEstimator = newPoseEstimator;
+
+    // 👉 3. 그 다음에 카메라를 연다
     await _initCamera(_selectedCameraIdx);
   }
+
+
+
+
 
   void startMeasurement() {
     _shoulderDistances.clear();
