@@ -40,11 +40,20 @@ class PoseEstimator {
           (_) => List.filled(195, 0.0),
     );
 
-
     _interpreter.run(input, output);
 
-    return _parseOutput(output);
+    final landmarks = _parseOutput(output);
+
+    // 최소 신뢰도 0.3 이상인 포인트가 5개 이상 없으면 skip
+    final validCount = landmarks.where((lm) => lm.score > 0.3).length;
+    if (validCount < 5) {
+      print("⚠️ 사람 없음 또는 landmark 신뢰도 낮음 → 분석 skip");
+      return [];
+    }
+
+    return landmarks;
   }
+
 
 
 
@@ -84,22 +93,21 @@ class PoseEstimator {
 
   List<Landmark> _parseOutput(List<List<double>> output) {
     final List<Landmark> landmarks = [];
+    final flat = output[0]; // 길이 195 (39 x 5)
 
-    for (int i = 0; i < 33; i++) {
-      final offset = i * 5;
-      landmarks.add(
-        Landmark(
-          output[0][offset],
-          output[0][offset + 1],
-          output[0][offset + 2],
-          output[0][offset + 3],
-          output[0][offset + 4],
-        ),
-      );
+    for (int i = 0; i < 39; i++) {
+      final x = flat[i * 5];
+      final y = flat[i * 5 + 1];
+      final z = flat[i * 5 + 2];
+      final visibility = flat[i * 5 + 3];
+      final presence = flat[i * 5 + 4];
+      landmarks.add(Landmark(x, y, z, visibility, presence)); // ✅ 5개 전달
     }
 
     return landmarks;
   }
+
+
 
 
 

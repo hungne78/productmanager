@@ -3,30 +3,51 @@
 import 'package:camera/camera.dart';
 
 class CameraService {
+  final List<CameraDescription> _cameras = [];
   CameraController? _controller;
+  int _current = 0;             // 0 = 후면, 1 = 전면 (일반적인 순서)
 
-  /// 초기화: 사용 가능한 첫 번째 카메라를 ResolutionPreset.medium 으로 세팅
   Future<void> init() async {
-    final cameras = await availableCameras();
-    if (cameras.isEmpty) {
-      throw CameraException('NoCamera', '디바이스에 카메라가 없습니다.');
+    _cameras.addAll(await availableCameras());
+    await _open(_current);      // 기본은 0번
+  }
+
+  CameraController get controller => _controller!;
+
+  Future<void> switchCamera() async {
+    // ① 스트림이 돌고 있으면 중단
+    if (_controller?.value.isStreamingImages == true) {
+      await _controller!.stopImageStream();
     }
+    // ② dispose
+    await _controller?.dispose();
+
+    // ③ 다음 카메라 index 계산
+    _current = (_current + 1) % _cameras.length;
+
+    // ④ 새 컨트롤러 생성
+    await _open(_current);
+  }
+
+  Future<void> _open(int index) async {
     _controller = CameraController(
-      cameras.first,
+      _cameras[index],
       ResolutionPreset.medium,
       enableAudio: false,
     );
     await _controller!.initialize();
   }
 
-  CameraController get controller {
-    if (_controller == null || !_controller!.value.isInitialized) {
-      throw CameraException('Uninitialized', 'CameraService가 init되지 않았습니다.');
+  Future<void> startStream(
+      void Function(CameraImage img) onFrame) async {
+    if (!_controller!.value.isInitialized) {
+      throw Exception('카메라 초기화 안 됨');
     }
-    return _controller!;
+    await _controller!.startImageStream(onFrame);
   }
 
-  void dispose() {
-    _controller?.dispose();
-  }
+  void dispose() => _controller?.dispose();
+
+
+
 }
